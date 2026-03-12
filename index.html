@@ -1393,8 +1393,9 @@ function renderMonthPanel(mi) {
     <!-- LEDGER -->
     <div class="ledger-wrap">
       <div class="ledger-header">
-        <h3>Ledger — ${txs.length} entries</h3>
-        <div style="display:flex;gap:6px">
+        <h3>Ledger — ${txs.filter(t => !t._vault).length} entries${txs.some(t => t._vault) ? ` <span style="font-size:0.7rem;color:var(--mist)">(+${txs.filter(t=>t._vault).length} vault)</span>` : ''}</h3>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${txs.some(t => t._vault) ? `<label style="font-size:0.72rem;color:var(--mist);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="show-vault-${mi}" onchange="toggleVault(${mi})" style="cursor:pointer"> Show vault</label>` : ''}
           <button class="btn btn-outline btn-xs" onclick="printMonthSummary(${mi})">🖨 Print / PDF</button>
           <button class="btn btn-danger btn-xs" onclick="clearMonth(${mi})">🗑 Clear Month</button>
         </div>
@@ -1411,8 +1412,8 @@ function renderMonthPanel(mi) {
           </tr>
         </thead>
         <tbody id="ledger-body-${mi}">
-          ${txs.length === 0 ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>` : ''}
-          ${txs.map(t => renderTxRow(t, mi, year)).join('')}
+          ${txs.filter(t => !t._vault).length === 0 ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>` : ''}
+          ${txs.filter(t => !t._vault).map(t => renderTxRow(t, mi, year)).join('')}
         </tbody>
       </table>
     </div>
@@ -1483,6 +1484,17 @@ function renderTxRow(t, mi, year) {
       <button class="btn btn-danger btn-xs" style="margin-left:4px" onclick="deleteTx('${t.id}',${mi},${year})">Del</button>` : '<span style="font-size:0.62rem;color:var(--mist)">Vault</span>'}
     </td>
   </tr>`;
+}
+
+function toggleVault(mi) {
+  const year = appData.activeYear;
+  const show = document.getElementById(`show-vault-${mi}`).checked;
+  const txs = getTransactions(year, mi);
+  const tbody = document.getElementById(`ledger-body-${mi}`);
+  const visible = show ? txs : txs.filter(t => !t._vault);
+  tbody.innerHTML = visible.length === 0
+    ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>`
+    : visible.map(t => renderTxRow(t, mi, year)).join('');
 }
 
 function addManualTx(mi) {
