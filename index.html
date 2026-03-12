@@ -1070,12 +1070,17 @@ async function pushToSheet() {
   }
 }
 
-async function saveData() {
+let _saveTimer = null;
+function saveData() {
   appData._savedAt = Date.now();
   try { localStorage.setItem('bloombooks_v2', JSON.stringify(appData)); } catch(e) {}
   if (!accessToken) { setSyncStatus('login', 'Sign in to sync →'); return; }
+  // Debounce cloud saves — wait 2s after last change before pushing to sheet
   setSyncStatus('saving', 'Saving...');
-  await pushToSheet();
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    await pushToSheet();
+  }, 2000);
 }
 
 async function loadData() {
@@ -1610,13 +1615,17 @@ function toggleReconcile(mi) {
 // ============================================================
 // DUPLICATE DETECTION
 // ============================================================
-function isDuplicate(yr, mo, amount, desc, date) {
+function dupKey(date, amount, desc) {
+  return `${date}|${amount}|${(desc||'').slice(0,20).toLowerCase()}`;
+}
+
+function countExisting(yr, mo, date, amount, desc) {
   const txs = getTransactions(yr, mo);
-  return txs.some(t =>
+  return txs.filter(t =>
     t.amount === amount &&
     t.date === date &&
     (t.desc || '').toLowerCase().includes((desc || '').slice(0, 20).toLowerCase())
-  );
+  ).length;
 }
 
 // ============================================================
@@ -2413,11 +2422,17 @@ function cancelImport() {
 
 function saveAllStaged() {
   let count = 0, dupes = 0;
+  // Track how many of each duplicate key we're importing in this batch
+  const importCounts = {};
   stagingRows.forEach(r => {
     if (r.status !== 'review') return;
-    const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
+    const yr = r.txYear || parseInt(document.getElementById('import-year-sel').value);
     const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
-    if (isDuplicate(yr, mo, r.amount, r.desc, r.date)) { dupes++; r.status = 'dupe'; return; }
+    const key = `${yr}-${mo}|` + dupKey(r.date, r.amount, r.desc);
+    importCounts[key] = (importCounts[key] || 0) + 1;
+    const alreadyInLedger = countExisting(yr, mo, r.date, r.amount, r.desc);
+    // Flag as dupe only if ledger already has >= this many of the same tx
+    if (alreadyInLedger >= importCounts[key]) { dupes++; r.status = 'dupe'; return; }
     addTransaction(yr, mo, {
       date: r.date, desc: r.desc.slice(0, 40), category: r.category,
       vendor: r.vendor, amount: r.amount, type: r.type
