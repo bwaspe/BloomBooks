@@ -1261,7 +1261,10 @@ function updateTransaction(year, month, id, updates) {
 // MONTH CALCULATIONS
 // ============================================================
 function calcMonth(year, month) {
-  const txs = getTransactions(year, month);
+  const allTxs = getTransactions(year, month);
+  // If real transactions exist, exclude vault entries from totals to avoid double-counting
+  const hasReal = allTxs.some(t => !t._vault);
+  const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
   const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
   const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
   const expenses = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
