@@ -793,6 +793,8 @@ const VAULT_EXPENSES = {
 };
 
 function ensureVaultData() {
+  // rules is no longer saved to sheet — always ensure it's a valid array
+  if (!Array.isArray(appData.rules)) appData.rules = [];
   [2023, 2024, 2025].forEach(year => {
     MONTHS_SHORT.forEach((_, mi) => {
       const key = `${year}-${mi}`;
