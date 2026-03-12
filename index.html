@@ -1002,6 +1002,19 @@ function handleAuthExpiry() {
   setSyncStatus('login', 'Session expired — sign in again');
 }
 
+function compactTx(t) {
+  // Strip heavy fields before cloud storage to minimize cell size
+  return {
+    id: t.id,
+    date: t.date,
+    desc: (t.desc || '').slice(0, 40),
+    category: t.category,
+    vendor: (t.vendor || '').slice(0, 30),
+    amount: t.amount,
+    type: t.type
+  };
+}
+
 async function pushToSheet() {
   try {
     // Row 1: metadata
@@ -1019,7 +1032,7 @@ async function pushToSheet() {
     (appData.years || []).forEach(yr => {
       for (let mi = 0; mi < 12; mi++) {
         const key = `${yr}-${mi}`;
-        const txs = (appData.transactions[key] || []).filter(t => !t._vault);
+        const txs = (appData.transactions[key] || []).filter(t => !t._vault).map(compactTx);
         // Store key in col A, transactions JSON in col B
         monthRows.push([key, JSON.stringify(txs)]);
       }
@@ -2350,7 +2363,7 @@ function saveStagedRow(id) {
   const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
   const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
   addTransaction(yr, mo, {
-    date: r.date, desc: r.line.slice(0, 80), category: r.category,
+    date: r.date, desc: r.desc.slice(0, 40), category: r.category,
     vendor: r.vendor, amount: r.amount, type: r.type
   });
   r.status = 'saved';
@@ -2374,7 +2387,7 @@ function saveAllStaged() {
     const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
     if (isDuplicate(yr, mo, r.amount, r.desc)) { dupes++; r.status = 'dupe'; return; }
     addTransaction(yr, mo, {
-      date: r.date, desc: r.line.slice(0,80), category: r.category,
+      date: r.date, desc: r.desc.slice(0, 40), category: r.category,
       vendor: r.vendor, amount: r.amount, type: r.type
     });
     r.status = 'saved';
