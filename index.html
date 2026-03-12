@@ -1365,6 +1365,35 @@ function renderMonthPanel(mi) {
       </div>` : ''}
     </div>
 
+    <!-- CATEGORY BREAKDOWN -->
+    <div class="cat-breakdown" style="margin-bottom:22px">
+      <div class="ledger-header"><h3>Category Breakdown</h3></div>
+      <table>
+        <thead><tr><th>Category</th><th>Total</th><th>% of Revenue</th></tr></thead>
+        <tbody>
+          ${CATEGORIES.map(cat => {
+            const amt = calc.byCategory[cat] || 0;
+            if (amt === 0) return '';
+            const pct = calc.revenue > 0 ? (amt / calc.revenue * 100).toFixed(1) : '—';
+            return `<tr>
+              <td><span class="badge">${cat}</span></td>
+              <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
+              <td>${pct}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SUPPLIER PIE CHART -->
+    <div class="chart-wrap">
+      <h3>🌿 Supplies Spend by Vendor</h3>
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="position:relative;width:260px;height:260px;flex-shrink:0"><canvas id="monthSupplierPie-${mi}"></canvas></div>
+        <div id="monthSupplierLegend-${mi}" style="flex:1;font-size:0.75rem;line-height:2"></div>
+      </div>
+    </div>
+
     <!-- MANUAL ENTRY FORM -->
     <div class="entry-form">
       <h3>➕ Add Transaction</h3>
@@ -1432,26 +1461,6 @@ function renderMonthPanel(mi) {
       </table>
     </div>
 
-    <!-- CATEGORY BREAKDOWN -->
-    <div class="cat-breakdown">
-      <div class="ledger-header"><h3>Category Breakdown</h3></div>
-      <table>
-        <thead><tr><th>Category</th><th>Total</th><th>% of Revenue</th></tr></thead>
-        <tbody>
-          ${CATEGORIES.map(cat => {
-            const amt = calc.byCategory[cat] || 0;
-            if (amt === 0) return '';
-            const pct = calc.revenue > 0 ? (amt / calc.revenue * 100).toFixed(1) : '—';
-            return `<tr>
-              <td><span class="badge">${cat}</span></td>
-              <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
-              <td>${pct}%</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-
     <!-- NOTES & RECONCILE -->
     <div class="entry-form" style="margin-bottom:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -1466,19 +1475,11 @@ function renderMonthPanel(mi) {
       </div>
     </div>
 
-    <!-- SUPPLIER PIE CHART -->
-    <div class="chart-wrap">
-      <h3>🌿 Supplies Spend by Vendor</h3>
-      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-        <div style="position:relative;width:260px;height:260px;flex-shrink:0"><canvas id="monthSupplierPie-${mi}"></canvas></div>
-        <div id="monthSupplierLegend-${mi}" style="flex:1;font-size:0.75rem;line-height:2"></div>
-      </div>
-    </div>
   `;
 
   // Render supplier pie chart after DOM is updated
   setTimeout(() => {
-    const supplierData = getSupplierData(txs);
+    const supplierData = getSupplierData(txs.filter(t => !t._vault));
     renderSupplierPie(`monthSupplierPie-${mi}`, `monthSupplierLegend-${mi}`, supplierData);
   }, 0);
 }
@@ -1930,6 +1931,7 @@ function renderTrendsChart() {
 // YEARLY SUMMARY
 // ============================================================
 let yearlyChartInst = null;
+let yearlyChartInst2 = null;
 let yearlySupplierPieInst = null;
 let yearlyChartInst3 = null;
 const monthSupplierPieInsts = {};
