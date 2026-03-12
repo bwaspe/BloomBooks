@@ -910,19 +910,35 @@ async function loadFromSheet() {
       return;
     }
 
-    // Parse: A1=meta+settings, A2+=per-year transactions
+    // Parse sheet data
+    // New format: A1=metadata, then rows with col A=key, col B=transactions JSON
+    // Old format: A1=entire JSON blob
     let sheetData;
     try {
       const meta = JSON.parse(rows[0]);
-      meta.transactions = {};
-      rows.slice(1).forEach(row => {
-        if (!row) return;
-        try { Object.assign(meta.transactions, JSON.parse(row)); } catch(e) {}
-      });
-      sheetData = meta;
+      if (meta.transactions !== undefined) {
+        // Old format — entire appData in A1
+        sheetData = meta;
+      } else {
+        // New format — meta in A1, month rows after
+        meta.transactions = {};
+        // Need to fetch col B too for new format
+        const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:B200')}`;
+        const resB = await fetch(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        const dataB = await resB.json();
+        const rowsB = dataB.values || [];
+        rowsB.slice(1).forEach(row => {
+          const key = row[0];
+          const txJson = row[1];
+          if (key && txJson) {
+            try { meta.transactions[key] = JSON.parse(txJson); } catch(e) {}
+          }
+        });
+        sheetData = meta;
+      }
     } catch(e) {
-      // Fallback: old single-cell format
-      sheetData = parseAppData(rows[0]);
+      // Fallback: try parsing entire A1 as old format
+      try { sheetData = parseAppData(rows[0]); } catch(e2) { throw e; }
     }
     if (sheetData.transactions) {
       Object.keys(sheetData.transactions).forEach(k => {
@@ -988,6 +1004,8 @@ function handleAuthExpiry() {
 
 async function pushToSheet() {
   try {
+    // Row 1: metadata
+    // Row 2+: one row per month (year-month key) to stay under 50k char cell limit
     const meta = {
       rules: appData.rules,
       years: appData.years,
@@ -997,16 +1015,16 @@ async function pushToSheet() {
       holidays: appData.holidays || {},
       _savedAt: appData._savedAt || Date.now()
     };
-    const yearRows = (appData.years || []).map(yr => {
-      const yearTxs = {};
+    const monthRows = [];
+    (appData.years || []).forEach(yr => {
       for (let mi = 0; mi < 12; mi++) {
         const key = `${yr}-${mi}`;
         const txs = (appData.transactions[key] || []).filter(t => !t._vault);
-        if (txs.length) yearTxs[key] = txs;
+        // Store key in col A, transactions JSON in col B
+        monthRows.push([key, JSON.stringify(txs)]);
       }
-      return [JSON.stringify(yearTxs)];
     });
-    const values = [[JSON.stringify(meta)], ...yearRows];
+    const values = [[JSON.stringify(meta), ''], ...monthRows];
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1')}?valueInputOption=RAW`;
     const res = await fetch(url, {
       method: 'PUT',
