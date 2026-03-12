@@ -568,7 +568,7 @@ tbody td { padding: 10px 14px; }
       </div>
       <div class="chart-wrap">
         <h3>Annual Category Breakdown</h3>
-        <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
+        <div id="yearlyCatList"></div>
       </div>
       <div class="chart-wrap">
         <h3>🌿 Supplies Spend by Vendor</h3>
@@ -2097,40 +2097,48 @@ function renderYearlyPanel() {
     }
   });
 
-  // Annual Category Breakdown — stacked bar by category per year
-  if (yearlyChartInst3) yearlyChartInst3.destroy();
-  const expCats = CATEGORIES.filter(c => c !== 'Revenue');
-  const catColorMap = {
-    'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
-    'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',
-    'Office':'#7f8c8d','Insurance':'#d35400','FSN':'#27ae60',
-    'Repairs/Maintenance':'#8b0000','Rent':'#2c3e50','Phone/Internet':'#6c3483','Marketing':'#e74c3c'
-  };
-  const catDatasets = expCats.map(cat => ({
-    label: cat,
-    data: appData.years.map(yr =>
-      MONTHS_SHORT.reduce((s, _, mi) => s + (calcMonth(yr, mi).byCategory[cat] || 0), 0)
-    ),
-    backgroundColor: (catColorMap[cat] || '#888') + 'cc',
-    borderWidth: 0
-  })).filter(ds => ds.data.some(v => v > 0));
-
-  const ctx3 = document.getElementById('yearlyCatChart').getContext('2d');
-  yearlyChartInst3 = new Chart(ctx3, {
-    type: 'bar',
-    data: { labels: appData.years.map(String), datasets: catDatasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { font: { family: 'Inter' }, boxWidth: 12, fontSize: 11 } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
-      },
-      scales: {
-        x: { stacked: true, ticks: { font: { family: 'Inter' } } },
-        y: { stacked: true, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
-      }
-    }
+  // Annual Category Breakdown — table list per year
+  const expCats2 = CATEGORIES.filter(cat => cat !== 'Revenue');
+  const yr = appData.activeYear;
+  const annualTotals = {};
+  let annualRevenue = 0;
+  expCats2.forEach(cat => { annualTotals[cat] = 0; });
+  MONTHS_SHORT.forEach((_, mi) => {
+    const m = calcMonth(yr, mi);
+    annualRevenue += m.revenue;
+    expCats2.forEach(cat => { annualTotals[cat] += (m.byCategory[cat] || 0); });
   });
+  const sortedCats = expCats2.filter(cat => annualTotals[cat] > 0)
+    .sort((a, b) => annualTotals[b] - annualTotals[a]);
+  const catListEl = document.getElementById('yearlyCatList');
+  if (catListEl) {
+    catListEl.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">Category</th>
+            <th style="text-align:right;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">Total</th>
+            <th style="text-align:right;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">% of Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sortedCats.map(cat => {
+            const amt = annualTotals[cat];
+            const pct = annualRevenue > 0 ? (amt / annualRevenue * 100).toFixed(1) : '—';
+            return `<tr style="border-bottom:1px solid var(--border-soft);">
+              <td style="padding:9px 12px;"><span class="badge">${cat}</span></td>
+              <td style="padding:9px 12px;text-align:right;color:var(--red);font-weight:600;">${fmt(amt)}</td>
+              <td style="padding:9px 12px;text-align:right;color:var(--mist);">${pct}%</td>
+            </tr>`;
+          }).join('')}
+          <tr style="border-top:2px solid var(--border);font-weight:600;">
+            <td style="padding:9px 12px;">Total Expenses</td>
+            <td style="padding:9px 12px;text-align:right;color:var(--red);">${fmt(sortedCats.reduce((s,c) => s+annualTotals[c],0))}</td>
+            <td style="padding:9px 12px;text-align:right;color:var(--mist);">${annualRevenue > 0 ? (sortedCats.reduce((s,c)=>s+annualTotals[c],0)/annualRevenue*100).toFixed(1) : '—'}%</td>
+          </tr>
+        </tbody>
+      </table>`;
+  }
 
   // Supplier pie — all transactions across active year (exclude vault)
   const allYearTxs = MONTHS_SHORT.reduce((arr, _, mi) => {
