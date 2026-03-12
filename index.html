@@ -563,8 +563,12 @@ tbody td { padding: 10px 14px; }
       <div class="page-subtitle">Financial performance across all years</div>
       <div id="yearly-grid-content"></div>
       <div class="chart-wrap">
-        <h3>Annual Category Breakdown</h3>
+        <h3>Annual Revenue vs Expenses</h3>
         <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>Annual Category Breakdown</h3>
+        <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
       </div>
       <div class="chart-wrap">
         <h3>🌿 Supplies Spend by Vendor</h3>
@@ -1927,6 +1931,7 @@ function renderTrendsChart() {
 // ============================================================
 let yearlyChartInst = null;
 let yearlySupplierPieInst = null;
+let yearlyChartInst3 = null;
 const monthSupplierPieInsts = {};
 
 const SUPPLIER_COLORS = [
@@ -2090,9 +2095,44 @@ function renderYearlyPanel() {
     }
   });
 
-  // Supplier pie — all transactions across active year
+  // Annual Category Breakdown — stacked bar by category per year
+  if (yearlyChartInst3) yearlyChartInst3.destroy();
+  const expCats = CATEGORIES.filter(c => c !== 'Revenue');
+  const catColorMap = {
+    'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
+    'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',
+    'Office':'#7f8c8d','Insurance':'#d35400','FSN':'#27ae60',
+    'Repairs/Maintenance':'#8b0000','Rent':'#2c3e50','Phone/Internet':'#6c3483','Marketing':'#e74c3c'
+  };
+  const catDatasets = expCats.map(cat => ({
+    label: cat,
+    data: appData.years.map(yr =>
+      MONTHS_SHORT.reduce((s, _, mi) => s + (calcMonth(yr, mi).byCategory[cat] || 0), 0)
+    ),
+    backgroundColor: (catColorMap[cat] || '#888') + 'cc',
+    borderWidth: 0
+  })).filter(ds => ds.data.some(v => v > 0));
+
+  const ctx3 = document.getElementById('yearlyCatChart').getContext('2d');
+  yearlyChartInst3 = new Chart(ctx3, {
+    type: 'bar',
+    data: { labels: appData.years.map(String), datasets: catDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, boxWidth: 12, fontSize: 11 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { stacked: true, ticks: { font: { family: 'Inter' } } },
+        y: { stacked: true, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+
+  // Supplier pie — all transactions across active year (exclude vault)
   const allYearTxs = MONTHS_SHORT.reduce((arr, _, mi) => {
-    return arr.concat(getTransactions(appData.activeYear, mi));
+    return arr.concat(getTransactions(appData.activeYear, mi).filter(t => !t._vault));
   }, []);
   setTimeout(() => renderSupplierPie('yearlySupplierPie', 'yearlySupplierLegend', getSupplierData(allYearTxs)), 0);
 }
