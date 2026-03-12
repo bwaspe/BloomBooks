@@ -4,34 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🌸 Bloom Books — Florist Financial Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root {
-  --ink: #1a1207;
-  --paper: #faf7f0;
-  --cream: #f2ead8;
-  --petal: #e8c4b8;
-  --stem: #4a7c59;
-  --stem-light: #6fa882;
-  --thorn: #c0392b;
-  --gold: #c9a84c;
-  --gold-light: #e8d5a3;
-  --mist: #8b9b8e;
+  --ink: #1a1a2e;
+  --ink-soft: #444466;
+  --paper: #f7f7f9;
+  --surface: #ffffff;
+  --border: #e0e0e8;
+  --border-soft: #eeeeF4;
+  --accent: #1a1a2e;
+  --accent2: #4a4a8a;
+  --green: #2a7a4f;
+  --green-light: #e8f5ee;
+  --red: #c0392b;
+  --red-light: #fdf0ee;
+  --blue: #1a5fa8;
+  --blue-light: #e8f0fb;
+  --mist: #888899;
   --sidebar-w: 200px;
-  --header-h: 64px;
+  --header-h: 60px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'DM Mono', monospace;
+  font-family: 'Inter', system-ui, sans-serif;
   background: var(--paper);
   color: var(--ink);
   height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  font-size: 14px;
 }
 
 /* HEADER */
@@ -43,55 +49,54 @@ body {
   padding: 0 24px;
   gap: 16px;
   flex-shrink: 0;
-  border-bottom: 3px solid var(--gold);
 }
 #app-header h1 {
-  font-family: 'Fraunces', serif;
-  font-size: 1.5rem;
-  color: var(--gold-light);
-  letter-spacing: 0.02em;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
 }
-#app-header h1 span { color: var(--petal); font-style: italic; }
+#app-header h1 span { color: #a8a8cc; font-weight: 400; }
 .header-year-selector {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--gold-light);
-  font-size: 0.75rem;
+  color: #a8a8cc;
+  font-size: 0.8rem;
 }
 .header-year-selector select {
-  background: #2d2416;
-  color: var(--gold-light);
-  border: 1px solid var(--gold);
+  background: #2d2d4e;
+  color: #fff;
+  border: 1px solid #4a4a6a;
   padding: 4px 10px;
-  border-radius: 4px;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.75rem;
+  border-radius: 5px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 .header-year-selector button {
-  background: var(--stem);
+  background: var(--accent2);
   color: white;
   border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
+  padding: 4px 12px;
+  border-radius: 5px;
   cursor: pointer;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.75rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
 }
 .header-btns { display: flex; gap: 6px; margin-left: 8px; }
 .header-btns button {
-  background: #2d2416;
-  color: var(--petal);
-  border: 1px solid var(--petal);
+  background: #2d2d4e;
+  color: #c8c8e8;
+  border: 1px solid #4a4a6a;
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.7rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
 }
-.header-btns button:hover { background: var(--petal); color: var(--ink); }
+.header-btns button:hover { background: #4a4a6a; color: #fff; }
 
 /* LAYOUT */
 #layout {
@@ -103,43 +108,44 @@ body {
 /* SIDEBAR */
 #sidebar {
   width: var(--sidebar-w);
-  background: #221c10;
+  background: var(--ink);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   flex-shrink: 0;
-  border-right: 2px solid #3a3020;
+  border-right: 1px solid #2d2d4e;
 }
 .sidebar-section-label {
-  font-size: 0.6rem;
-  letter-spacing: 0.15em;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mist);
-  padding: 12px 14px 4px;
+  color: #6666aa;
+  padding: 14px 14px 4px;
+  font-weight: 500;
 }
 .sidebar-tab {
   padding: 9px 14px;
   cursor: pointer;
-  font-size: 0.72rem;
-  color: #c4b896;
-  transition: all 0.15s;
+  font-size: 0.78rem;
+  color: #8888bb;
+  transition: all 0.12s;
   border-left: 3px solid transparent;
   white-space: nowrap;
 }
-.sidebar-tab:hover { background: #2d2416; color: var(--gold-light); }
+.sidebar-tab:hover { background: #22224a; color: #ccccee; }
 .sidebar-tab.active {
-  background: #3a2d10;
-  color: var(--gold);
-  border-left-color: var(--gold);
+  background: #22224a;
+  color: #ffffff;
+  border-left-color: #7777dd;
   font-weight: 500;
 }
-.sidebar-divider { height: 1px; background: #3a3020; margin: 6px 0; }
+.sidebar-divider { height: 1px; background: #252540; margin: 6px 0; }
 
 /* MAIN CONTENT */
 #main-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 28px;
   background: var(--paper);
 }
 
@@ -149,20 +155,20 @@ body {
 
 /* PAGE TITLE */
 .page-title {
-  font-family: 'Fraunces', serif;
-  font-size: 1.6rem;
+  font-size: 1.5rem;
+  font-weight: 600;
   color: var(--ink);
   margin-bottom: 4px;
 }
-.page-subtitle { font-size: 0.72rem; color: var(--mist); margin-bottom: 20px; }
+.page-subtitle { font-size: 0.78rem; color: var(--mist); margin-bottom: 24px; }
 
 /* KPI CARDS */
-.kpi-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.kpi-row { display: flex; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
 .kpi-card {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
-  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
   flex: 1;
   min-width: 140px;
   position: relative;
@@ -174,171 +180,175 @@ body {
   top: 0; left: 0; right: 0;
   height: 3px;
 }
-.kpi-card.revenue::before { background: var(--stem); }
-.kpi-card.expense::before { background: var(--thorn); }
-.kpi-card.profit::before { background: var(--gold); }
-.kpi-card.cogs::before { background: var(--petal); }
-.kpi-label { font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mist); margin-bottom: 4px; }
-.kpi-value { font-family: 'DM Serif Display', serif; font-size: 1.4rem; color: var(--ink); }
-.kpi-sub { font-size: 0.65rem; color: var(--mist); margin-top: 2px; }
-.kpi-growth { font-size: 0.68rem; font-weight: 500; margin-top: 3px; }
-.kpi-growth.up { color: var(--stem); }
-.kpi-growth.down { color: var(--thorn); }
+.kpi-card.revenue::before { background: var(--green); }
+.kpi-card.expense::before { background: var(--red); }
+.kpi-card.profit::before { background: var(--blue); }
+.kpi-card.cogs::before { background: #9966cc; }
+.kpi-label { font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mist); margin-bottom: 6px; font-weight: 500; }
+.kpi-value { font-size: 1.6rem; font-weight: 600; color: var(--ink); line-height: 1.1; }
+.kpi-sub { font-size: 0.7rem; color: var(--mist); margin-top: 4px; }
+.kpi-growth { font-size: 0.72rem; font-weight: 500; margin-top: 4px; }
+.kpi-growth.up { color: var(--green); }
+.kpi-growth.down { color: var(--red); }
 
 /* MANUAL ENTRY FORM */
 .entry-form {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
 }
 .entry-form h3 {
-  font-family: 'Fraunces', serif;
   font-size: 0.95rem;
-  margin-bottom: 12px;
+  font-weight: 600;
+  margin-bottom: 14px;
   color: var(--ink);
 }
 .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-.form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 100px; }
-.form-group label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mist); }
+.form-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 100px; }
+.form-group label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mist); font-weight: 500; }
 .form-group input, .form-group select, .form-group textarea {
-  border: 1.5px solid var(--cream);
-  border-radius: 5px;
-  padding: 7px 10px;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
   color: var(--ink);
-  background: var(--paper);
+  background: var(--surface);
   outline: none;
   transition: border-color 0.15s;
 }
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-  border-color: var(--stem);
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(74,74,138,0.1);
 }
 .btn {
-  padding: 7px 16px;
+  padding: 8px 16px;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.75rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
   font-weight: 500;
   transition: all 0.15s;
 }
-.btn-primary { background: var(--stem); color: white; }
-.btn-primary:hover { background: var(--stem-light); }
-.btn-danger { background: var(--thorn); color: white; }
+.btn-primary { background: var(--ink); color: white; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-danger { background: var(--red); color: white; }
 .btn-danger:hover { background: #e74c3c; }
-.btn-gold { background: var(--gold); color: var(--ink); }
-.btn-gold:hover { background: var(--gold-light); }
-.btn-outline { background: transparent; border: 1.5px solid var(--cream); color: var(--ink); }
-.btn-outline:hover { border-color: var(--stem); color: var(--stem); }
-.btn-sm { padding: 4px 10px; font-size: 0.68rem; }
-.btn-xs { padding: 2px 8px; font-size: 0.63rem; }
+.btn-gold { background: var(--accent2); color: white; }
+.btn-gold:hover { background: #6666aa; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--ink); }
+.btn-outline:hover { border-color: var(--accent2); color: var(--accent2); }
+.btn-sm { padding: 5px 10px; font-size: 0.72rem; }
+.btn-xs { padding: 3px 8px; font-size: 0.68rem; }
 
 /* LEDGER TABLE */
 .ledger-wrap {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 .ledger-header {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--cream);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
   gap: 10px;
+  background: var(--surface);
 }
-.ledger-header h3 { font-family: 'Fraunces', serif; font-size: 0.95rem; flex: 1; }
+.ledger-header h3 { font-size: 0.95rem; font-weight: 600; flex: 1; }
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
 }
 thead th {
-  background: var(--cream);
-  padding: 8px 12px;
+  background: var(--paper);
+  padding: 10px 14px;
   text-align: left;
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--mist);
   font-weight: 500;
+  border-bottom: 1px solid var(--border);
 }
-tbody tr { border-bottom: 1px solid #f0ebe0; transition: background 0.1s; }
-tbody tr:hover { background: #fdf9f0; }
-tbody td { padding: 8px 12px; }
+tbody tr { border-bottom: 1px solid var(--border-soft); transition: background 0.1s; }
+tbody tr:hover { background: var(--paper); }
+tbody td { padding: 10px 14px; }
 .td-edit { cursor: pointer; }
-.td-edit:hover { background: var(--gold-light); border-radius: 3px; }
-.amount-in { color: var(--stem); font-weight: 500; }
-.amount-out { color: var(--thorn); font-weight: 500; }
+.td-edit:hover { background: var(--blue-light); border-radius: 3px; }
+.amount-in { color: var(--green); font-weight: 600; }
+.amount-out { color: var(--red); font-weight: 600; }
 .badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 20px;
-  font-size: 0.62rem;
-  background: var(--cream);
-  color: var(--ink);
+  font-size: 0.66rem;
+  background: var(--paper);
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
 }
 
 /* IMPORT / STAGING */
 .staging-area {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
 }
-.staging-area h3 { font-family: 'Fraunces', serif; font-size: 0.95rem; margin-bottom: 10px; }
+.staging-area h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 12px; }
 .staging-area textarea {
   width: 100%;
   min-height: 120px;
-  border: 1.5px dashed var(--gold);
+  border: 1.5px dashed var(--border);
   border-radius: 6px;
   padding: 10px;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.72rem;
-  background: #fffef8;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  background: var(--paper);
   resize: vertical;
 }
 .staging-table-wrap { overflow-x: auto; margin-top: 12px; }
 .staging-row-review { background: #fffde7 !important; }
-.staging-row-rejected { background: #ffeaea !important; opacity: 0.6; }
-.staging-row-dupe { background: #fff3e0 !important; border-left: 3px solid var(--thorn); }
-.staging-row-saved { background: #f0fff4 !important; }
+.staging-row-rejected { background: var(--red-light) !important; opacity: 0.6; }
+.staging-row-dupe { background: #fff3e0 !important; border-left: 3px solid var(--red); }
+.staging-row-saved { background: var(--green-light) !important; }
 
 /* TRENDS CHART */
 .chart-wrap {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px;
+  margin-bottom: 22px;
 }
-.chart-wrap h3 { font-family: 'Fraunces', serif; font-size: 1rem; margin-bottom: 16px; }
+.chart-wrap h3 { font-size: 1rem; font-weight: 600; margin-bottom: 18px; }
 .chart-container { position: relative; height: 340px; }
 
 /* YEARLY SUMMARY GRID */
 .yearly-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 14px;
+  margin-bottom: 22px;
 }
 .year-card {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.year-card:hover { border-color: var(--gold); }
-.year-card h4 { font-family: 'Fraunces', serif; font-size: 1.1rem; margin-bottom: 8px; }
-.year-card .stat-row { display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 4px; color: var(--mist); }
+.year-card:hover { border-color: var(--accent2); box-shadow: 0 2px 12px rgba(74,74,138,0.1); }
+.year-card h4 { font-size: 1.1rem; font-weight: 600; margin-bottom: 10px; }
+.year-card .stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 5px; color: var(--mist); }
 .year-card .stat-row span:last-child { color: var(--ink); font-weight: 500; }
 
 /* LOGIC TRAINER */
@@ -347,35 +357,36 @@ tbody td { padding: 8px 12px; }
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--cream);
+  background: var(--paper);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 0.75rem;
+  padding: 9px 14px;
+  font-size: 0.78rem;
 }
-.rule-keyword { font-weight: 500; flex: 1; }
-.rule-sign { color: var(--mist); font-size: 0.68rem; }
-.rule-arrow { color: var(--gold); }
-.rule-cat { color: var(--stem); font-weight: 500; }
+.rule-keyword { font-weight: 600; flex: 1; color: var(--ink); }
+.rule-sign { color: var(--mist); font-size: 0.72rem; }
+.rule-arrow { color: var(--accent2); }
+.rule-cat { color: var(--green); font-weight: 500; }
 
 /* MONTH SUMMARY TABLE */
 .month-summary {
-  background: white;
-  border: 1.5px solid var(--cream);
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
-.month-summary table { font-size: 0.73rem; }
+.month-summary table { font-size: 0.8rem; }
 
 /* GROWTH BADGE */
 .growth-up {
-  color: var(--stem);
-  font-size: 0.68rem;
+  color: var(--green);
+  font-size: 0.72rem;
   font-weight: 600;
 }
 .growth-down {
-  color: var(--thorn);
-  font-size: 0.68rem;
+  color: var(--red);
+  font-size: 0.72rem;
   font-weight: 600;
 }
 
@@ -384,44 +395,45 @@ tbody td { padding: 8px 12px; }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(26,18,7,0.7);
+  background: rgba(26,26,46,0.6);
   z-index: 100;
   align-items: center;
   justify-content: center;
 }
 .modal-overlay.open { display: flex; }
 .modal {
-  background: var(--paper);
-  border-radius: 10px;
-  padding: 24px;
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 26px;
   width: 420px;
   max-width: 95vw;
-  border: 2px solid var(--gold);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 40px rgba(26,26,46,0.15);
 }
-.modal h3 { font-family: 'Fraunces', serif; font-size: 1.1rem; margin-bottom: 14px; }
+.modal h3 { font-family: 'Inter', sans-serif; font-size: 1.1rem; margin-bottom: 14px; }
 .modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
 /* SCROLLBAR */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--cream); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--gold-light); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--blue-light); }
 
 /* INLINE EDIT */
 .inline-input {
-  border: 1.5px solid var(--gold);
+  border: 1.5px solid var(--accent2);
   border-radius: 4px;
   padding: 3px 6px;
-  font-family: 'DM Mono', monospace;
+  font-family: 'Inter', sans-serif;
   font-size: 0.75rem;
-  background: white;
+  background: var(--surface);
   width: 100%;
 }
 
 /* CATEGORY SUMMARY IN MONTH */
 .cat-breakdown {
-  background: white;
-  border: 1.5px solid var(--cream);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 20px;
@@ -449,11 +461,11 @@ tbody td { padding: 8px 12px; }
   bottom: 24px;
   right: 24px;
   background: var(--ink);
-  color: var(--gold-light);
+  color: var(--blue-light);
   padding: 10px 18px;
   border-radius: 6px;
   font-size: 0.75rem;
-  border-left: 4px solid var(--stem);
+  border-left: 4px solid var(--green);
   opacity: 0;
   transform: translateY(10px);
   transition: all 0.3s;
@@ -461,7 +473,7 @@ tbody td { padding: 8px 12px; }
   max-width: 300px;
 }
 #notification.show { opacity: 1; transform: translateY(0); }
-#notification.error { border-left-color: var(--thorn); }
+#notification.error { border-left-color: var(--red); }
 </style>
 </head>
 <body>
@@ -474,8 +486,8 @@ tbody td { padding: 8px 12px; }
     <select id="active-year-select" onchange="setActiveYear(this.value)"></select>
     <button onclick="promptAddYear()">+ Year</button>
   </div>
-  <div id="sync-status" style="font-size:0.75rem;color:var(--gold-light);margin-right:8px">☁️ Connecting...</div>
-  <button id="signin-btn" onclick="signIn()" style="background:var(--gold);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:DM Mono,monospace;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
+  <div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
+  <button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
   <div class="header-btns">
     <button onclick="exportData()">⬇ Export JSON</button>
     <button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
@@ -632,11 +644,11 @@ tbody td { padding: 8px 12px; }
           </div>
         </div>
       </div>
-      <div style="background:white;border:1.5px solid var(--cream);border-radius:8px;padding:16px;">
-        <h3 style="font-family:'Fraunces',serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:16px;">
+        <h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
         <div id="rules-list"></div>
       </div>
-      <div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--gold);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
+      <div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
         <strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
       </div>
     </div>
@@ -841,7 +853,7 @@ function setSyncStatus(s, msg) {
   if (!el) return;
   const icons = { idle:'☁️', saving:'⏳', loading:'⏳', error:'⚠️', saved:'✓', login:'🔑' };
   el.textContent = (icons[s] || '☁️') + ' ' + (msg || s);
-  el.style.color = s === 'error' ? 'var(--thorn)' : s === 'saved' ? 'var(--stem-light)' : 'var(--gold-light)';
+  el.style.color = s === 'error' ? 'var(--red)' : s === 'saved' ? 'var(--green)' : 'var(--blue-light)';
   if (btn) btn.style.display = s === 'login' ? 'inline-block' : 'none';
 }
 
@@ -1308,7 +1320,7 @@ function renderMonthPanel(mi) {
     <div class="page-title">${MONTHS[mi]} ${year}
       ${isBest  ? '<span style="font-size:0.7rem;background:#4a7c59;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">🏆 Best Month</span>' : ''}
       ${isWorst ? '<span style="font-size:0.7rem;background:#c0392b;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">📉 Lowest Month</span>' : ''}
-      ${isReconciled ? '<span style="font-size:0.7rem;background:var(--gold);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
+      ${isReconciled ? '<span style="font-size:0.7rem;background:var(--accent2);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
     </div>
     <div class="page-subtitle">Monthly ledger & performance</div>
 
@@ -1325,7 +1337,7 @@ function renderMonthPanel(mi) {
       </div>
       <div class="kpi-card profit">
         <div class="kpi-label">Net Income</div>
-        <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--stem)' : 'var(--thorn)'}">${fmt(calc.net)}</div>
+        <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
         <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'}</div>
       </div>
       <div class="kpi-card cogs">
@@ -1434,7 +1446,7 @@ function renderMonthPanel(mi) {
           ${isReconciled ? '🔓 Un-reconcile' : '✓ Mark Reconciled'}
         </button>
       </div>
-      <textarea id="notes-${mi}" rows="3" style="width:100%;background:var(--cream);border:1px solid var(--gold-light);border-radius:6px;padding:8px;font-family:DM Mono,monospace;font-size:0.8rem;resize:vertical" placeholder="Add notes about this month... (e.g. Valentine's Day was slow due to snowstorm)">${escHtml(note)}</textarea>
+      <textarea id="notes-${mi}" rows="3" style="width:100%;background:var(--border);border:1px solid var(--blue-light);border-radius:6px;padding:8px;font-family:Inter,sans-serif;font-size:0.8rem;resize:vertical" placeholder="Add notes about this month... (e.g. Valentine's Day was slow due to snowstorm)">${escHtml(note)}</textarea>
       <div style="margin-top:6px;text-align:right">
         <button class="btn btn-outline btn-xs" onclick="saveNote(${mi})">Save Note</button>
       </div>
@@ -1610,7 +1622,7 @@ function renderTaxPanel() {
     <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
       <div class="kpi-card revenue" style="min-width:160px"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(revenue)}</div></div>
       <div class="kpi-card expense" style="min-width:160px"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${fmt(totalExp)}</div></div>
-      <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--stem)':'var(--thorn)'}">${fmt(net)}</div></div>
+      <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
     </div>
     <div class="ledger-wrap">
       <div class="ledger-header">
@@ -1699,11 +1711,11 @@ function renderHolidayPanel() {
                 const key = `${yr}-${h.month !== -1 ? h.month : 'other'}`;
                 const val = appData.holidays[key] || 0;
                 return `<td><input type="number" value="${val}" step="0.01" min="0"
-                  style="width:90px;background:var(--cream);border:1px solid var(--gold-light);border-radius:4px;padding:4px;font-family:DM Mono,monospace;font-size:0.8rem"
+                  style="width:90px;background:var(--border);border:1px solid var(--blue-light);border-radius:4px;padding:4px;font-family:Inter,sans-serif;font-size:0.8rem"
                   onchange="saveHoliday('${key}', this.value)"></td>`;
               }).join('')}
             </tr>`).join('')}
-          <tr style="font-weight:600;border-top:2px solid var(--gold-light)">
+          <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
             <td>Total Holiday Revenue</td>
             ${appData.years.map(yr => {
               const total = HOLIDAYS.reduce((s,h) => {
@@ -1775,14 +1787,14 @@ function renderCogsChart() {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { family: 'DM Mono' } } },
+        legend: { labels: { font: { family: 'Inter' } } },
         tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}%` } }
       },
       scales: {
-        x: { ticks: { font: { family: 'DM Mono' } } },
+        x: { ticks: { font: { family: 'Inter' } } },
         y: {
-          ticks: { font: { family: 'DM Mono' }, callback: v => v + '%' },
-          title: { display: true, text: 'COGS % of Revenue', font: { family: 'DM Mono' } }
+          ticks: { font: { family: 'Inter' }, callback: v => v + '%' },
+          title: { display: true, text: 'COGS % of Revenue', font: { family: 'Inter' } }
         }
       }
     }
@@ -1826,7 +1838,7 @@ function renderTrendsChart() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { family: 'DM Mono' }, color: '#1a1207' } },
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
         tooltip: {
           callbacks: {
             label: ctx => ` ${ctx.dataset.label}: ${fmtK(ctx.parsed.y)}`
@@ -1834,8 +1846,8 @@ function renderTrendsChart() {
         }
       },
       scales: {
-        x: { grid: { color: '#f0ebe0' }, ticks: { font: { family: 'DM Mono' } } },
-        y: { grid: { color: '#f0ebe0' }, ticks: { font: { family: 'DM Mono' }, callback: v => fmtK(v) } }
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
+        y: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
       }
     }
   });
@@ -1866,14 +1878,14 @@ function renderTrendsChart() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { family: 'DM Mono' }, color: '#1a1207' } },
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
         tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}%` } }
       },
       scales: {
-        x: { grid: { color: '#f0ebe0' }, ticks: { font: { family: 'DM Mono' } } },
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
         y: {
-          grid: { color: '#f0ebe0' },
-          ticks: { font: { family: 'DM Mono' }, callback: v => v + '%' },
+          grid: { color: '#e8e8f0' },
+          ticks: { font: { family: 'Inter' }, callback: v => v + '%' },
           suggestedMin: -30, suggestedMax: 30
         }
       }
@@ -1941,7 +1953,7 @@ function renderSupplierPie(canvasId, legendId, data) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <div style="width:12px;height:12px;border-radius:2px;background:${colors[i]};flex-shrink:0"></div>
         <span style="flex:1;color:var(--ink)">${d[0]}</span>
-        <span style="color:var(--stem);font-weight:500">${fmt(d[1])}</span>
+        <span style="color:var(--green);font-weight:500">${fmt(d[1])}</span>
         <span style="color:var(--mist)">${(d[1]/total*100).toFixed(1)}%</span>
       </div>`).join('');
   }
@@ -1972,7 +1984,7 @@ function renderYearlyPanel() {
           <h4>${r.yr}</h4>
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
-          <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--stem)':'var(--thorn)'}">${fmt(r.net)}</span></div>
+          <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
           ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
@@ -2009,7 +2021,7 @@ function renderYearlyPanel() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { font: { family: 'DM Mono' }, color: '#1a1207' } },
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
         tooltip: {
           callbacks: {
             label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`
@@ -2017,8 +2029,8 @@ function renderYearlyPanel() {
         }
       },
       scales: {
-        x: { grid: { color: '#f0ebe0' }, ticks: { font: { family: 'DM Mono' } } },
-        y: { grid: { color: '#f0ebe0' }, ticks: { font: { family: 'DM Mono' }, callback: v => fmtK(v) }, beginAtZero: true }
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
+        y: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) }, beginAtZero: true }
       }
     }
   });
@@ -2041,10 +2053,10 @@ function renderYearlyPanel() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { family: 'DM Mono' } } } },
+      plugins: { legend: { labels: { font: { family: 'Inter' } } } },
       scales: {
-        x: { ticks: { font: { family: 'DM Mono' } } },
-        y: { ticks: { font: { family: 'DM Mono' }, callback: v => fmtK(v) } }
+        x: { ticks: { font: { family: 'Inter' } } },
+        y: { ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
       }
     }
   });
@@ -2316,7 +2328,7 @@ function renderStagingTable() {
                   </select>
                 </td>
                 <td>
-                  ${r.status === 'dupe' ? '<span style="font-size:0.65rem;color:var(--thorn);font-weight:600">⚠ Dupe?</span> ' : ''}
+                  ${r.status === 'dupe' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">⚠ Dupe?</span> ' : ''}
                   <button class="btn btn-primary btn-xs" onclick="saveStagedRow('${r._id}')">Save</button>
                   <button class="btn btn-danger btn-xs" style="margin-left:3px" onclick="rejectStagedRow('${r._id}')">Reject</button>
                 </td>
@@ -2422,7 +2434,7 @@ function printMonthSummary(mi) {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>Bloom Books — ${MONTHS[mi]} ${year}</title>
   <style>
-    body { font-family: monospace; font-size: 12px; color: #1a1207; padding: 24px; }
+    body { font-family: monospace; font-size: 12px; color: #1a1a2e; padding: 24px; }
     h1 { font-size: 20px; margin-bottom: 4px; }
     h2 { font-size: 14px; margin: 16px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
