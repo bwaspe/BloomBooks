@@ -1033,7 +1033,6 @@ async function pushToSheet() {
     // Row 1: metadata
     // Row 2+: one row per month (year-month key) to stay under 50k char cell limit
     const meta = {
-      rules: appData.rules,
       years: appData.years,
       activeYear: appData.activeYear,
       notes: appData.notes || {},
@@ -1594,9 +1593,13 @@ function toggleReconcile(mi) {
 // ============================================================
 // DUPLICATE DETECTION
 // ============================================================
-function isDuplicate(yr, mo, amount, desc) {
+function isDuplicate(yr, mo, amount, desc, date) {
   const txs = getTransactions(yr, mo);
-  return txs.some(t => t.amount === amount && (t.desc || '').toLowerCase().includes((desc || '').slice(0,20).toLowerCase()));
+  return txs.some(t =>
+    t.amount === amount &&
+    t.date === date &&
+    (t.desc || '').toLowerCase().includes((desc || '').slice(0, 20).toLowerCase())
+  );
 }
 
 // ============================================================
@@ -2397,7 +2400,7 @@ function saveAllStaged() {
     if (r.status !== 'review') return;
     const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
     const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
-    if (isDuplicate(yr, mo, r.amount, r.desc)) { dupes++; r.status = 'dupe'; return; }
+    if (isDuplicate(yr, mo, r.amount, r.desc, r.date)) { dupes++; r.status = 'dupe'; return; }
     addTransaction(yr, mo, {
       date: r.date, desc: r.desc.slice(0, 40), category: r.category,
       vendor: r.vendor, amount: r.amount, type: r.type
