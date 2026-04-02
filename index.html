@@ -590,6 +590,7 @@ tbody td { padding: 10px 14px; }
     <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
     <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
     <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
+    <div class="sidebar-tab" data-panel="legacy" onclick="switchPanel('legacy')">📂 Legacy Import</div>
   </nav>
 
   <main id="main-content">
@@ -695,6 +696,43 @@ tbody td { padding: 10px 14px; }
         <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
       </div>
       <div id="staging-table-area"></div>
+    </div>
+
+    <!-- LEGACY IMPORT PANEL -->
+    <div id="panel-legacy" class="panel">
+      <div class="page-title">Legacy Import</div>
+      <div class="page-subtitle">Import monthly totals from your old Google Sheets budget — paste the CSV from any monthly tab</div>
+      <div class="staging-area">
+        <h3>📋 How to export from your old sheet</h3>
+        <ol style="font-size:0.82rem;color:var(--ink-soft);line-height:2;margin-left:16px;">
+          <li>Open your old Google Sheet</li>
+          <li>Click the monthly tab (e.g. "6" for June)</li>
+          <li>File → Download → CSV</li>
+          <li>Open the downloaded CSV in a text editor, select all, copy</li>
+          <li>Paste below and click Import</li>
+        </ol>
+      </div>
+      <div class="staging-area">
+        <h3>📥 Paste CSV</h3>
+        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="form-group" style="min-width:120px;">
+            <label>Year</label>
+            <select id="legacy-year-sel"></select>
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label>Month</label>
+            <select id="legacy-month-sel">
+              ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => `<option value="${i}">${m}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <textarea id="legacy-csv-text" style="width:100%;min-height:160px;border:1.5px dashed var(--border);border-radius:6px;padding:10px;font-family:Inter,sans-serif;font-size:0.75rem;background:var(--paper);resize:vertical;" placeholder="Paste CSV contents here..."></textarea>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="parseLegacyCSV()">🔍 Parse & Preview</button>
+          <button class="btn btn-outline" onclick="document.getElementById('legacy-csv-text').value='';document.getElementById('legacy-preview').innerHTML=''">Clear</button>
+        </div>
+      </div>
+      <div id="legacy-preview"></div>
     </div>
 
     <!-- LOGIC TRAINER PANEL -->
@@ -862,58 +900,89 @@ let appData = {
 };
 
 // ============================================================
-// HARDCODED VAULT DATA (2023-2025)
+// HARDCODED VAULT DATA (2023-2025) — per category per month
 // ============================================================
-const VAULT_REVENUE = {
-  2023: [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
-  2024: [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
-  2025: [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037]
-};
-
-const VAULT_EXPENSES = {
-  2023: [0,0,0,0,0,0,28334,21320,31738,21162,27981,32645],
-  2024: [29074,37020,32558,29670,39528,33052,22298,22834,28703,45977,35400,39462],
-  2025: [31870,45280,45200,34960,52967,36408,27908,24093,35172,27998,30435,39676]
+const VAULT_DATA = {
+  2023: {
+    Revenue:                      [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
+    Marketing:                    [0,0,0,0,0,0,0,399,0,0,60,289],
+    Office:                       [0,0,0,0,0,180,623,650,242,666,208,0],
+    Rent:                         [0,0,0,0,0,0,2170,2170,2170,2170,2170,2170],
+    'Phone/Internet':             [0,0,0,0,0,501,0,0,0,0,0,238],
+    'Repairs/Maintenance':        [0,0,0,0,0,0,0,0,0,0,0,0],
+    Utilities:                    [0,0,0,0,0,675,773,776,827,687,488,0],
+    Payroll:                      [0,0,0,0,0,0,1917,5822,6858,5903,6827,8801],
+    'Supplies & Materials - COGS':[0,0,0,0,0,0,10247,9348,11341,9595,15897,11621],
+    FSN:                          [0,0,0,0,0,0,0,0,5437,0,0,0],
+    Transpo:                      [0,0,0,0,0,0,0,119,901,1246,819,1003],
+    Vehicles:                     [0,0,0,0,0,10358,0,0,0,0,0,0],
+    Insurance:                    [0,0,0,0,0,0,1160,764,755,755,755,755],
+    Taxes:                        [0,0,0,0,0,0,774,457,2640,424,0,6767],
+  },
+  2024: {
+    Revenue:                      [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
+    Marketing:                    [144,308,0,0,258,429,1823,184,286,598,1014,659],
+    Office:                       [974,1194,357,647,291,1180,706,294,371,780,1837,2328],
+    Rent:                         [2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170],
+    'Phone/Internet':             [238,238,238,238,238,238,238,238,238,238,238,239],
+    'Repairs/Maintenance':        [0,0,0,0,0,358,230,0,0,473,76,466],
+    Utilities:                    [426,468,440,402,433,425,637,637,610,632,560,513],
+    Payroll:                      [5635,10314,9404,7914,9379,8079,5401,8194,6546,7377,10814,9390],
+    'Supplies & Materials - COGS':[14408,20741,10940,15472,25107,10404,8913,8024,11000,15763,14959,13883],
+    FSN:                          [0,0,613,848,649,564,628,540,2008,628,0,742],
+    Transpo:                      [2230,103,124,191,63,105,99,179,41,105,102,113],
+    Vehicles:                     [729,729,729,729,729,729,729,729,729,15729,729,1774],
+    Insurance:                    [755,755,755,1059,211,612,724,702,467,1484,554,1181],
+    Taxes:                        [0,0,6788,0,0,7759,0,943,4237,0,2347,6004],
+  },
+  2025: {
+    Revenue:                      [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037],
+    Marketing:                    [763,3252,2079,963,644,99,1168,899,649,586,767,1526],
+    Office:                       [767,446,1452,506,2291,885,1392,1492,383,2282,530,780],
+    Rent:                         [2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170],
+    'Phone/Internet':             [239,218,239,239,239,0,345,249,249,250,317,251],
+    'Repairs/Maintenance':        [878,0,2834,610,0,0,0,75,0,0,0,0],
+    Utilities:                    [501,511,477,408,477,460,545,630,543,474,474,425],
+    Payroll:                      [7048,12637,9695,10370,15604,9065,7283,7813,8021,8378,10328,9151],
+    'Supplies & Materials - COGS':[15051,23446,15302,16343,27220,12944,11251,8360,15063,11335,11667,15569],
+    FSN:                          [352,1163,2006,1577,1383,1083,1214,363,1165,109,1237,1038],
+    Transpo:                      [1954,48,168,42,107,77,255,6,496,104,150,151],
+    Vehicles:                     [1251,729,522,522,1045,522,1045,0,522,1045,0,1045],
+    Insurance:                    [896,660,1131,1210,896,714,1242,1048,1247,1266,394,1650],
+    Taxes:                        [0,0,7125,0,891,8388,0,988,4662,0,2401,5919],
+  }
 };
 
 function ensureVaultData() {
   // rules is no longer saved to sheet — always ensure it's a valid array
   if (!Array.isArray(appData.rules)) appData.rules = [];
   [2023, 2024, 2025].forEach(year => {
+    const yearData = VAULT_DATA[year];
+    if (!yearData) return;
     MONTHS_SHORT.forEach((_, mi) => {
       const key = `${year}-${mi}`;
-      if (!appData.transactions[key]) {
-        appData.transactions[key] = [];
-      }
-      // Add vault entries if none exist for that month
+      if (!appData.transactions[key]) appData.transactions[key] = [];
       const hasVault = appData.transactions[key].some(t => t._vault);
       if (!hasVault) {
-        const rev = VAULT_REVENUE[year] && VAULT_REVENUE[year][mi];
-        const exp = VAULT_EXPENSES[year] && VAULT_EXPENSES[year][mi];
-        if (rev) {
-          appData.transactions[key].unshift({
-            id: `vault-rev-${year}-${mi}`,
-            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
-            desc: 'Total Revenue (Vault)',
-            category: 'Revenue',
-            vendor: 'Flower Shop',
-            amount: rev,
-            type: 'in',
-            _vault: true
-          });
-        }
-        if (exp) {
+        const date = `${year}-${String(mi+1).padStart(2,'0')}-01`;
+        Object.entries(yearData).forEach(([cat, months]) => {
+          const amt = months[mi];
+          if (!amt || amt === 0) return;
+          const type = cat === 'Revenue' ? 'in' : 'out';
           appData.transactions[key].push({
-            id: `vault-exp-${year}-${mi}`,
-            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
-            desc: 'Total Expenses (Vault)',
-            category: 'Supplies & Materials - COGS',
-            vendor: 'Various',
-            amount: exp,
-            type: 'out',
+            id: `vault-${cat.replace(/[^a-z0-9]/gi,'-')}-${year}-${mi}`,
+            date, desc: `${cat} (vault)`,
+            category: cat, vendor: cat,
+            amount: amt, type,
             _vault: true
           });
-        }
+        });
+        // Sort vault entries: revenue first
+        appData.transactions[key].sort((a,b) => {
+          if (!a._vault && !b._vault) return 0;
+          if (a._vault && b._vault) return a.type === 'in' ? -1 : 1;
+          return a._vault ? 1 : -1;
+        });
       }
     });
   });
@@ -1304,6 +1373,7 @@ function switchPanel(panelId) {
       if (panelId === 'holidays') renderHolidayPanel();
       if (panelId === 'import')   renderImportPanel();
       if (panelId === 'trainer')  renderTrainerPanel();
+      if (panelId === 'legacy')   renderLegacyPanel();
     }
   }
 }
@@ -2786,6 +2856,138 @@ function initApp() {
   // Auto-backup on load (only if real data exists)
   setTimeout(autoBackup, 3000);
   // OAuth will call finalizeInit() when cloud data is loaded
+}
+
+
+// ============================================================
+// LEGACY IMPORTER
+// ============================================================
+
+const LEGACY_CAT_MAP = {
+  'payroll': 'Payroll',
+  'payroll1': 'Payroll1',
+  'supplies & materials - cogs': 'Supplies & Materials - COGS',
+  'cogs': 'Supplies & Materials - COGS',
+  'taxes': 'Taxes',
+  'tax': 'Taxes',
+  'utilities': 'Utilities',
+  'utility': 'Utilities',
+  'transpo': 'Transpo',
+  'transportation': 'Transpo',
+  'vehicles': 'Vehicles',
+  'vehicle': 'Vehicles',
+  'car payment': 'Vehicles',
+  'office': 'Office',
+  'office expenses': 'Office',
+  'insurance': 'Insurance',
+  'teleflora/fsn': 'FSN',
+  'fsn': 'FSN',
+  'teleflora': 'FSN',
+  'repairs/maintenance': 'Repairs/Maintenance',
+  'repair & maintenance': 'Repairs/Maintenance',
+  'repairs': 'Repairs/Maintenance',
+  'rent': 'Rent',
+  'rent or lease': 'Rent',
+  'phone/internet': 'Phone/Internet',
+  'phone internet': 'Phone/Internet',
+  'marketing': 'Marketing',
+  'advertising': 'Marketing',
+  'pos': 'Revenue',
+  'web': 'Revenue',
+  'cc': 'Revenue',
+  'cash': 'Revenue',
+  'stripe': 'Revenue',
+  'venmo': 'Revenue',
+  'sales': 'Revenue',
+};
+
+let legacyPreviewRows = [];
+
+function renderLegacyPanel() {
+  const sel = document.getElementById('legacy-year-sel');
+  if (sel) {
+    sel.innerHTML = appData.years.map(y => `<option value="${y}">${y}</option>`).join('');
+    sel.value = appData.activeYear;
+  }
+}
+
+function parseLegacyCSV() {
+  const raw = document.getElementById('legacy-csv-text').value.trim();
+  if (!raw) { notify('Paste some CSV first', true); return; }
+  const yr = parseInt(document.getElementById('legacy-year-sel').value);
+  const mo = parseInt(document.getElementById('legacy-month-sel').value);
+  legacyPreviewRows = [];
+  const lines = raw.split(/[\r\n]+/).filter(l => l.trim());
+  lines.forEach(line => {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    cols.push(cur.trim());
+    const rawCat = (cols[1] || '').trim();
+    const rawAmt = (cols[3] || '').trim();
+    if (!rawCat || !rawAmt) return;
+    const amt = parseFloat(rawAmt.replace(/[$,+]/g, ''));
+    if (isNaN(amt) || amt === 0) return;
+    const catKey = rawCat.toLowerCase().trim();
+    const category = LEGACY_CAT_MAP[catKey];
+    if (!category) return;
+    const type = category === 'Revenue' ? 'in' : 'out';
+    legacyPreviewRows.push({
+      category, vendor: rawCat, amount: Math.abs(amt), type,
+      date: `${yr}-${String(mo + 1).padStart(2, '0')}-01`,
+      desc: `${rawCat} (legacy)`,
+      txYear: yr, txMonth: mo
+    });
+  });
+  if (legacyPreviewRows.length === 0) {
+    notify('No recognizable categories found', true); return;
+  }
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const el = document.getElementById('legacy-preview');
+  el.innerHTML = `
+    <div class="ledger-wrap" style="margin-top:16px;">
+      <div class="ledger-header">
+        <h3>Preview — ${legacyPreviewRows.length} entries for ${MONTH_NAMES[mo]} ${yr}</h3>
+        <button class="btn btn-primary btn-sm" onclick="saveLegacyImport()">✓ Save All to Ledger</button>
+      </div>
+      <table>
+        <thead><tr><th>Category</th><th>Type</th><th>Amount</th></tr></thead>
+        <tbody>
+          ${legacyPreviewRows.map((r, i) => `
+            <tr>
+              <td>
+                <span class="badge">${r.category}</span>
+                <select style="margin-left:6px;font-size:0.72rem;border:1px solid var(--border);border-radius:4px;padding:2px 4px;" onchange="legacyPreviewRows[${i}].category=this.value">
+                  ${CATEGORIES.map(c => `<option value="${c}" ${c === r.category ? 'selected' : ''}>${c}</option>`).join('')}
+                </select>
+              </td>
+              <td><span class="badge" style="color:${r.type==='in'?'var(--green)':'var(--red)'}">${r.type === 'in' ? 'Income' : 'Expense'}</span></td>
+              <td class="${r.type === 'in' ? 'amount-in' : 'amount-out'}">${r.type === 'in' ? '+' : '\u2212'}${fmt(r.amount)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  notify(`${legacyPreviewRows.length} entries parsed — review and save`);
+}
+
+function saveLegacyImport() {
+  if (!legacyPreviewRows.length) return;
+  legacyPreviewRows.forEach(r => {
+    addTransaction(r.txYear, r.txMonth, {
+      date: r.date, desc: r.desc, category: r.category,
+      vendor: r.vendor, amount: r.amount, type: r.type
+    });
+  });
+  const count = legacyPreviewRows.length;
+  legacyPreviewRows = [];
+  document.getElementById('legacy-preview').innerHTML = '';
+  document.getElementById('legacy-csv-text').value = '';
+  notify(`${count} legacy transactions saved! ✓`);
 }
 
 // Close modal on overlay click
