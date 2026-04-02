@@ -2303,7 +2303,7 @@ function parseAmex() {
     // Apply built-in ignore rules
     for (const rule of BUILTIN_RULES) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: amt, reason: rule.keyword });
+        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, desc: desc.slice(0,80), amount: amt, reason: rule.keyword, _amex: true, _amexLine: line });
         return;
       }
     }
@@ -2372,13 +2372,13 @@ function parseImport() {
     // --- IGNORE ---
     for (const rule of BUILTIN_RULES) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
+        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, line, desc: desc.slice(0,80), rawDate, rawAmt, txType, amount: rawAmt, reason: rule.keyword });
         return;
       }
     }
     for (const rule of appData.rules) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
+        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, line, desc: desc.slice(0,80), rawDate, rawAmt, txType, amount: rawAmt, reason: rule.keyword });
         return;
       }
     }
@@ -2519,13 +2519,14 @@ function renderStagingTable() {
         <h3>⛔ Ignored (${ignoredRows.length}) — matched ignore rules</h3>
       </div>
       <table>
-        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th></tr></thead>
+        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th><th></th></tr></thead>
         <tbody>
           ${ignoredRows.map(r => `
-            <tr style="background:#ffeaea">
+            <tr style="background:#ffeaea" id="ign-row-${r._id}">
               <td style="font-size:0.8rem">${escHtml(r.desc)}</td>
-              <td class="amount-out">${fmt(r.amount)}</td>
+              <td class="amount-out">${typeof r.amount === 'number' ? fmt(r.amount) : r.amount}</td>
               <td><span class="badge">${escHtml(r.reason)}</span></td>
+              <td><button class="btn btn-outline btn-xs" onclick="unignoreRow('${r._id}')">+ Stage</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -2541,6 +2542,30 @@ function updateStageRow(id, field, val) {
 function rejectStagedRow(id) {
   const r = stagingRows.find(r => r._id === id);
   if (r) { r.status = 'rejected'; renderStagingTable(); }
+}
+
+function unignoreRow(id) {
+  const r = ignoredRows.find(r => r._id === id);
+  if (!r) return;
+  ignoredRows = ignoredRows.filter(x => x._id !== id);
+  const yr = parseInt(document.getElementById('import-year-sel').value);
+  const mo = parseInt(document.getElementById('import-month-sel').value);
+  let amt = typeof r.amount === 'number' ? r.amount : parseFloat((r.rawAmt||'').replace(/[^0-9.\-]/g,''));
+  if (isNaN(amt)) amt = 0;
+  const dm = (r.rawDate||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const date = dm ? `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}` : `${yr}-${String(mo+1).padStart(2,'0')}-01`;
+  stagingRows.push({
+    _id: 'stage-ign-' + Date.now(),
+    desc: r.desc,
+    date, txYear: yr, txMonth: mo,
+    amount: Math.abs(amt),
+    type: 'out',
+    category: 'Office',
+    vendor: r.desc.slice(0, 40),
+    status: 'review'
+  });
+  renderStagingTable();
+  notify('Moved to staging — set category before saving');
 }
 
 function saveStagedRow(id) {
