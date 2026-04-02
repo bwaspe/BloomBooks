@@ -2114,7 +2114,11 @@ function renderYearlyPanel() {
     const annualGrowth = prevRevTotal > 0 ? ((currRevForComparison - prevRevTotal) / prevRevTotal * 100) : null;
     const growthLabel = yr === currentYear ? `YoY (Jan–${MONTHS_SHORT[currentMonth - 1] || 'now'})` : 'YoY Growth';
 
-    return { yr, ...totals, annualGrowth, growthLabel };
+    const currNetForComparison = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + calcMonth(yr, mi).net, 0);
+    const prevNetTotal = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + calcMonth(yr-1, mi).net, 0);
+    const netGrowth = prevNetTotal !== 0 ? ((currNetForComparison - prevNetTotal) / Math.abs(prevNetTotal) * 100) : null;
+
+    return { yr, ...totals, annualGrowth, growthLabel, netGrowth };
   });
 
   grid.innerHTML = `
@@ -2125,7 +2129,8 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
-          ${r.annualGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel}</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
+          ${r.annualGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel} (Rev)</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
+          ${r.netGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel} (Net)</span><span class="${r.netGrowth>=0?'growth-up':'growth-down'}">${r.netGrowth>=0?'▲':'▼'} ${Math.abs(r.netGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
     </div>
