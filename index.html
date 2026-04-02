@@ -2102,10 +2102,19 @@ function renderYearlyPanel() {
     }, { revenue: 0, expenses: 0, net: 0 });
 
     // YoY annual growth
-    const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
-    const annualGrowth = prevRevTotal > 0 ? ((totals.revenue - prevRevTotal) / prevRevTotal * 100) : null;
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth(); // 0-indexed
+    // For current year: only compare months up to current month vs same months last year
+    // For past years: compare all 12 months
+    const monthsToCompare = (yr === currentYear)
+      ? currentMonth // months 0..currentMonth-1 (completed months only)
+      : 12;
+    const currRevForComparison = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + getRevenue(yr, mi), 0);
+    const prevRevTotal = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
+    const annualGrowth = prevRevTotal > 0 ? ((currRevForComparison - prevRevTotal) / prevRevTotal * 100) : null;
+    const growthLabel = yr === currentYear ? `YoY (Jan–${MONTHS_SHORT[currentMonth - 1] || 'now'})` : 'YoY Growth';
 
-    return { yr, ...totals, annualGrowth };
+    return { yr, ...totals, annualGrowth, growthLabel };
   });
 
   grid.innerHTML = `
@@ -2116,7 +2125,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
-          ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
+          ${r.annualGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel}</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
     </div>
