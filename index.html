@@ -3081,8 +3081,6 @@ function renderBreakevenPanel() {
   const cushion = avgRevenue - monthlyBreakeven;
   const cushionPct = avgRevenue > 0 ? (cushion / avgRevenue * 100) : 0;
 
-  const DAYS_IN_MONTHS = [31,28,31,30,31,30,31,31,30,31,30,31];
-
   el.innerHTML = `
     <div class="kpi-row">
       <div class="kpi-card revenue">
@@ -3108,9 +3106,36 @@ function renderBreakevenPanel() {
     </div>
 
     <div class="chart-wrap">
-      <h3>Monthly Break-Even by Day of Month</h3>
-      <p style="font-size:0.8rem;color:var(--mist);margin-bottom:16px;">How much cumulative revenue you need to have earned by each day of the month to be on track.</p>
-      <div id="be-monthly-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;"></div>
+      <h3>Month-by-Month Break-Even Status — ${yr}</h3>
+      <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
+        <thead><tr>
+          <th style="text-align:left;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Month</th>
+          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Revenue</th>
+          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Break-Even</th>
+          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Cushion</th>
+          <th style="text-align:center;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Status</th>
+        </tr></thead>
+        <tbody>
+          ${MONTHS.map((name, mi) => {
+            const mc = calcMonth(yr, mi);
+            if (mc.revenue === 0 && mc.expenses === 0) return '';
+            const cushion = mc.revenue - monthlyBreakeven;
+            const cushionPct = (cushion / monthlyBreakeven * 100).toFixed(1);
+            const cleared = mc.revenue >= monthlyBreakeven;
+            return `<tr style="border-bottom:1px solid var(--border-soft);">
+              <td style="padding:8px;font-weight:500;">${name}</td>
+              <td style="padding:8px;text-align:right;color:var(--green);font-weight:600;">${fmt(mc.revenue)}</td>
+              <td style="padding:8px;text-align:right;color:var(--mist);">${fmt(monthlyBreakeven)}</td>
+              <td style="padding:8px;text-align:right;color:${cleared?'var(--green)':'var(--red)'};font-weight:600;">${cushion>=0?'+':''}${fmt(cushion)}</td>
+              <td style="padding:8px;text-align:center;">
+                <span style="font-size:0.72rem;padding:3px 10px;border-radius:20px;background:${cleared?'var(--green-light)':'var(--red-light)'};color:${cleared?'var(--green)':'var(--red)'};font-weight:600;">
+                  ${cleared ? '✓ Cleared' : `${cushionPct}%`}
+                </span>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
@@ -3160,23 +3185,6 @@ function renderBreakevenPanel() {
     </div>
   `;
 
-  // Render day-by-day grid for current month
-  const now = new Date();
-  const currentDayOfMonth = now.getDate();
-  const daysInMonth = DAYS_IN_MONTHS[now.getMonth()];
-  const grid = document.getElementById('be-monthly-grid');
-  if (grid) {
-    grid.innerHTML = Array.from({length: daysInMonth}, (_, i) => {
-      const day = i + 1;
-      const target = (monthlyBreakeven / daysInMonth) * day;
-      const isPast = day < currentDayOfMonth;
-      const isToday = day === currentDayOfMonth;
-      return `<div style="background:${isToday?'var(--ink)':isPast?'var(--paper)':'var(--surface)'};border:1px solid ${isToday?'var(--ink)':'var(--border)'};border-radius:8px;padding:8px;text-align:center;">
-        <div style="font-size:0.68rem;color:${isToday?'#fff':'var(--mist)'};font-weight:${isToday?'600':'400'};">Day ${day}</div>
-        <div style="font-size:0.78rem;font-weight:600;color:${isToday?'#fff':'var(--ink)'};">${fmtK(target)}</div>
-      </div>`;
-    }).join('');
-  }
 }
 
 // Close modal on overlay click
