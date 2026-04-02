@@ -569,6 +569,7 @@ tbody td { padding: 10px 14px; }
   <div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
   <button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
   <div class="header-btns">
+    <button onclick="refreshVault()">🔄 Refresh Vault</button>
     <button onclick="exportData()">⬇ Export JSON</button>
     <button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
@@ -588,6 +589,7 @@ tbody td { padding: 10px 14px; }
     <div class="sidebar-section-label">Tools</div>
     <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
     <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
+    <div class="sidebar-tab" data-panel="breakeven" onclick="switchPanel('breakeven')">💰 Break-Even</div>
     <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
     <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
     <div class="sidebar-tab" data-panel="legacy" onclick="switchPanel('legacy')">📂 Legacy Import</div>
@@ -622,6 +624,13 @@ tbody td { padding: 10px 14px; }
         <h3>📉 COGS % of Revenue — Margin Trend</h3>
         <div class="chart-container"><canvas id="cogsChart"></canvas></div>
       </div>
+    </div>
+
+    <!-- BREAK-EVEN PANEL -->
+    <div id="panel-breakeven" class="panel">
+      <div class="page-title">Break-Even Calculator</div>
+      <div class="page-subtitle">How much revenue do you need to cover your fixed costs?</div>
+      <div id="breakeven-content"></div>
     </div>
 
     <!-- TAX SUMMARY PANEL -->
@@ -1374,6 +1383,7 @@ function switchPanel(panelId) {
       if (panelId === 'import')   renderImportPanel();
       if (panelId === 'trainer')  renderTrainerPanel();
       if (panelId === 'legacy')   renderLegacyPanel();
+      if (panelId === 'breakeven') renderBreakevenPanel();
     }
   }
 }
@@ -1748,6 +1758,25 @@ function saveEdit() {
 // ============================================================
 // CLEAR MONTH
 // ============================================================
+function refreshVault() {
+  if (!confirm('This will clear all vault entries and reload them with the latest category data. Your imported transactions will be preserved. Continue?')) return;
+  // Remove all vault entries from 2023-2025
+  [2023, 2024, 2025].forEach(year => {
+    for (let mi = 0; mi < 12; mi++) {
+      const key = `${year}-${mi}`;
+      if (appData.transactions[key]) {
+        appData.transactions[key] = appData.transactions[key].filter(t => !t._vault);
+      }
+    }
+  });
+  // Re-run ensureVaultData to inject fresh vault entries
+  ensureVaultData();
+  saveData();
+  // Re-render current panel
+  switchPanel(currentPanel || 'month-0');
+  notify('Vault refreshed with latest category data ✓');
+}
+
 function clearMonth(mi) {
   const year = appData.activeYear;
   const monthName = MONTHS[mi];
@@ -2988,6 +3017,164 @@ function saveLegacyImport() {
   document.getElementById('legacy-preview').innerHTML = '';
   document.getElementById('legacy-csv-text').value = '';
   notify(`${count} legacy transactions saved! ✓`);
+}
+
+
+// ============================================================
+// BREAK-EVEN PANEL
+// ============================================================
+function renderBreakevenPanel() {
+  const yr = appData.activeYear;
+  const el = document.getElementById('breakeven-content');
+  if (!el) return;
+
+  // Fixed costs = costs that don't vary with revenue
+  // Variable costs = COGS, FSN (scale with revenue)
+  const FIXED_CATS = ['Rent','Phone/Internet','Insurance','Utilities','Vehicles','Payroll','Payroll1'];
+  const VARIABLE_CATS = ['Supplies & Materials - COGS','FSN'];
+
+  // Calculate averages from active year (only months with data)
+  let fixedTotals = {};
+  let variableTotals = {};
+  FIXED_CATS.forEach(c => fixedTotals[c] = 0);
+  VARIABLE_CATS.forEach(c => variableTotals[c] = 0);
+  let totalRevenue = 0;
+  let monthsWithData = 0;
+
+  for (let mi = 0; mi < 12; mi++) {
+    const calc = calcMonth(yr, mi);
+    if (calc.revenue > 0) {
+      monthsWithData++;
+      totalRevenue += calc.revenue;
+      FIXED_CATS.forEach(c => { fixedTotals[c] += (calc.byCategory[c] || 0); });
+      VARIABLE_CATS.forEach(c => { variableTotals[c] += (calc.byCategory[c] || 0); });
+    }
+  }
+
+  if (monthsWithData === 0) {
+    el.innerHTML = '<p style="color:var(--mist);padding:20px;">No data available for the active year.</p>';
+    return;
+  }
+
+  // Monthly averages
+  const avgFixed = {};
+  FIXED_CATS.forEach(c => avgFixed[c] = fixedTotals[c] / monthsWithData);
+  const totalAvgFixed = Object.values(avgFixed).reduce((s,v) => s+v, 0);
+
+  // Variable cost ratio (COGS + FSN as % of revenue)
+  const totalVariable = Object.values(variableTotals).reduce((s,v) => s+v, 0);
+  const variableRatio = totalRevenue > 0 ? totalVariable / totalRevenue : 0.45;
+
+  // Break-even formula: BE = Fixed / (1 - variable ratio)
+  const monthlyBreakeven = totalAvgFixed / (1 - variableRatio);
+  const dailyBreakeven = monthlyBreakeven / 30;
+  const weeklyBreakeven = monthlyBreakeven / 4.33;
+
+  // Days open per week (florist typically 6)
+  const daysOpen = 6;
+  const dailyBreakevenOpenDays = monthlyBreakeven / (4.33 * daysOpen);
+
+  // Current year monthly avg revenue
+  const avgRevenue = totalRevenue / monthsWithData;
+  const cushion = avgRevenue - monthlyBreakeven;
+  const cushionPct = avgRevenue > 0 ? (cushion / avgRevenue * 100) : 0;
+
+  const DAYS_IN_MONTHS = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+  el.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi-card revenue">
+        <div class="kpi-label">Monthly Break-Even</div>
+        <div class="kpi-value">${fmt(monthlyBreakeven)}</div>
+        <div class="kpi-sub">Revenue needed to cover all costs</div>
+      </div>
+      <div class="kpi-card profit">
+        <div class="kpi-label">Weekly Break-Even</div>
+        <div class="kpi-value">${fmt(weeklyBreakeven)}</div>
+        <div class="kpi-sub">Per week (÷ 4.33)</div>
+      </div>
+      <div class="kpi-card expense">
+        <div class="kpi-label">Daily Break-Even</div>
+        <div class="kpi-value">${fmt(dailyBreakevenOpenDays)}</div>
+        <div class="kpi-sub">Per open day (${daysOpen} days/week)</div>
+      </div>
+      <div class="kpi-card ${cushion >= 0 ? 'revenue' : 'expense'}">
+        <div class="kpi-label">Avg Monthly Cushion</div>
+        <div class="kpi-value" style="color:${cushion>=0?'var(--green)':'var(--red)'}">${cushion>=0?'+':''}${fmt(cushion)}</div>
+        <div class="kpi-sub">${Math.abs(cushionPct).toFixed(1)}% ${cushion>=0?'above':'below'} break-even</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>Monthly Break-Even by Day of Month</h3>
+      <p style="font-size:0.8rem;color:var(--mist);margin-bottom:16px;">How much cumulative revenue you need to have earned by each day of the month to be on track.</p>
+      <div id="be-monthly-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="chart-wrap">
+        <h3>Fixed Costs Breakdown</h3>
+        <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
+          <thead><tr>
+            <th style="text-align:left;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Category</th>
+            <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Monthly Avg</th>
+          </tr></thead>
+          <tbody>
+            ${FIXED_CATS.filter(c => avgFixed[c] > 0).sort((a,b) => avgFixed[b]-avgFixed[a]).map(c => `
+              <tr style="border-bottom:1px solid var(--border-soft);">
+                <td style="padding:8px;"><span class="badge">${c}</span></td>
+                <td style="padding:8px;text-align:right;font-weight:600;color:var(--red);">${fmt(avgFixed[c])}</td>
+              </tr>`).join('')}
+            <tr style="border-top:2px solid var(--border);font-weight:600;">
+              <td style="padding:8px;">Total Fixed</td>
+              <td style="padding:8px;text-align:right;color:var(--red);">${fmt(totalAvgFixed)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="chart-wrap">
+        <h3>Variable Cost Ratio</h3>
+        <p style="font-size:0.8rem;color:var(--mist);margin-bottom:12px;">These costs scale with revenue. For every $1 of revenue, ${(variableRatio*100).toFixed(1)}¢ goes to variable costs.</p>
+        ${VARIABLE_CATS.filter(c => variableTotals[c] > 0).map(c => {
+          const ratio = totalRevenue > 0 ? variableTotals[c]/totalRevenue*100 : 0;
+          return `<div style="margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px;">
+              <span class="badge">${c}</span>
+              <span style="font-weight:600;">${ratio.toFixed(1)}% of revenue</span>
+            </div>
+            <div style="background:var(--border);border-radius:4px;height:8px;">
+              <div style="background:var(--accent2);border-radius:4px;height:8px;width:${Math.min(ratio,100)}%;"></div>
+            </div>
+          </div>`;
+        }).join('')}
+        <div style="margin-top:16px;padding:12px;background:var(--paper);border-radius:8px;font-size:0.8rem;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:var(--mist);">Contribution margin</span>
+            <span style="font-weight:600;">${((1-variableRatio)*100).toFixed(1)}%</span>
+          </div>
+          <div style="font-size:0.72rem;color:var(--mist);">For every $1 of revenue, ${((1-variableRatio)*100).toFixed(1)}¢ goes toward covering fixed costs & profit.</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Render day-by-day grid for current month
+  const now = new Date();
+  const currentDayOfMonth = now.getDate();
+  const daysInMonth = DAYS_IN_MONTHS[now.getMonth()];
+  const grid = document.getElementById('be-monthly-grid');
+  if (grid) {
+    grid.innerHTML = Array.from({length: daysInMonth}, (_, i) => {
+      const day = i + 1;
+      const target = (monthlyBreakeven / daysInMonth) * day;
+      const isPast = day < currentDayOfMonth;
+      const isToday = day === currentDayOfMonth;
+      return `<div style="background:${isToday?'var(--ink)':isPast?'var(--paper)':'var(--surface)'};border:1px solid ${isToday?'var(--ink)':'var(--border)'};border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:0.68rem;color:${isToday?'#fff':'var(--mist)'};font-weight:${isToday?'600':'400'};">Day ${day}</div>
+        <div style="font-size:0.78rem;font-weight:600;color:${isToday?'#fff':'var(--ink)'};">${fmtK(target)}</div>
+      </div>`;
+    }).join('');
+  }
 }
 
 // Close modal on overlay click
