@@ -654,14 +654,14 @@ tbody td { padding: 10px 14px; }
     <div id="panel-yearly" class="panel">
       <div class="page-title">Yearly Summary</div>
       <div class="page-subtitle">Financial performance across all years</div>
+      <div class="chart-wrap">
+        <h3>Annual Category Breakdown</h3>
+        <div id="yearlyCatList"></div>
+      </div>
       <div id="yearly-grid-content"></div>
       <div class="chart-wrap">
         <h3>Annual Revenue vs Expenses</h3>
         <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
-      </div>
-      <div class="chart-wrap">
-        <h3>Annual Category Breakdown</h3>
-        <div id="yearlyCatList"></div>
       </div>
       <div class="chart-wrap">
         <h3>🌿 Supplies Spend by Vendor</h3>
@@ -1840,12 +1840,17 @@ function renderTaxPanel() {
   const yr = appData.activeYear;
   const el = document.getElementById('tax-summary-content');
 
-  // Aggregate all categories for the year
+  // Aggregate all categories for the year — exclude cash transactions
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
   MONTHS_SHORT.forEach((_, mi) => {
-    const calc = calcMonth(yr, mi);
-    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
+      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
+    CATEGORIES.forEach(cat => {
+      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
+    });
   });
 
   const revenue = totals['Revenue'] || 0;
@@ -1885,14 +1890,27 @@ function printTaxSummary() {
   const yr = appData.activeYear;
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
-  // Also get month-by-month breakdown
+  // Also get month-by-month breakdown — exclude cash
   const monthly = MONTHS.map((name, mi) => {
-    const calc = calcMonth(yr, mi);
-    return { name, ...calc };
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
+      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
+    const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s,t) => s+t.amount, 0);
+    const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s,t) => s+t.amount, 0);
+    const expenses = txs.filter(t => t.type === 'out').reduce((s,t) => s+t.amount, 0);
+    const net = revenue - expenses;
+    const cogsRatio = revenue > 0 ? cogs/revenue*100 : 0;
+    return { name, revenue, expenses, net, cogsRatio };
   });
   MONTHS_SHORT.forEach((_, mi) => {
-    const calc = calcMonth(yr, mi);
-    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
+      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
+    CATEGORIES.forEach(cat => {
+      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
+    });
   });
   const revenue = totals['Revenue'] || 0;
   const totalExp = CATEGORIES.filter(c => c !== 'Revenue').reduce((s,c) => s + (totals[c]||0), 0);
@@ -1971,8 +1989,13 @@ function exportTaxCSV(yr) {
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
   MONTHS_SHORT.forEach((_, mi) => {
-    const calc = calcMonth(yr, mi);
-    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
+      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
+    CATEGORIES.forEach(cat => {
+      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
+    });
   });
   let csv = 'Category,Annual Total,% of Revenue,Monthly Avg\n';
   const rev = totals['Revenue'] || 0;
