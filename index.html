@@ -839,8 +839,12 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Utilities','Transpo','Vehicles','Office','Insurance',
-  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
+  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
+  'Sales Tax Collected'
 ];
+// Categories excluded from net income (pass-through)
+const PASSTHROUGH_CATS = ['Sales Tax Collected'];
+const SALES_TAX_RATE = 0.08375;
 
 const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue');
 
@@ -905,7 +909,8 @@ let appData = {
   activeYear: 2025,
   notes: {},          // { "2025-0": "text..." }
   reconciled: {},     // { "2025-0": true }
-  holidays: {}        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
+  holidays: {},        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
+  posSalesTax: {}     // { "2025-0": 1234.56 } — manually entered POS sales tax
 };
 
 // ============================================================
@@ -1202,6 +1207,7 @@ async function pushToSheet() {
       notes: appData.notes || {},
       reconciled: appData.reconciled || {},
       holidays: appData.holidays || {},
+      posSalesTax: appData.posSalesTax || {},
       _savedAt: appData._savedAt || Date.now()
     };
     const monthRows = [];
@@ -1446,7 +1452,9 @@ function calcMonth(year, month) {
   const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
   const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
   const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
-  const expenses = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  // Exclude pass-through categories (Sales Tax Collected) from expenses and net
+  const expenses = txs.filter(t => t.type === 'out' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+  const salesTaxCollected = txs.filter(t => t.category === 'Sales Tax Collected').reduce((s, t) => s + t.amount, 0);
   const net = revenue - expenses;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
@@ -1455,7 +1463,7 @@ function calcMonth(year, month) {
   txs.forEach(t => {
     if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
   });
-  return { revenue, cogs, expenses, net, cogsRatio, byCategory };
+  return { revenue, cogs, expenses, net, cogsRatio, byCategory, salesTaxCollected };
 }
 
 function getRevenue(year, month) {
@@ -1521,13 +1529,24 @@ function renderMonthPanel(mi) {
       <div class="kpi-card profit">
         <div class="kpi-label">Net Income</div>
         <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
-        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'}</div>
+        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'} · excl. sales tax</div>
       </div>
       <div class="kpi-card cogs">
         <div class="kpi-label">COGS Efficiency</div>
         <div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div>
         <div class="kpi-sub">COGS / Revenue</div>
       </div>
+      ${(() => {
+        const epxTax = calc.salesTaxCollected || 0;
+        const posTax = appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : 0;
+        const total = epxTax + posTax;
+        if (total === 0) return '';
+        return `<div class="kpi-card" style="border-top:3px solid #9966cc">
+          <div class="kpi-label">Sales Tax Collected</div>
+          <div class="kpi-value" style="font-size:1.1rem">${fmt(total)}</div>
+          <div class="kpi-sub">EPX ${fmt(epxTax)} · POS ${fmt(posTax)}</div>
+        </div>`;
+      })()}
       ${prevRev > 0 ? `<div class="kpi-card" style="border-top:3px solid var(--mist)">
         <div class="kpi-label">${year-1} Revenue</div>
         <div class="kpi-value" style="font-size:1.1rem">${fmt(prevRev)}</div>
@@ -1629,6 +1648,36 @@ function renderMonthPanel(mi) {
           ${txs.filter(t => !t._vault).map(t => renderTxRow(t, mi, year)).join('')}
         </tbody>
       </table>
+    </div>
+
+    <!-- POS SALES TAX -->
+    <div class="entry-form" style="margin-bottom:16px">
+      <h3 style="margin-bottom:10px;">🧾 Sales Tax Collected</h3>
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-group" style="flex:1;min-width:160px;">
+          <label>POS Sales Tax (manual entry)</label>
+          <input type="number" id="pos-tax-${mi}" placeholder="0.00" step="0.01" min="0"
+            value="${appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : ''}"
+            onkeydown="if(event.key==='Enter') savePOSTax(${mi})">
+        </div>
+        <div style="padding-bottom:4px;">
+          <button class="btn btn-outline btn-xs" onclick="savePOSTax(${mi})">Save</button>
+        </div>
+        <div style="font-size:0.78rem;color:var(--mist);padding-bottom:6px;">
+          EPX tax auto-calculated · Stripe/POS enter manually
+        </div>
+      </div>
+      ${(() => {
+        const epxTax = calc.byCategory['Sales Tax Collected'] || 0;
+        const posTax = appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : 0;
+        const total = epxTax + posTax;
+        if (total === 0) return '';
+        return `<div style="margin-top:10px;display:flex;gap:16px;font-size:0.8rem;">
+          <span>EPX: <strong>${fmt(epxTax)}</strong></span>
+          <span>POS/Stripe: <strong>${fmt(posTax)}</strong></span>
+          <span style="color:var(--ink);font-weight:600;">Total Collected: ${fmt(total)}</span>
+        </div>`;
+      })()}
     </div>
 
     <!-- NOTES & RECONCILE -->
@@ -1800,6 +1849,16 @@ function saveNote(mi) {
   appData.notes[key] = document.getElementById(`notes-${mi}`).value;
   saveData();
   notify('Note saved');
+}
+
+function savePOSTax(mi) {
+  const key = `${appData.activeYear}-${mi}`;
+  if (!appData.posSalesTax) appData.posSalesTax = {};
+  const val = parseFloat(document.getElementById(`pos-tax-${mi}`).value) || 0;
+  appData.posSalesTax[key] = val;
+  saveData();
+  renderMonthPanel(mi);
+  notify('POS sales tax saved');
 }
 
 function toggleReconcile(mi) {
@@ -2556,13 +2615,35 @@ function parseImport() {
     const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
     const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
 
-    stagingRows.push({
-      _id: 'stage-' + idx,
-      line: line.slice(0, 120),
-      desc: cleanDesc,
-      date, txYear, txMonth, amount, type: signGuess, category, vendor,
-      status: 'review'
-    });
+    // Auto-split EPX/MERCH SETL deposits: separate sales tax from revenue
+    if (upper.includes('MERCH SETL') && signGuess === 'in') {
+      const preTax = parseFloat((amount / (1 + SALES_TAX_RATE)).toFixed(2));
+      const taxAmt = parseFloat((amount - preTax).toFixed(2));
+      stagingRows.push({
+        _id: 'stage-' + idx,
+        line: line.slice(0, 120),
+        desc: cleanDesc,
+        date, txYear, txMonth, amount: preTax, type: 'in', category: 'Revenue', vendor: 'EPX Settlement',
+        status: 'review'
+      });
+      if (taxAmt > 0) {
+        stagingRows.push({
+          _id: 'stage-' + idx + '-tax',
+          line: line.slice(0, 120),
+          desc: 'Sales Tax Collected (EPX)',
+          date, txYear, txMonth, amount: taxAmt, type: 'in', category: 'Sales Tax Collected', vendor: 'EPX Settlement',
+          status: 'review'
+        });
+      }
+    } else {
+      stagingRows.push({
+        _id: 'stage-' + idx,
+        line: line.slice(0, 120),
+        desc: cleanDesc,
+        date, txYear, txMonth, amount, type: signGuess, category, vendor,
+        status: 'review'
+      });
+    }
   });
 
   renderStagingTable();
