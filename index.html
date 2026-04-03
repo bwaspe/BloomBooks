@@ -650,7 +650,13 @@ tbody td { padding: 10px 14px; }
     <!-- YEARLY SUMMARY PANEL -->
     <div id="panel-yearly" class="panel">
       <div class="page-title">Yearly Summary</div>
-      <div class="page-subtitle">Financial performance across all years</div>
+      <div class="page-subtitle" style="display:flex;align-items:center;gap:16px;">
+        Financial performance across all years
+        <label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);">
+          <input type="checkbox" id="yearly-gross-toggle" onchange="renderYearlyPanel()" style="cursor:pointer;">
+          Show Gross Revenue (incl. sales tax)
+        </label>
+      </div>
       <div id="yearly-grid-content"></div>
       <div class="chart-wrap">
         <h3>Annual Revenue vs Expenses</h3>
@@ -1445,17 +1451,21 @@ function updateTransaction(year, month, id, updates) {
 // ============================================================
 // MONTH CALCULATIONS
 // ============================================================
-function calcMonth(year, month) {
+function calcMonth(year, month, showGross = false) {
   const allTxs = getTransactions(year, month);
   // If real transactions exist, exclude vault entries from totals to avoid double-counting
   const hasReal = allTxs.some(t => !t._vault);
   const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
-  // Exclude Sales Tax Collected from revenue — it's a pass-through, not real income
-  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
-  const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
-  // Exclude pass-through categories (Sales Tax Collected) from expenses and net
-  const expenses = txs.filter(t => t.type === 'out' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
   const salesTaxCollected = txs.filter(t => t.category === 'Sales Tax Collected').reduce((s, t) => s + t.amount, 0);
+  // In gross mode: include sales tax in revenue. In net mode: exclude it.
+  const revenue = showGross
+    ? txs.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0)
+    : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+  const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
+  // Exclude pass-through categories from expenses in net mode
+  const expenses = showGross
+    ? txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0)
+    : txs.filter(t => t.type === 'out' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
   const net = revenue - expenses;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
@@ -1487,7 +1497,8 @@ function renderMonthPanel(mi) {
   if (!el) return;
 
   const txs = getTransactions(year, mi);
-  const calc = calcMonth(year, mi);
+  const showGross = document.getElementById(`monthly-gross-toggle-${mi}`) ? document.getElementById(`monthly-gross-toggle-${mi}`).checked : false;
+  const calc = calcMonth(year, mi, showGross);
   const yoy = calcYoYGrowth(year, mi);
 
   // Previous year same month revenue
@@ -1514,7 +1525,13 @@ function renderMonthPanel(mi) {
       ${isWorst ? '<span style="font-size:0.7rem;background:#c0392b;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">📉 Lowest Month</span>' : ''}
       ${isReconciled ? '<span style="font-size:0.7rem;background:var(--accent2);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
     </div>
-    <div class="page-subtitle">Monthly ledger & performance</div>
+    <div class="page-subtitle" style="display:flex;align-items:center;gap:16px;">
+      Monthly ledger & performance
+      <label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);">
+        <input type="checkbox" id="monthly-gross-toggle-${mi}" onchange="renderMonthPanel(${mi})" style="cursor:pointer;">
+        Show Gross (incl. sales tax)
+      </label>
+    </div>
 
     <div class="kpi-row">
       <div class="kpi-card revenue">
@@ -2253,7 +2270,8 @@ function renderYearlyPanel() {
   const grid = document.getElementById('yearly-grid-content');
   const yearRows = appData.years.map(yr => {
     const totals = MONTHS_SHORT.reduce((acc, _, mi) => {
-      const c = calcMonth(yr, mi);
+      const showGross = document.getElementById('yearly-gross-toggle') ? document.getElementById('yearly-gross-toggle').checked : false;
+      const c = calcMonth(yr, mi, showGross);
       acc.revenue += c.revenue;
       acc.expenses += c.expenses;
       acc.net += c.net;
