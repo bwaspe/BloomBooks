@@ -635,7 +635,10 @@ tbody td { padding: 10px 14px; }
 
     <!-- TAX SUMMARY PANEL -->
     <div id="panel-tax" class="panel">
-      <div class="page-title">Tax Summary</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div class="page-title">Tax Summary</div>
+        <button class="btn btn-outline btn-sm" onclick="printTaxSummary()">🖨 Print / Save as PDF</button>
+      </div>
       <div class="page-subtitle">Annual category totals for your accountant</div>
       <div id="tax-summary-content"></div>
     </div>
@@ -650,13 +653,7 @@ tbody td { padding: 10px 14px; }
     <!-- YEARLY SUMMARY PANEL -->
     <div id="panel-yearly" class="panel">
       <div class="page-title">Yearly Summary</div>
-      <div class="page-subtitle" style="display:flex;align-items:center;gap:16px;">
-        Financial performance across all years
-        <label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);">
-          <input type="checkbox" id="yearly-gross-toggle" onchange="renderYearlyPanel()" style="cursor:pointer;">
-          Show Gross Revenue (incl. sales tax)
-        </label>
-      </div>
+      <div class="page-subtitle">Financial performance across all years</div>
       <div id="yearly-grid-content"></div>
       <div class="chart-wrap">
         <h3>Annual Revenue vs Expenses</h3>
@@ -845,12 +842,8 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Utilities','Transpo','Vehicles','Office','Insurance',
-  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
-  'Sales Tax Collected'
+  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
 ];
-// Categories excluded from net income (pass-through)
-const PASSTHROUGH_CATS = ['Sales Tax Collected'];
-const SALES_TAX_RATE = 0.08375;
 
 const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue');
 
@@ -1451,21 +1444,14 @@ function updateTransaction(year, month, id, updates) {
 // ============================================================
 // MONTH CALCULATIONS
 // ============================================================
-function calcMonth(year, month, showGross = false) {
+function calcMonth(year, month) {
   const allTxs = getTransactions(year, month);
   // If real transactions exist, exclude vault entries from totals to avoid double-counting
   const hasReal = allTxs.some(t => !t._vault);
   const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
-  const salesTaxCollected = txs.filter(t => t.category === 'Sales Tax Collected').reduce((s, t) => s + t.amount, 0);
-  // In gross mode: include sales tax in revenue. In net mode: exclude it.
-  const revenue = showGross
-    ? txs.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0)
-    : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
   const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
-  // Exclude pass-through categories from expenses in net mode
-  const expenses = showGross
-    ? txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0)
-    : txs.filter(t => t.type === 'out' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
+  const expenses = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
   const net = revenue - expenses;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
@@ -1474,7 +1460,7 @@ function calcMonth(year, month, showGross = false) {
   txs.forEach(t => {
     if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
   });
-  return { revenue, cogs, expenses, net, cogsRatio, byCategory, salesTaxCollected };
+  return { revenue, cogs, expenses, net, cogsRatio, byCategory };
 }
 
 function getRevenue(year, month) {
@@ -1497,8 +1483,7 @@ function renderMonthPanel(mi) {
   if (!el) return;
 
   const txs = getTransactions(year, mi);
-  const showGross = document.getElementById(`monthly-gross-toggle-${mi}`) ? document.getElementById(`monthly-gross-toggle-${mi}`).checked : false;
-  const calc = calcMonth(year, mi, showGross);
+  const calc = calcMonth(year, mi);
   const yoy = calcYoYGrowth(year, mi);
 
   // Previous year same month revenue
@@ -1525,13 +1510,7 @@ function renderMonthPanel(mi) {
       ${isWorst ? '<span style="font-size:0.7rem;background:#c0392b;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">📉 Lowest Month</span>' : ''}
       ${isReconciled ? '<span style="font-size:0.7rem;background:var(--accent2);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
     </div>
-    <div class="page-subtitle" style="display:flex;align-items:center;gap:16px;">
-      Monthly ledger & performance
-      <label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);">
-        <input type="checkbox" id="monthly-gross-toggle-${mi}" onchange="renderMonthPanel(${mi})" style="cursor:pointer;">
-        Show Gross (incl. sales tax)
-      </label>
-    </div>
+    <div class="page-subtitle">Monthly ledger & performance</div>
 
     <div class="kpi-row">
       <div class="kpi-card revenue">
@@ -1547,24 +1526,14 @@ function renderMonthPanel(mi) {
       <div class="kpi-card profit">
         <div class="kpi-label">Net Income</div>
         <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
-        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'} · excl. sales tax</div>
+        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'}</div>
       </div>
       <div class="kpi-card cogs">
         <div class="kpi-label">COGS Efficiency</div>
         <div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div>
         <div class="kpi-sub">COGS / Revenue</div>
       </div>
-      ${(() => {
-        const epxTax = calc.salesTaxCollected || 0;
-        const posTax = appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : 0;
-        const total = epxTax + posTax;
-        if (total === 0) return '';
-        return `<div class="kpi-card" style="border-top:3px solid #9966cc">
-          <div class="kpi-label">Sales Tax Collected</div>
-          <div class="kpi-value" style="font-size:1.1rem">${fmt(total)}</div>
-          <div class="kpi-sub">EPX ${fmt(epxTax)} · POS ${fmt(posTax)}</div>
-        </div>`;
-      })()}
+
       ${prevRev > 0 ? `<div class="kpi-card" style="border-top:3px solid var(--mist)">
         <div class="kpi-label">${year-1} Revenue</div>
         <div class="kpi-value" style="font-size:1.1rem">${fmt(prevRev)}</div>
@@ -1666,36 +1635,6 @@ function renderMonthPanel(mi) {
           ${txs.filter(t => !t._vault).map(t => renderTxRow(t, mi, year)).join('')}
         </tbody>
       </table>
-    </div>
-
-    <!-- POS SALES TAX -->
-    <div class="entry-form" style="margin-bottom:16px">
-      <h3 style="margin-bottom:10px;">🧾 Sales Tax Collected</h3>
-      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-        <div class="form-group" style="flex:1;min-width:160px;">
-          <label>POS Sales Tax (manual entry)</label>
-          <input type="number" id="pos-tax-${mi}" placeholder="0.00" step="0.01" min="0"
-            value="${appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : ''}"
-            onkeydown="if(event.key==='Enter') savePOSTax(${mi})">
-        </div>
-        <div style="padding-bottom:4px;">
-          <button class="btn btn-outline btn-xs" onclick="savePOSTax(${mi})">Save</button>
-        </div>
-        <div style="font-size:0.78rem;color:var(--mist);padding-bottom:6px;">
-          EPX tax auto-calculated · Stripe/POS enter manually
-        </div>
-      </div>
-      ${(() => {
-        const epxTax = calc.byCategory['Sales Tax Collected'] || 0;
-        const posTax = appData.posSalesTax && appData.posSalesTax[key] ? appData.posSalesTax[key] : 0;
-        const total = epxTax + posTax;
-        if (total === 0) return '';
-        return `<div style="margin-top:10px;display:flex;gap:16px;font-size:0.8rem;">
-          <span>EPX: <strong>${fmt(epxTax)}</strong></span>
-          <span>POS/Stripe: <strong>${fmt(posTax)}</strong></span>
-          <span style="color:var(--ink);font-weight:600;">Total Collected: ${fmt(total)}</span>
-        </div>`;
-      })()}
     </div>
 
     <!-- NOTES & RECONCILE -->
@@ -1869,16 +1808,6 @@ function saveNote(mi) {
   notify('Note saved');
 }
 
-function savePOSTax(mi) {
-  const key = `${appData.activeYear}-${mi}`;
-  if (!appData.posSalesTax) appData.posSalesTax = {};
-  const val = parseFloat(document.getElementById(`pos-tax-${mi}`).value) || 0;
-  appData.posSalesTax[key] = val;
-  saveData();
-  renderMonthPanel(mi);
-  notify('POS sales tax saved');
-}
-
 function toggleReconcile(mi) {
   const key = `${appData.activeYear}-${mi}`;
   if (!appData.reconciled) appData.reconciled = {};
@@ -1950,6 +1879,92 @@ function renderTaxPanel() {
         </tbody>
       </table>
     </div>`;
+}
+
+function printTaxSummary() {
+  const yr = appData.activeYear;
+  const totals = {};
+  CATEGORIES.forEach(c => totals[c] = 0);
+  // Also get month-by-month breakdown
+  const monthly = MONTHS.map((name, mi) => {
+    const calc = calcMonth(yr, mi);
+    return { name, ...calc };
+  });
+  MONTHS_SHORT.forEach((_, mi) => {
+    const calc = calcMonth(yr, mi);
+    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+  });
+  const revenue = totals['Revenue'] || 0;
+  const totalExp = CATEGORIES.filter(c => c !== 'Revenue').reduce((s,c) => s + (totals[c]||0), 0);
+  const net = revenue - totalExp;
+
+  const catRows = CATEGORIES.filter(c => totals[c] > 0).map(c => {
+    const pct = revenue > 0 ? (totals[c]/revenue*100).toFixed(1) : '—';
+    const avg = (totals[c]/12).toFixed(2);
+    return `<tr>
+      <td>${c}</td>
+      <td style="text-align:right">${fmt(totals[c])}</td>
+      <td style="text-align:right">${pct}%</td>
+      <td style="text-align:right">$${avg}</td>
+    </tr>`;
+  }).join('');
+
+  const monthRows = monthly.filter(m => m.revenue > 0 || m.expenses > 0).map(m => `<tr>
+    <td>${m.name}</td>
+    <td style="text-align:right;color:#2a7a4f">${fmt(m.revenue)}</td>
+    <td style="text-align:right;color:#c0392b">${fmt(m.expenses)}</td>
+    <td style="text-align:right;color:${m.net>=0?'#2a7a4f':'#c0392b'}">${fmt(m.net)}</td>
+    <td style="text-align:right">${m.cogsRatio.toFixed(1)}%</td>
+  </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Bloom Books — Tax Summary ${yr}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a2e; margin: 40px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    h2 { font-size: 15px; margin: 24px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    .subtitle { color: #888; margin-bottom: 24px; font-size: 11px; }
+    .summary { display: flex; gap: 24px; margin-bottom: 24px; }
+    .summary-box { border: 1px solid #ddd; border-radius: 6px; padding: 12px 18px; min-width: 140px; }
+    .summary-box .label { font-size: 10px; text-transform: uppercase; color: #888; margin-bottom: 4px; }
+    .summary-box .value { font-size: 20px; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th { background: #f5f5f7; text-align: left; padding: 7px 10px; font-size: 10px; text-transform: uppercase; color: #888; border-bottom: 1px solid #ddd; }
+    td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; }
+    .green { color: #2a7a4f; }
+    .red { color: #c0392b; }
+    .footer { margin-top: 32px; font-size: 10px; color: #aaa; border-top: 1px solid #eee; padding-top: 12px; }
+    @media print { body { margin: 20px; } }
+  </style>
+  </head><body>
+  <h1>🌸 Bloom Books — Tax Summary</h1>
+  <div class="subtitle">Mosholu Flowers LLC · Year: ${yr} · Generated: ${new Date().toLocaleDateString()}</div>
+
+  <div class="summary">
+    <div class="summary-box"><div class="label">Total Revenue</div><div class="value green">${fmt(revenue)}</div></div>
+    <div class="summary-box"><div class="label">Total Expenses</div><div class="value red">${fmt(totalExp)}</div></div>
+    <div class="summary-box"><div class="label">Net Income</div><div class="value" style="color:${net>=0?'#2a7a4f':'#c0392b'}">${fmt(net)}</div></div>
+  </div>
+
+  <h2>Annual Category Totals</h2>
+  <table>
+    <thead><tr><th>Category</th><th style="text-align:right">Annual Total</th><th style="text-align:right">% of Revenue</th><th style="text-align:right">Monthly Avg</th></tr></thead>
+    <tbody>${catRows}</tbody>
+  </table>
+
+  <h2>Month-by-Month Summary</h2>
+  <table>
+    <thead><tr><th>Month</th><th style="text-align:right">Revenue</th><th style="text-align:right">Expenses</th><th style="text-align:right">Net Income</th><th style="text-align:right">COGS %</th></tr></thead>
+    <tbody>${monthRows}</tbody>
+  </table>
+
+  <div class="footer">Bloom Books · bloombooks.netlify.app · Prepared for tax purposes. Please verify all figures with your accountant.</div>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
 }
 
 function exportTaxCSV(yr) {
@@ -2270,8 +2285,7 @@ function renderYearlyPanel() {
   const grid = document.getElementById('yearly-grid-content');
   const yearRows = appData.years.map(yr => {
     const totals = MONTHS_SHORT.reduce((acc, _, mi) => {
-      const showGross = document.getElementById('yearly-gross-toggle') ? document.getElementById('yearly-gross-toggle').checked : false;
-      const c = calcMonth(yr, mi, showGross);
+      const c = calcMonth(yr, mi);
       acc.revenue += c.revenue;
       acc.expenses += c.expenses;
       acc.net += c.net;
@@ -2634,37 +2648,13 @@ function parseImport() {
     const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
     const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
 
-    // Auto-split EPX/MERCH SETL deposits: separate sales tax from revenue
-    // Check both upper (desc+txType) and the raw line since MERCH SETL may appear anywhere
-    const lineUpper = line.toUpperCase();
-    if ((upper.includes('MERCH SETL') || lineUpper.includes('MERCH SETL')) && signGuess === 'in') {
-      const preTax = parseFloat((amount / (1 + SALES_TAX_RATE)).toFixed(2));
-      const taxAmt = parseFloat((amount - preTax).toFixed(2));
-      stagingRows.push({
-        _id: 'stage-' + idx,
-        line: line.slice(0, 120),
-        desc: cleanDesc,
-        date, txYear, txMonth, amount: preTax, type: 'in', category: 'Revenue', vendor: 'EPX Settlement',
-        status: 'review'
-      });
-      if (taxAmt > 0) {
-        stagingRows.push({
-          _id: 'stage-' + idx + '-tax',
-          line: line.slice(0, 120),
-          desc: 'Sales Tax Collected (EPX)',
-          date, txYear, txMonth, amount: taxAmt, type: 'in', category: 'Sales Tax Collected', vendor: 'EPX Settlement',
-          status: 'review'
-        });
-      }
-    } else {
-      stagingRows.push({
-        _id: 'stage-' + idx,
-        line: line.slice(0, 120),
-        desc: cleanDesc,
-        date, txYear, txMonth, amount, type: signGuess, category, vendor,
-        status: 'review'
-      });
-    }
+    stagingRows.push({
+      _id: 'stage-' + idx,
+      line: line.slice(0, 120),
+      desc: cleanDesc,
+      date, txYear, txMonth, amount, type: signGuess, category, vendor,
+      status: 'review'
+    });
   });
 
   renderStagingTable();
