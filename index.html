@@ -1450,7 +1450,8 @@ function calcMonth(year, month) {
   // If real transactions exist, exclude vault entries from totals to avoid double-counting
   const hasReal = allTxs.some(t => !t._vault);
   const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
-  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+  // Exclude Sales Tax Collected from revenue — it's a pass-through, not real income
+  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
   const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
   // Exclude pass-through categories (Sales Tax Collected) from expenses and net
   const expenses = txs.filter(t => t.type === 'out' && !PASSTHROUGH_CATS.includes(t.category)).reduce((s, t) => s + t.amount, 0);
@@ -2616,7 +2617,9 @@ function parseImport() {
     const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
 
     // Auto-split EPX/MERCH SETL deposits: separate sales tax from revenue
-    if (upper.includes('MERCH SETL') && signGuess === 'in') {
+    // Check both upper (desc+txType) and the raw line since MERCH SETL may appear anywhere
+    const lineUpper = line.toUpperCase();
+    if ((upper.includes('MERCH SETL') || lineUpper.includes('MERCH SETL')) && signGuess === 'in') {
       const preTax = parseFloat((amount / (1 + SALES_TAX_RATE)).toFixed(2));
       const taxAmt = parseFloat((amount - preTax).toFixed(2));
       stagingRows.push({
