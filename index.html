@@ -492,6 +492,11 @@ tbody td { padding: 10px 14px; }
 @media (max-width: 768px) {
   #menu-toggle { display: block; }
 
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
   #app-header {
     padding: 0 12px;
     gap: 8px;
@@ -527,8 +532,8 @@ tbody td { padding: 10px 14px; }
   }
   #sidebar-overlay.open { display: block; }
 
-  #layout { display: block; }
-  #main-content { padding: 16px; }
+  #layout { display: block; overflow: visible; height: auto; }
+  #main-content { padding: 16px; overflow: visible; height: auto; }
 
   .kpi-row { gap: 8px; }
   .kpi-card { min-width: 120px; padding: 12px 14px; }
