@@ -475,95 +475,11 @@ tbody td { padding: 10px 14px; }
 }
 #notification.show { opacity: 1; transform: translateY(0); }
 #notification.error { border-left-color: var(--red); }
-
-/* MOBILE HAMBURGER */
-#menu-toggle {
-  display: none;
-  background: none;
-  border: none;
-  color: #fff;
-  font-size: 1.3rem;
-  cursor: pointer;
-  padding: 4px 8px;
-  margin-right: 4px;
-}
-
-/* MOBILE RESPONSIVE */
-@media (max-width: 768px) {
-  #menu-toggle { display: block; }
-
-  body {
-    height: auto;
-    overflow: auto;
-  }
-
-  #app-header {
-    padding: 0 12px;
-    gap: 8px;
-    flex-wrap: wrap;
-    height: auto;
-    min-height: var(--header-h);
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
-  #app-header h1 { font-size: 0.95rem; }
-  .header-year-selector { font-size: 0.72rem; gap: 5px; }
-  .header-year-selector span { display: none; }
-  .header-btns button { font-size: 0.65rem; padding: 3px 7px; }
-  #sync-status { font-size: 0.68rem; }
-
-  #sidebar {
-    position: fixed;
-    top: 0;
-    left: -220px;
-    width: 200px;
-    height: 100vh;
-    z-index: 300;
-    transition: left 0.25s ease;
-    box-shadow: 4px 0 20px rgba(0,0,0,0.3);
-  }
-  #sidebar.open { left: 0; }
-  #sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.4);
-    z-index: 299;
-  }
-  #sidebar-overlay.open { display: block; }
-
-  #layout { display: block; overflow: visible; height: auto; }
-  #main-content { padding: 16px; overflow: visible; height: auto; }
-
-  .kpi-row { gap: 8px; }
-  .kpi-card { min-width: 120px; padding: 12px 14px; }
-  .kpi-value { font-size: 1.3rem; }
-
-  .form-row { flex-direction: column; }
-  .form-group { min-width: unset; }
-
-  table { font-size: 0.75rem; }
-  thead th, tbody td { padding: 7px 8px; }
-
-  /* Hide less critical columns on mobile */
-  table th:nth-child(3), table td:nth-child(3),
-  table th:nth-child(4), table td:nth-child(4) {
-    display: none;
-  }
-
-  .chart-container { height: 240px; }
-  .yearly-grid { grid-template-columns: 1fr 1fr; }
-
-  .modal { width: 95vw; padding: 18px; }
-
-  #notification { bottom: 12px; right: 12px; left: 12px; max-width: unset; font-size: 0.72rem; }
-}
 </style>
 </head>
 <body>
 
 <div id="app-header">
-  <button id="menu-toggle" onclick="toggleSidebar()">☰</button>
   <div>🌸</div>
   <h1>Bloom <span>Books</span></h1>
   <div class="header-year-selector">
@@ -574,7 +490,6 @@ tbody td { padding: 10px 14px; }
   <div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
   <button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
   <div class="header-btns">
-    <button onclick="refreshVault()">🔄 Refresh Vault</button>
     <button onclick="exportData()">⬇ Export JSON</button>
     <button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
@@ -582,7 +497,6 @@ tbody td { padding: 10px 14px; }
 </div>
 
 <div id="layout">
-  <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
   <nav id="sidebar">
     <div class="sidebar-section-label">Monthly</div>
     <div id="month-tabs"></div>
@@ -594,10 +508,8 @@ tbody td { padding: 10px 14px; }
     <div class="sidebar-section-label">Tools</div>
     <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
     <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
-    <div class="sidebar-tab" data-panel="breakeven" onclick="switchPanel('breakeven')">💰 Break-Even</div>
     <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
     <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
-    <div class="sidebar-tab" data-panel="legacy" onclick="switchPanel('legacy')">📂 Legacy Import</div>
   </nav>
 
   <main id="main-content">
@@ -631,19 +543,9 @@ tbody td { padding: 10px 14px; }
       </div>
     </div>
 
-    <!-- BREAK-EVEN PANEL -->
-    <div id="panel-breakeven" class="panel">
-      <div class="page-title">Break-Even Calculator</div>
-      <div class="page-subtitle">How much revenue do you need to cover your fixed costs?</div>
-      <div id="breakeven-content"></div>
-    </div>
-
     <!-- TAX SUMMARY PANEL -->
     <div id="panel-tax" class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <div class="page-title">Tax Summary</div>
-        <button class="btn btn-outline btn-sm" onclick="printTaxSummary()">🖨 Print / Save as PDF</button>
-      </div>
+      <div class="page-title">Tax Summary</div>
       <div class="page-subtitle">Annual category totals for your accountant</div>
       <div id="tax-summary-content"></div>
     </div>
@@ -663,6 +565,10 @@ tbody td { padding: 10px 14px; }
       <div class="chart-wrap">
         <h3>Annual Revenue vs Expenses</h3>
         <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>Annual Category Breakdown</h3>
+        <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
       </div>
       <div class="chart-wrap">
         <h3>🌿 Supplies Spend by Vendor</h3>
@@ -709,43 +615,6 @@ tbody td { padding: 10px 14px; }
         <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
       </div>
       <div id="staging-table-area"></div>
-    </div>
-
-    <!-- LEGACY IMPORT PANEL -->
-    <div id="panel-legacy" class="panel">
-      <div class="page-title">Legacy Import</div>
-      <div class="page-subtitle">Import monthly totals from your old Google Sheets budget — paste the CSV from any monthly tab</div>
-      <div class="staging-area">
-        <h3>📋 How to export from your old sheet</h3>
-        <ol style="font-size:0.82rem;color:var(--ink-soft);line-height:2;margin-left:16px;">
-          <li>Open your old Google Sheet</li>
-          <li>Click the monthly tab (e.g. "6" for June)</li>
-          <li>File → Download → CSV</li>
-          <li>Open the downloaded CSV in a text editor, select all, copy</li>
-          <li>Paste below and click Import</li>
-        </ol>
-      </div>
-      <div class="staging-area">
-        <h3>📥 Paste CSV</h3>
-        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end;">
-          <div class="form-group" style="min-width:120px;">
-            <label>Year</label>
-            <select id="legacy-year-sel"></select>
-          </div>
-          <div class="form-group" style="min-width:120px;">
-            <label>Month</label>
-            <select id="legacy-month-sel">
-              ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => `<option value="${i}">${m}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <textarea id="legacy-csv-text" style="width:100%;min-height:160px;border:1.5px dashed var(--border);border-radius:6px;padding:10px;font-family:Inter,sans-serif;font-size:0.75rem;background:var(--paper);resize:vertical;" placeholder="Paste CSV contents here..."></textarea>
-        <div style="margin-top:10px;display:flex;gap:8px;">
-          <button class="btn btn-primary" onclick="parseLegacyCSV()">🔍 Parse & Preview</button>
-          <button class="btn btn-outline" onclick="document.getElementById('legacy-csv-text').value='';document.getElementById('legacy-preview').innerHTML=''">Clear</button>
-        </div>
-      </div>
-      <div id="legacy-preview"></div>
     </div>
 
     <!-- LOGIC TRAINER PANEL -->
@@ -909,94 +778,62 @@ let appData = {
   activeYear: 2025,
   notes: {},          // { "2025-0": "text..." }
   reconciled: {},     // { "2025-0": true }
-  holidays: {},        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
-  posSalesTax: {}     // { "2025-0": 1234.56 } — manually entered POS sales tax
+  holidays: {}        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
 };
 
 // ============================================================
-// HARDCODED VAULT DATA (2023-2025) — per category per month
+// HARDCODED VAULT DATA (2023-2025)
 // ============================================================
-const VAULT_DATA = {
-  2023: {
-    Revenue:                      [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
-    Marketing:                    [0,0,0,0,0,0,0,399,0,0,60,289],
-    Office:                       [0,0,0,0,0,180,623,650,242,666,208,0],
-    Rent:                         [0,0,0,0,0,0,2170,2170,2170,2170,2170,2170],
-    'Phone/Internet':             [0,0,0,0,0,501,0,0,0,0,0,238],
-    'Repairs/Maintenance':        [0,0,0,0,0,0,0,0,0,0,0,0],
-    Utilities:                    [0,0,0,0,0,675,773,776,827,687,488,0],
-    Payroll:                      [0,0,0,0,0,0,1917,5822,6858,5903,6827,8801],
-    'Supplies & Materials - COGS':[0,0,0,0,0,0,10247,9348,11341,9595,15897,11621],
-    FSN:                          [0,0,0,0,0,0,0,0,5437,0,0,0],
-    Transpo:                      [0,0,0,0,0,0,0,119,901,1246,819,1003],
-    Vehicles:                     [0,0,0,0,0,10358,0,0,0,0,0,0],
-    Insurance:                    [0,0,0,0,0,0,1160,764,755,755,755,755],
-    Taxes:                        [0,0,0,0,0,0,774,457,2640,424,0,6767],
-  },
-  2024: {
-    Revenue:                      [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
-    Marketing:                    [144,308,0,0,258,429,1823,184,286,598,1014,659],
-    Office:                       [974,1194,357,647,291,1180,706,294,371,780,1837,2328],
-    Rent:                         [2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170],
-    'Phone/Internet':             [238,238,238,238,238,238,238,238,238,238,238,239],
-    'Repairs/Maintenance':        [0,0,0,0,0,358,230,0,0,473,76,466],
-    Utilities:                    [426,468,440,402,433,425,637,637,610,632,560,513],
-    Payroll:                      [5635,10314,9404,7914,9379,8079,5401,8194,6546,7377,10814,9390],
-    'Supplies & Materials - COGS':[14408,20741,10940,15472,25107,10404,8913,8024,11000,15763,14959,13883],
-    FSN:                          [0,0,613,848,649,564,628,540,2008,628,0,742],
-    Transpo:                      [2230,103,124,191,63,105,99,179,41,105,102,113],
-    Vehicles:                     [729,729,729,729,729,729,729,729,729,15729,729,1774],
-    Insurance:                    [755,755,755,1059,211,612,724,702,467,1484,554,1181],
-    Taxes:                        [0,0,6788,0,0,7759,0,943,4237,0,2347,6004],
-  },
-  2025: {
-    Revenue:                      [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037],
-    Marketing:                    [763,3252,2079,963,644,99,1168,899,649,586,767,1526],
-    Office:                       [767,446,1452,506,2291,885,1392,1492,383,2282,530,780],
-    Rent:                         [2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170,2170],
-    'Phone/Internet':             [239,218,239,239,239,0,345,249,249,250,317,251],
-    'Repairs/Maintenance':        [878,0,2834,610,0,0,0,75,0,0,0,0],
-    Utilities:                    [501,511,477,408,477,460,545,630,543,474,474,425],
-    Payroll:                      [7048,12637,9695,10370,15604,9065,7283,7813,8021,8378,10328,9151],
-    'Supplies & Materials - COGS':[15051,23446,15302,16343,27220,12944,11251,8360,15063,11335,11667,15569],
-    FSN:                          [352,1163,2006,1577,1383,1083,1214,363,1165,109,1237,1038],
-    Transpo:                      [1954,48,168,42,107,77,255,6,496,104,150,151],
-    Vehicles:                     [1251,729,522,522,1045,522,1045,0,522,1045,0,1045],
-    Insurance:                    [896,660,1131,1210,896,714,1242,1048,1247,1266,394,1650],
-    Taxes:                        [0,0,7125,0,891,8388,0,988,4662,0,2401,5919],
-  }
+const VAULT_REVENUE = {
+  2023: [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
+  2024: [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
+  2025: [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037]
+};
+
+const VAULT_EXPENSES = {
+  2023: [0,0,0,0,0,0,28334,21320,31738,21162,27981,32645],
+  2024: [29074,37020,32558,29670,39528,33052,22298,22834,28703,45977,35400,39462],
+  2025: [31870,45280,45200,34960,52967,36408,27908,24093,35172,27998,30435,39676]
 };
 
 function ensureVaultData() {
-  // rules is no longer saved to sheet — always ensure it's a valid array
+  // rules now sync to the sheet metadata; ensure it's always a valid array
   if (!Array.isArray(appData.rules)) appData.rules = [];
   [2023, 2024, 2025].forEach(year => {
-    const yearData = VAULT_DATA[year];
-    if (!yearData) return;
     MONTHS_SHORT.forEach((_, mi) => {
       const key = `${year}-${mi}`;
-      if (!appData.transactions[key]) appData.transactions[key] = [];
+      if (!appData.transactions[key]) {
+        appData.transactions[key] = [];
+      }
+      // Add vault entries if none exist for that month
       const hasVault = appData.transactions[key].some(t => t._vault);
       if (!hasVault) {
-        const date = `${year}-${String(mi+1).padStart(2,'0')}-01`;
-        Object.entries(yearData).forEach(([cat, months]) => {
-          const amt = months[mi];
-          if (!amt || amt === 0) return;
-          const type = cat === 'Revenue' ? 'in' : 'out';
-          appData.transactions[key].push({
-            id: `vault-${cat.replace(/[^a-z0-9]/gi,'-')}-${year}-${mi}`,
-            date, desc: `${cat} (vault)`,
-            category: cat, vendor: cat,
-            amount: amt, type,
+        const rev = VAULT_REVENUE[year] && VAULT_REVENUE[year][mi];
+        const exp = VAULT_EXPENSES[year] && VAULT_EXPENSES[year][mi];
+        if (rev) {
+          appData.transactions[key].unshift({
+            id: `vault-rev-${year}-${mi}`,
+            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
+            desc: 'Total Revenue (Vault)',
+            category: 'Revenue',
+            vendor: 'Flower Shop',
+            amount: rev,
+            type: 'in',
             _vault: true
           });
-        });
-        // Sort vault entries: revenue first
-        appData.transactions[key].sort((a,b) => {
-          if (!a._vault && !b._vault) return 0;
-          if (a._vault && b._vault) return a.type === 'in' ? -1 : 1;
-          return a._vault ? 1 : -1;
-        });
+        }
+        if (exp) {
+          appData.transactions[key].push({
+            id: `vault-exp-${year}-${mi}`,
+            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
+            desc: 'Total Expenses (Vault)',
+            category: 'Supplies & Materials - COGS',
+            vendor: 'Various',
+            amount: exp,
+            type: 'out',
+            _vault: true
+          });
+        }
       }
     });
   });
@@ -1153,6 +990,16 @@ async function loadFromSheet() {
     }
 
     if (useSheet) {
+      // Preserve locally-stored rules if the sheet copy is missing/empty
+      // (older sheets saved before rules were synced won't contain them)
+      if (!Array.isArray(sheetData.rules) || sheetData.rules.length === 0) {
+        try {
+          const localData = JSON.parse(localStorage.getItem('bloombooks_v2') || '{}');
+          if (Array.isArray(localData.rules) && localData.rules.length > 0) {
+            sheetData.rules = localData.rules;
+          }
+        } catch(e) {}
+      }
       appData = sheetData;
       setSyncStatus('saved', 'Synced ✓');
       setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
@@ -1207,7 +1054,7 @@ async function pushToSheet() {
       notes: appData.notes || {},
       reconciled: appData.reconciled || {},
       holidays: appData.holidays || {},
-      posSalesTax: appData.posSalesTax || {},
+      rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()
     };
     const monthRows = [];
@@ -1355,18 +1202,8 @@ function updateYearSelects() {
 // ============================================================
 let currentPanel = 'month-0';
 
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('sidebar-overlay').classList.toggle('open');
-}
-
 function switchPanel(panelId) {
   currentPanel = panelId;
-  // Auto-close sidebar on mobile after selection
-  if (window.innerWidth <= 768) {
-    document.getElementById('sidebar').classList.remove('open');
-    document.getElementById('sidebar-overlay').classList.remove('open');
-  }
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   const tab = document.querySelector(`[data-panel="${panelId}"]`);
   if (tab) tab.classList.add('active');
@@ -1388,8 +1225,6 @@ function switchPanel(panelId) {
       if (panelId === 'holidays') renderHolidayPanel();
       if (panelId === 'import')   renderImportPanel();
       if (panelId === 'trainer')  renderTrainerPanel();
-      if (panelId === 'legacy')   renderLegacyPanel();
-      if (panelId === 'breakeven') renderBreakevenPanel();
     }
   }
 }
@@ -1534,7 +1369,6 @@ function renderMonthPanel(mi) {
         <div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div>
         <div class="kpi-sub">COGS / Revenue</div>
       </div>
-
       ${prevRev > 0 ? `<div class="kpi-card" style="border-top:3px solid var(--mist)">
         <div class="kpi-label">${year-1} Revenue</div>
         <div class="kpi-value" style="font-size:1.1rem">${fmt(prevRev)}</div>
@@ -1591,11 +1425,11 @@ function renderMonthPanel(mi) {
         </div>
         <div class="form-group">
           <label>Vendor</label>
-          <input type="text" id="new-vendor-${mi}" placeholder="Vendor" onkeydown="if(event.key==='Enter') addManualTx(${mi})">
+          <input type="text" id="new-vendor-${mi}" placeholder="Vendor">
         </div>
         <div class="form-group">
           <label>Amount ($)</label>
-          <input type="number" id="new-amount-${mi}" placeholder="0.00" step="0.01" min="0" onkeydown="if(event.key==='Enter') addManualTx(${mi})">
+          <input type="number" id="new-amount-${mi}" placeholder="0.00" step="0.01" min="0">
         </div>
         <div class="form-group">
           <label>Type</label>
@@ -1704,11 +1538,6 @@ function addManualTx(mi) {
   addTransaction(year, mi, { date, desc, category: cat, vendor, amount, type });
   renderMonthPanel(mi);
   notify('Transaction added');
-  // Return focus to date field for rapid entry
-  setTimeout(() => {
-    const dateField = document.getElementById(`new-date-${mi}`);
-    if (dateField) dateField.focus();
-  }, 50);
 }
 
 function deleteTx(id, mi, year) {
@@ -1765,25 +1594,6 @@ function saveEdit() {
 // ============================================================
 // CLEAR MONTH
 // ============================================================
-function refreshVault() {
-  if (!confirm('This will clear all vault entries and reload them with the latest category data. Your imported transactions will be preserved. Continue?')) return;
-  // Remove all vault entries from 2023-2025
-  [2023, 2024, 2025].forEach(year => {
-    for (let mi = 0; mi < 12; mi++) {
-      const key = `${year}-${mi}`;
-      if (appData.transactions[key]) {
-        appData.transactions[key] = appData.transactions[key].filter(t => !t._vault);
-      }
-    }
-  });
-  // Re-run ensureVaultData to inject fresh vault entries
-  ensureVaultData();
-  saveData();
-  // Re-render current panel
-  switchPanel(currentPanel || 'month-0');
-  notify('Vault refreshed with latest category data ✓');
-}
-
 function clearMonth(mi) {
   const year = appData.activeYear;
   const monthName = MONTHS[mi];
@@ -1841,17 +1651,12 @@ function renderTaxPanel() {
   const yr = appData.activeYear;
   const el = document.getElementById('tax-summary-content');
 
-  // Aggregate all categories for the year — exclude cash transactions
+  // Aggregate all categories for the year
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
   MONTHS_SHORT.forEach((_, mi) => {
-    const allTxs = getTransactions(yr, mi);
-    const hasReal = allTxs.some(t => !t._vault);
-    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
-      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
-    CATEGORIES.forEach(cat => {
-      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
-    });
+    const calc = calcMonth(yr, mi);
+    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
   });
 
   const revenue = totals['Revenue'] || 0;
@@ -1887,116 +1692,12 @@ function renderTaxPanel() {
     </div>`;
 }
 
-function printTaxSummary() {
-  const yr = appData.activeYear;
-  const totals = {};
-  CATEGORIES.forEach(c => totals[c] = 0);
-  // Also get month-by-month breakdown — exclude cash
-  const monthly = MONTHS.map((name, mi) => {
-    const allTxs = getTransactions(yr, mi);
-    const hasReal = allTxs.some(t => !t._vault);
-    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
-      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
-    const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s,t) => s+t.amount, 0);
-    const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s,t) => s+t.amount, 0);
-    const expenses = txs.filter(t => t.type === 'out').reduce((s,t) => s+t.amount, 0);
-    const net = revenue - expenses;
-    const cogsRatio = revenue > 0 ? cogs/revenue*100 : 0;
-    return { name, revenue, expenses, net, cogsRatio };
-  });
-  MONTHS_SHORT.forEach((_, mi) => {
-    const allTxs = getTransactions(yr, mi);
-    const hasReal = allTxs.some(t => !t._vault);
-    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
-      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
-    CATEGORIES.forEach(cat => {
-      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
-    });
-  });
-  const revenue = totals['Revenue'] || 0;
-  const totalExp = CATEGORIES.filter(c => c !== 'Revenue').reduce((s,c) => s + (totals[c]||0), 0);
-  const net = revenue - totalExp;
-
-  const catRows = CATEGORIES.filter(c => totals[c] > 0).map(c => {
-    const pct = revenue > 0 ? (totals[c]/revenue*100).toFixed(1) : '—';
-    const avg = (totals[c]/12).toFixed(2);
-    return `<tr>
-      <td>${c}</td>
-      <td style="text-align:right">${fmt(totals[c])}</td>
-      <td style="text-align:right">${pct}%</td>
-      <td style="text-align:right">$${avg}</td>
-    </tr>`;
-  }).join('');
-
-  const monthRows = monthly.filter(m => m.revenue > 0 || m.expenses > 0).map(m => `<tr>
-    <td>${m.name}</td>
-    <td style="text-align:right;color:#2a7a4f">${fmt(m.revenue)}</td>
-    <td style="text-align:right;color:#c0392b">${fmt(m.expenses)}</td>
-    <td style="text-align:right;color:${m.net>=0?'#2a7a4f':'#c0392b'}">${fmt(m.net)}</td>
-    <td style="text-align:right">${m.cogsRatio.toFixed(1)}%</td>
-  </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>Bloom Books — Tax Summary ${yr}</title>
-  <style>
-    body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a2e; margin: 40px; }
-    h1 { font-size: 22px; margin-bottom: 4px; }
-    h2 { font-size: 15px; margin: 24px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-    .subtitle { color: #888; margin-bottom: 24px; font-size: 11px; }
-    .summary { display: flex; gap: 24px; margin-bottom: 24px; }
-    .summary-box { border: 1px solid #ddd; border-radius: 6px; padding: 12px 18px; min-width: 140px; }
-    .summary-box .label { font-size: 10px; text-transform: uppercase; color: #888; margin-bottom: 4px; }
-    .summary-box .value { font-size: 20px; font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-    th { background: #f5f5f7; text-align: left; padding: 7px 10px; font-size: 10px; text-transform: uppercase; color: #888; border-bottom: 1px solid #ddd; }
-    td { padding: 7px 10px; border-bottom: 1px solid #f0f0f0; }
-    .green { color: #2a7a4f; }
-    .red { color: #c0392b; }
-    .footer { margin-top: 32px; font-size: 10px; color: #aaa; border-top: 1px solid #eee; padding-top: 12px; }
-    @media print { body { margin: 20px; } }
-  <\/style>
-  </head><body>
-  <h1>🌸 Bloom Books — Tax Summary</h1>
-  <div class="subtitle">Mosholu Flowers LLC · Year: ${yr} · Generated: ${new Date().toLocaleDateString()}</div>
-
-  <div class="summary">
-    <div class="summary-box"><div class="label">Total Revenue</div><div class="value green">${fmt(revenue)}</div></div>
-    <div class="summary-box"><div class="label">Total Expenses</div><div class="value red">${fmt(totalExp)}</div></div>
-    <div class="summary-box"><div class="label">Net Income</div><div class="value" style="color:${net>=0?'#2a7a4f':'#c0392b'}">${fmt(net)}</div></div>
-  </div>
-
-  <h2>Annual Category Totals</h2>
-  <table>
-    <thead><tr><th>Category</th><th style="text-align:right">Annual Total</th><th style="text-align:right">% of Revenue</th><th style="text-align:right">Monthly Avg</th></tr></thead>
-    <tbody>${catRows}</tbody>
-  </table>
-
-  <h2>Month-by-Month Summary</h2>
-  <table>
-    <thead><tr><th>Month</th><th style="text-align:right">Revenue</th><th style="text-align:right">Expenses</th><th style="text-align:right">Net Income</th><th style="text-align:right">COGS %</th></tr></thead>
-    <tbody>${monthRows}</tbody>
-  </table>
-
-  <div class="footer">Bloom Books · bloombooks.netlify.app · Prepared for tax purposes. Please verify all figures with your accountant.</div>
-  </body></html>`;
-
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => w.print(), 500);
-}
-
 function exportTaxCSV(yr) {
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
   MONTHS_SHORT.forEach((_, mi) => {
-    const allTxs = getTransactions(yr, mi);
-    const hasReal = allTxs.some(t => !t._vault);
-    const txs = (hasReal ? allTxs.filter(t => !t._vault) : allTxs)
-      .filter(t => (t.vendor || '').toLowerCase() !== 'cash' && (t.desc || '').toLowerCase() !== 'cash');
-    CATEGORIES.forEach(cat => {
-      txs.filter(t => t.category === cat).forEach(t => { totals[cat] += t.amount; });
-    });
+    const calc = calcMonth(yr, mi);
+    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
   });
   let csv = 'Category,Annual Total,% of Revenue,Monthly Avg\n';
   const rev = totals['Revenue'] || 0;
@@ -2313,28 +2014,14 @@ function renderYearlyPanel() {
       acc.revenue += c.revenue;
       acc.expenses += c.expenses;
       acc.net += c.net;
-      acc.cogs += (c.byCategory['Supplies & Materials - COGS'] || 0);
       return acc;
-    }, { revenue: 0, expenses: 0, net: 0, cogs: 0 });
+    }, { revenue: 0, expenses: 0, net: 0 });
 
     // YoY annual growth
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth(); // 0-indexed
-    // For current year: only compare months up to current month vs same months last year
-    // For past years: compare all 12 months
-    const monthsToCompare = (yr === currentYear)
-      ? currentMonth // months 0..currentMonth-1 (completed months only)
-      : 12;
-    const currRevForComparison = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + getRevenue(yr, mi), 0);
-    const prevRevTotal = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
-    const annualGrowth = prevRevTotal > 0 ? ((currRevForComparison - prevRevTotal) / prevRevTotal * 100) : null;
-    const growthLabel = yr === currentYear ? `YoY (Jan–${MONTHS_SHORT[currentMonth - 1] || 'now'})` : 'YoY Growth';
+    const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
+    const annualGrowth = prevRevTotal > 0 ? ((totals.revenue - prevRevTotal) / prevRevTotal * 100) : null;
 
-    const currNetForComparison = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + calcMonth(yr, mi).net, 0);
-    const prevNetTotal = MONTHS_SHORT.slice(0, monthsToCompare).reduce((s, _, mi) => s + calcMonth(yr-1, mi).net, 0);
-    const netGrowth = prevNetTotal !== 0 ? ((currNetForComparison - prevNetTotal) / Math.abs(prevNetTotal) * 100) : null;
-
-    return { yr, ...totals, annualGrowth, growthLabel, netGrowth };
+    return { yr, ...totals, annualGrowth };
   });
 
   grid.innerHTML = `
@@ -2345,9 +2032,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
-          <div class="stat-row"><span>COGS %</span><span style="color:${r.revenue>0&&(r.cogs/r.revenue)<0.45?'var(--green)':'var(--red)'}">${r.revenue>0?(r.cogs/r.revenue*100).toFixed(1)+'%':'—'}</span></div>
-          ${r.annualGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel} (Rev)</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
-          ${r.netGrowth !== null ? `<div class="stat-row"><span>${r.growthLabel} (Net)</span><span class="${r.netGrowth>=0?'growth-up':'growth-down'}">${r.netGrowth>=0?'▲':'▼'} ${Math.abs(r.netGrowth).toFixed(1)}%</span></div>` : ''}
+          ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
     </div>
@@ -2355,10 +2040,6 @@ function renderYearlyPanel() {
     <div class="chart-wrap" style="margin-bottom:20px;">
       <h3>Monthly Revenue — Annual Comparison</h3>
       <div class="chart-container" style="height:380px;"><canvas id="annualComparisonChart"></canvas></div>
-    </div>
-    <div class="chart-wrap" style="margin-bottom:20px;">
-      <h3>Annual Category Breakdown</h3>
-      <div id="yearlyCatList"></div>
     </div>
   `;
 
@@ -2427,48 +2108,40 @@ function renderYearlyPanel() {
     }
   });
 
-  // Annual Category Breakdown — table list per year
-  const expCats2 = CATEGORIES.filter(cat => cat !== 'Revenue');
-  const yr = appData.activeYear;
-  const annualTotals = {};
-  let annualRevenue = 0;
-  expCats2.forEach(cat => { annualTotals[cat] = 0; });
-  MONTHS_SHORT.forEach((_, mi) => {
-    const m = calcMonth(yr, mi);
-    annualRevenue += m.revenue;
-    expCats2.forEach(cat => { annualTotals[cat] += (m.byCategory[cat] || 0); });
+  // Annual Category Breakdown — stacked bar by category per year
+  if (yearlyChartInst3) yearlyChartInst3.destroy();
+  const expCats = CATEGORIES.filter(c => c !== 'Revenue');
+  const catColorMap = {
+    'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
+    'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',
+    'Office':'#7f8c8d','Insurance':'#d35400','FSN':'#27ae60',
+    'Repairs/Maintenance':'#8b0000','Rent':'#2c3e50','Phone/Internet':'#6c3483','Marketing':'#e74c3c'
+  };
+  const catDatasets = expCats.map(cat => ({
+    label: cat,
+    data: appData.years.map(yr =>
+      MONTHS_SHORT.reduce((s, _, mi) => s + (calcMonth(yr, mi).byCategory[cat] || 0), 0)
+    ),
+    backgroundColor: (catColorMap[cat] || '#888') + 'cc',
+    borderWidth: 0
+  })).filter(ds => ds.data.some(v => v > 0));
+
+  const ctx3 = document.getElementById('yearlyCatChart').getContext('2d');
+  yearlyChartInst3 = new Chart(ctx3, {
+    type: 'bar',
+    data: { labels: appData.years.map(String), datasets: catDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, boxWidth: 12, fontSize: 11 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { stacked: true, ticks: { font: { family: 'Inter' } } },
+        y: { stacked: true, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+      }
+    }
   });
-  const sortedCats = expCats2.filter(cat => annualTotals[cat] > 0)
-    .sort((a, b) => annualTotals[b] - annualTotals[a]);
-  const catListEl = document.getElementById('yearlyCatList');
-  if (catListEl) {
-    catListEl.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">Category</th>
-            <th style="text-align:right;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">Total</th>
-            <th style="text-align:right;padding:8px 12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);border-bottom:1px solid var(--border);">% of Revenue</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${sortedCats.map(cat => {
-            const amt = annualTotals[cat];
-            const pct = annualRevenue > 0 ? (amt / annualRevenue * 100).toFixed(1) : '—';
-            return `<tr style="border-bottom:1px solid var(--border-soft);">
-              <td style="padding:9px 12px;"><span class="badge">${cat}</span></td>
-              <td style="padding:9px 12px;text-align:right;color:var(--red);font-weight:600;">${fmt(amt)}</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--mist);">${pct}%</td>
-            </tr>`;
-          }).join('')}
-          <tr style="border-top:2px solid var(--border);font-weight:600;">
-            <td style="padding:9px 12px;">Total Expenses</td>
-            <td style="padding:9px 12px;text-align:right;color:var(--red);">${fmt(sortedCats.reduce((s,c) => s+annualTotals[c],0))}</td>
-            <td style="padding:9px 12px;text-align:right;color:var(--mist);">${annualRevenue > 0 ? (sortedCats.reduce((s,c)=>s+annualTotals[c],0)/annualRevenue*100).toFixed(1) : '—'}%</td>
-          </tr>
-        </tbody>
-      </table>`;
-  }
 
   // Supplier pie — all transactions across active year (exclude vault)
   const allYearTxs = MONTHS_SHORT.reduce((arr, _, mi) => {
@@ -2538,7 +2211,7 @@ function parseAmex() {
     // Apply built-in ignore rules
     for (const rule of BUILTIN_RULES) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, desc: desc.slice(0,80), amount: amt, reason: rule.keyword, _amex: true, _amexLine: line });
+        ignoredRows.push({ desc: desc.slice(0,80), amount: amt, reason: rule.keyword });
         return;
       }
     }
@@ -2607,13 +2280,13 @@ function parseImport() {
     // --- IGNORE ---
     for (const rule of BUILTIN_RULES) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, line, desc: desc.slice(0,80), rawDate, rawAmt, txType, amount: rawAmt, reason: rule.keyword });
+        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
         return;
       }
     }
     for (const rule of appData.rules) {
       if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ _id: 'ign-' + ignoredRows.length, line, desc: desc.slice(0,80), rawDate, rawAmt, txType, amount: rawAmt, reason: rule.keyword });
+        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
         return;
       }
     }
@@ -2754,14 +2427,13 @@ function renderStagingTable() {
         <h3>⛔ Ignored (${ignoredRows.length}) — matched ignore rules</h3>
       </div>
       <table>
-        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th><th></th></tr></thead>
+        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th></tr></thead>
         <tbody>
           ${ignoredRows.map(r => `
-            <tr style="background:#ffeaea" id="ign-row-${r._id}">
+            <tr style="background:#ffeaea">
               <td style="font-size:0.8rem">${escHtml(r.desc)}</td>
-              <td class="amount-out">${typeof r.amount === 'number' ? fmt(r.amount) : r.amount}</td>
+              <td class="amount-out">${fmt(r.amount)}</td>
               <td><span class="badge">${escHtml(r.reason)}</span></td>
-              <td><button class="btn btn-outline btn-xs" onclick="unignoreRow('${r._id}')">+ Stage</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -2777,30 +2449,6 @@ function updateStageRow(id, field, val) {
 function rejectStagedRow(id) {
   const r = stagingRows.find(r => r._id === id);
   if (r) { r.status = 'rejected'; renderStagingTable(); }
-}
-
-function unignoreRow(id) {
-  const r = ignoredRows.find(r => r._id === id);
-  if (!r) return;
-  ignoredRows = ignoredRows.filter(x => x._id !== id);
-  const yr = parseInt(document.getElementById('import-year-sel').value);
-  const mo = parseInt(document.getElementById('import-month-sel').value);
-  let amt = typeof r.amount === 'number' ? r.amount : parseFloat((r.rawAmt||'').replace(/[^0-9.\-]/g,''));
-  if (isNaN(amt)) amt = 0;
-  const dm = (r.rawDate||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  const date = dm ? `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}` : `${yr}-${String(mo+1).padStart(2,'0')}-01`;
-  stagingRows.push({
-    _id: 'stage-ign-' + Date.now(),
-    desc: r.desc,
-    date, txYear: yr, txMonth: mo,
-    amount: Math.abs(amt),
-    type: 'out',
-    category: 'Office',
-    vendor: r.desc.slice(0, 40),
-    status: 'review'
-  });
-  renderStagingTable();
-  notify('Moved to staging — set category before saving');
 }
 
 function saveStagedRow(id) {
@@ -2886,7 +2534,7 @@ function printMonthSummary(mi) {
     .kpi-value { font-size: 18px; font-weight: bold; }
     .note { background: #fffde7; border: 1px solid #f0d060; padding: 8px; border-radius: 4px; font-style: italic; }
     @media print { body { padding: 0; } }
-  <\/style></head><body>
+  </style></head><body>
   <h1>🌸 Bloom Books</h1>
   <div>${MONTHS[mi]} ${year} — Monthly Summary</div>
   <div class="kpis">
@@ -3007,304 +2655,6 @@ function initApp() {
   // Auto-backup on load (only if real data exists)
   setTimeout(autoBackup, 3000);
   // OAuth will call finalizeInit() when cloud data is loaded
-}
-
-
-// ============================================================
-// LEGACY IMPORTER
-// ============================================================
-
-const LEGACY_CAT_MAP = {
-  'payroll': 'Payroll',
-  'payroll1': 'Payroll1',
-  'supplies & materials - cogs': 'Supplies & Materials - COGS',
-  'cogs': 'Supplies & Materials - COGS',
-  'taxes': 'Taxes',
-  'tax': 'Taxes',
-  'utilities': 'Utilities',
-  'utility': 'Utilities',
-  'transpo': 'Transpo',
-  'transportation': 'Transpo',
-  'vehicles': 'Vehicles',
-  'vehicle': 'Vehicles',
-  'car payment': 'Vehicles',
-  'office': 'Office',
-  'office expenses': 'Office',
-  'insurance': 'Insurance',
-  'teleflora/fsn': 'FSN',
-  'fsn': 'FSN',
-  'teleflora': 'FSN',
-  'repairs/maintenance': 'Repairs/Maintenance',
-  'repair & maintenance': 'Repairs/Maintenance',
-  'repairs': 'Repairs/Maintenance',
-  'rent': 'Rent',
-  'rent or lease': 'Rent',
-  'phone/internet': 'Phone/Internet',
-  'phone internet': 'Phone/Internet',
-  'marketing': 'Marketing',
-  'advertising': 'Marketing',
-  'pos': 'Revenue',
-  'web': 'Revenue',
-  'cc': 'Revenue',
-  'cash': 'Revenue',
-  'stripe': 'Revenue',
-  'venmo': 'Revenue',
-  'sales': 'Revenue',
-};
-
-let legacyPreviewRows = [];
-
-function renderLegacyPanel() {
-  const sel = document.getElementById('legacy-year-sel');
-  if (sel) {
-    sel.innerHTML = appData.years.map(y => `<option value="${y}">${y}</option>`).join('');
-    sel.value = appData.activeYear;
-  }
-}
-
-function parseLegacyCSV() {
-  const raw = document.getElementById('legacy-csv-text').value.trim();
-  if (!raw) { notify('Paste some CSV first', true); return; }
-  const yr = parseInt(document.getElementById('legacy-year-sel').value);
-  const mo = parseInt(document.getElementById('legacy-month-sel').value);
-  legacyPreviewRows = [];
-  const lines = raw.split(/[\r\n]+/).filter(l => l.trim());
-  lines.forEach(line => {
-    const cols = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
-      else cur += ch;
-    }
-    cols.push(cur.trim());
-    const rawCat = (cols[1] || '').trim();
-    const rawAmt = (cols[3] || '').trim();
-    if (!rawCat || !rawAmt) return;
-    const amt = parseFloat(rawAmt.replace(/[$,+]/g, ''));
-    if (isNaN(amt) || amt === 0) return;
-    const catKey = rawCat.toLowerCase().trim();
-    const category = LEGACY_CAT_MAP[catKey];
-    if (!category) return;
-    const type = category === 'Revenue' ? 'in' : 'out';
-    legacyPreviewRows.push({
-      category, vendor: rawCat, amount: Math.abs(amt), type,
-      date: `${yr}-${String(mo + 1).padStart(2, '0')}-01`,
-      desc: `${rawCat} (legacy)`,
-      txYear: yr, txMonth: mo
-    });
-  });
-  if (legacyPreviewRows.length === 0) {
-    notify('No recognizable categories found', true); return;
-  }
-  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const el = document.getElementById('legacy-preview');
-  el.innerHTML = `
-    <div class="ledger-wrap" style="margin-top:16px;">
-      <div class="ledger-header">
-        <h3>Preview — ${legacyPreviewRows.length} entries for ${MONTH_NAMES[mo]} ${yr}</h3>
-        <button class="btn btn-primary btn-sm" onclick="saveLegacyImport()">✓ Save All to Ledger</button>
-      </div>
-      <table>
-        <thead><tr><th>Category</th><th>Type</th><th>Amount</th></tr></thead>
-        <tbody>
-          ${legacyPreviewRows.map((r, i) => `
-            <tr>
-              <td>
-                <span class="badge">${r.category}</span>
-                <select style="margin-left:6px;font-size:0.72rem;border:1px solid var(--border);border-radius:4px;padding:2px 4px;" onchange="legacyPreviewRows[${i}].category=this.value">
-                  ${CATEGORIES.map(c => `<option value="${c}" ${c === r.category ? 'selected' : ''}>${c}</option>`).join('')}
-                </select>
-              </td>
-              <td><span class="badge" style="color:${r.type==='in'?'var(--green)':'var(--red)'}">${r.type === 'in' ? 'Income' : 'Expense'}</span></td>
-              <td class="${r.type === 'in' ? 'amount-in' : 'amount-out'}">${r.type === 'in' ? '+' : '\u2212'}${fmt(r.amount)}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
-  notify(`${legacyPreviewRows.length} entries parsed — review and save`);
-}
-
-function saveLegacyImport() {
-  if (!legacyPreviewRows.length) return;
-  legacyPreviewRows.forEach(r => {
-    addTransaction(r.txYear, r.txMonth, {
-      date: r.date, desc: r.desc, category: r.category,
-      vendor: r.vendor, amount: r.amount, type: r.type
-    });
-  });
-  const count = legacyPreviewRows.length;
-  legacyPreviewRows = [];
-  document.getElementById('legacy-preview').innerHTML = '';
-  document.getElementById('legacy-csv-text').value = '';
-  notify(`${count} legacy transactions saved! ✓`);
-}
-
-
-// ============================================================
-// BREAK-EVEN PANEL
-// ============================================================
-function renderBreakevenPanel() {
-  const yr = appData.activeYear;
-  const el = document.getElementById('breakeven-content');
-  if (!el) return;
-
-  // Fixed costs = costs that don't vary with revenue
-  // Variable costs = COGS, FSN (scale with revenue)
-  const FIXED_CATS = ['Rent','Phone/Internet','Insurance','Utilities','Vehicles','Payroll','Payroll1'];
-  const VARIABLE_CATS = ['Supplies & Materials - COGS','FSN'];
-
-  // Calculate averages from active year (only months with data)
-  let fixedTotals = {};
-  let variableTotals = {};
-  FIXED_CATS.forEach(c => fixedTotals[c] = 0);
-  VARIABLE_CATS.forEach(c => variableTotals[c] = 0);
-  let totalRevenue = 0;
-  let monthsWithData = 0;
-
-  for (let mi = 0; mi < 12; mi++) {
-    const calc = calcMonth(yr, mi);
-    if (calc.revenue > 0) {
-      monthsWithData++;
-      totalRevenue += calc.revenue;
-      FIXED_CATS.forEach(c => { fixedTotals[c] += (calc.byCategory[c] || 0); });
-      VARIABLE_CATS.forEach(c => { variableTotals[c] += (calc.byCategory[c] || 0); });
-    }
-  }
-
-  if (monthsWithData === 0) {
-    el.innerHTML = '<p style="color:var(--mist);padding:20px;">No data available for the active year.</p>';
-    return;
-  }
-
-  // Monthly averages
-  const avgFixed = {};
-  FIXED_CATS.forEach(c => avgFixed[c] = fixedTotals[c] / monthsWithData);
-  const totalAvgFixed = Object.values(avgFixed).reduce((s,v) => s+v, 0);
-
-  // Variable cost ratio (COGS + FSN as % of revenue)
-  const totalVariable = Object.values(variableTotals).reduce((s,v) => s+v, 0);
-  const variableRatio = totalRevenue > 0 ? totalVariable / totalRevenue : 0.45;
-
-  // Break-even formula: BE = Fixed / (1 - variable ratio)
-  const monthlyBreakeven = totalAvgFixed / (1 - variableRatio);
-  const dailyBreakeven = monthlyBreakeven / 30;
-  const weeklyBreakeven = monthlyBreakeven / 4.33;
-
-  // Days open per week (florist typically 6)
-  const daysOpen = 6;
-  const dailyBreakevenOpenDays = monthlyBreakeven / (4.33 * daysOpen);
-
-  // Current year monthly avg revenue
-  const avgRevenue = totalRevenue / monthsWithData;
-  const cushion = avgRevenue - monthlyBreakeven;
-  const cushionPct = avgRevenue > 0 ? (cushion / avgRevenue * 100) : 0;
-
-  el.innerHTML = `
-    <div class="kpi-row">
-      <div class="kpi-card revenue">
-        <div class="kpi-label">Monthly Break-Even</div>
-        <div class="kpi-value">${fmt(monthlyBreakeven)}</div>
-        <div class="kpi-sub">Revenue needed to cover all costs</div>
-      </div>
-      <div class="kpi-card profit">
-        <div class="kpi-label">Weekly Break-Even</div>
-        <div class="kpi-value">${fmt(weeklyBreakeven)}</div>
-        <div class="kpi-sub">Per week (÷ 4.33)</div>
-      </div>
-      <div class="kpi-card expense">
-        <div class="kpi-label">Daily Break-Even</div>
-        <div class="kpi-value">${fmt(dailyBreakevenOpenDays)}</div>
-        <div class="kpi-sub">Per open day (${daysOpen} days/week)</div>
-      </div>
-      <div class="kpi-card ${cushion >= 0 ? 'revenue' : 'expense'}">
-        <div class="kpi-label">Avg Monthly Cushion</div>
-        <div class="kpi-value" style="color:${cushion>=0?'var(--green)':'var(--red)'}">${cushion>=0?'+':''}${fmt(cushion)}</div>
-        <div class="kpi-sub">${Math.abs(cushionPct).toFixed(1)}% ${cushion>=0?'above':'below'} break-even</div>
-      </div>
-    </div>
-
-    <div class="chart-wrap">
-      <h3>Month-by-Month Break-Even Status — ${yr}</h3>
-      <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
-        <thead><tr>
-          <th style="text-align:left;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Month</th>
-          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Revenue</th>
-          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Break-Even</th>
-          <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Cushion</th>
-          <th style="text-align:center;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Status</th>
-        </tr></thead>
-        <tbody>
-          ${MONTHS.map((name, mi) => {
-            const mc = calcMonth(yr, mi);
-            if (mc.revenue === 0 && mc.expenses === 0) return '';
-            const cushion = mc.revenue - monthlyBreakeven;
-            const cushionPct = (cushion / monthlyBreakeven * 100).toFixed(1);
-            const cleared = mc.revenue >= monthlyBreakeven;
-            return `<tr style="border-bottom:1px solid var(--border-soft);">
-              <td style="padding:8px;font-weight:500;">${name}</td>
-              <td style="padding:8px;text-align:right;color:var(--green);font-weight:600;">${fmt(mc.revenue)}</td>
-              <td style="padding:8px;text-align:right;color:var(--mist);">${fmt(monthlyBreakeven)}</td>
-              <td style="padding:8px;text-align:right;color:${cleared?'var(--green)':'var(--red)'};font-weight:600;">${cushion>=0?'+':''}${fmt(cushion)}</td>
-              <td style="padding:8px;text-align:center;">
-                <span style="font-size:0.72rem;padding:3px 10px;border-radius:20px;background:${cleared?'var(--green-light)':'var(--red-light)'};color:${cleared?'var(--green)':'var(--red)'};font-weight:600;">
-                  ${cleared ? '✓ Cleared' : `${cushionPct}%`}
-                </span>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-      <div class="chart-wrap">
-        <h3>Fixed Costs Breakdown</h3>
-        <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
-          <thead><tr>
-            <th style="text-align:left;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Category</th>
-            <th style="text-align:right;padding:8px;color:var(--mist);font-size:0.68rem;text-transform:uppercase;border-bottom:1px solid var(--border);">Monthly Avg</th>
-          </tr></thead>
-          <tbody>
-            ${FIXED_CATS.filter(c => avgFixed[c] > 0).sort((a,b) => avgFixed[b]-avgFixed[a]).map(c => `
-              <tr style="border-bottom:1px solid var(--border-soft);">
-                <td style="padding:8px;"><span class="badge">${c}</span></td>
-                <td style="padding:8px;text-align:right;font-weight:600;color:var(--red);">${fmt(avgFixed[c])}</td>
-              </tr>`).join('')}
-            <tr style="border-top:2px solid var(--border);font-weight:600;">
-              <td style="padding:8px;">Total Fixed</td>
-              <td style="padding:8px;text-align:right;color:var(--red);">${fmt(totalAvgFixed)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="chart-wrap">
-        <h3>Variable Cost Ratio</h3>
-        <p style="font-size:0.8rem;color:var(--mist);margin-bottom:12px;">These costs scale with revenue. For every $1 of revenue, ${(variableRatio*100).toFixed(1)}¢ goes to variable costs.</p>
-        ${VARIABLE_CATS.filter(c => variableTotals[c] > 0).map(c => {
-          const ratio = totalRevenue > 0 ? variableTotals[c]/totalRevenue*100 : 0;
-          return `<div style="margin-bottom:12px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px;">
-              <span class="badge">${c}</span>
-              <span style="font-weight:600;">${ratio.toFixed(1)}% of revenue</span>
-            </div>
-            <div style="background:var(--border);border-radius:4px;height:8px;">
-              <div style="background:var(--accent2);border-radius:4px;height:8px;width:${Math.min(ratio,100)}%;"></div>
-            </div>
-          </div>`;
-        }).join('')}
-        <div style="margin-top:16px;padding:12px;background:var(--paper);border-radius:8px;font-size:0.8rem;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <span style="color:var(--mist);">Contribution margin</span>
-            <span style="font-weight:600;">${((1-variableRatio)*100).toFixed(1)}%</span>
-          </div>
-          <div style="font-size:0.72rem;color:var(--mist);">For every $1 of revenue, ${((1-variableRatio)*100).toFixed(1)}¢ goes toward covering fixed costs & profit.</div>
-        </div>
-      </div>
-    </div>
-  `;
-
 }
 
 // Close modal on overlay click
