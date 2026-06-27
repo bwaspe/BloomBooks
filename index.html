@@ -1709,20 +1709,68 @@ function countExisting(yr, mo, date, amount, desc) {
 // ============================================================
 // TAX SUMMARY PANEL
 // ============================================================
+function getYearTx(yr) {
+  // Flatten all non-vault transactions for the year (or vault if no real tx)
+  let all = [];
+  MONTHS_SHORT.forEach((_, mi) => {
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
+    all = all.concat(txs);
+  });
+  return all;
+}
+
+function isCashRevenue(t) {
+  if (t.category !== 'Revenue') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d === 'cash' || v === 'cash';
+}
+
+function isPayrollTax(t) {
+  // Gusto payroll-tax draft (ID 9138864001) — identified by vendor tag or description
+  const v = (t.vendor || '').toLowerCase();
+  const d = (t.desc || '').toLowerCase();
+  return v.includes('gusto') && (v.includes('payroll tax') || d.includes('9138864001'));
+}
+
+function isSalesTax(t) {
+  if (t.category !== 'Taxes') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d.includes('sales tax') || d.includes('sw2620818643') || v.includes('sales tax');
+}
+
+function isPropertyTax(t) {
+  if (t.category !== 'Taxes') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d.includes('property') || v.includes('property');
+}
+
 function renderTaxPanel() {
   const yr = appData.activeYear;
   const el = document.getElementById('tax-summary-content');
+  const allTx = getYearTx(yr);
 
-  // Aggregate all categories for the year
+  // Category totals, but: exclude cash revenue from Revenue, and drop Payroll1 entirely
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
-  MONTHS_SHORT.forEach((_, mi) => {
-    const calc = calcMonth(yr, mi);
-    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+  allTx.forEach(t => {
+    if (totals[t.category] === undefined) return;
+    if (t.category === 'Payroll1') return;          // excluded from accountant view
+    if (isCashRevenue(t)) return;                    // cash revenue excluded
+    totals[t.category] += t.amount;
   });
 
+  // Tax sub-line breakdown
+  const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
+  const salesTax   = allTx.filter(isSalesTax).reduce((s,t) => s + t.amount, 0);
+  const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
+
   const revenue = totals['Revenue'] || 0;
-  const totalExp = CATEGORIES.filter(c => c !== 'Revenue').reduce((s,c) => s + (totals[c]||0), 0);
+  const totalExp = CATEGORIES.filter(c => c !== 'Revenue' && c !== 'Payroll1').reduce((s,c) => s + (totals[c]||0), 0);
   const net = revenue - totalExp;
 
   el.innerHTML = `
@@ -1731,6 +1779,19 @@ function renderTaxPanel() {
       <div class="kpi-card expense" style="min-width:160px"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${fmt(totalExp)}</div></div>
       <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
     </div>
+
+    <div class="ledger-wrap" style="margin-bottom:20px">
+      <div class="ledger-header"><h3>🧾 Tax Breakdown (for accountant)</h3></div>
+      <table>
+        <thead><tr><th>Tax Type</th><th>Annual Total</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge">Payroll Tax</span></td><td class="amount-out">${fmt(payrollTax)}</td></tr>
+          <tr><td><span class="badge">Sales Tax</span></td><td class="amount-out">${fmt(salesTax)}</td></tr>
+          <tr><td><span class="badge">Property Tax</span></td><td class="amount-out">${fmt(propertyTax)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="ledger-wrap">
       <div class="ledger-header">
         <h3>📊 ${yr} Category Totals</h3>
@@ -1739,7 +1800,7 @@ function renderTaxPanel() {
       <table>
         <thead><tr><th>Category</th><th>Annual Total</th><th>% of Revenue</th><th>Monthly Avg</th></tr></thead>
         <tbody>
-          ${CATEGORIES.filter(c => totals[c] > 0).map(c => {
+          ${CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).map(c => {
             const pct = revenue > 0 ? (totals[c]/revenue*100).toFixed(1) : '—';
             const avg = totals[c] / 12;
             return `<tr>
@@ -1755,17 +1816,27 @@ function renderTaxPanel() {
 }
 
 function exportTaxCSV(yr) {
+  const allTx = getYearTx(yr);
   const totals = {};
   CATEGORIES.forEach(c => totals[c] = 0);
-  MONTHS_SHORT.forEach((_, mi) => {
-    const calc = calcMonth(yr, mi);
-    CATEGORIES.forEach(c => { totals[c] += calc.byCategory[c] || 0; });
+  allTx.forEach(t => {
+    if (totals[t.category] === undefined) return;
+    if (t.category === 'Payroll1') return;
+    if (isCashRevenue(t)) return;
+    totals[t.category] += t.amount;
   });
-  let csv = 'Category,Annual Total,% of Revenue,Monthly Avg\n';
+  const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
+  const salesTax   = allTx.filter(isSalesTax).reduce((s,t) => s + t.amount, 0);
+  const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
   const rev = totals['Revenue'] || 0;
-  CATEGORIES.filter(c => totals[c] > 0).forEach(c => {
+
+  let csv = 'Section,Item,Annual Total,% of Revenue,Monthly Avg\n';
+  csv += `Tax Breakdown,Payroll Tax,${payrollTax.toFixed(2)},,\n`;
+  csv += `Tax Breakdown,Sales Tax,${salesTax.toFixed(2)},,\n`;
+  csv += `Tax Breakdown,Property Tax,${propertyTax.toFixed(2)},,\n`;
+  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).forEach(c => {
     const pct = rev > 0 ? (totals[c]/rev*100).toFixed(1) : '0';
-    csv += `"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
+    csv += `Category Totals,"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a');
