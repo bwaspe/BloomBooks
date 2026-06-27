@@ -365,6 +365,9 @@ tbody td { padding: 10px 14px; }
   font-size: 0.78rem;
 }
 .rule-keyword { font-weight: 600; flex: 1; color: var(--ink); }
+.cat-clickable:hover { background: var(--border); }
+.cat-active { background: var(--blue-light) !important; }
+th.sortable:hover { background: var(--border); }
 .rule-sign { color: var(--mist); font-size: 0.72rem; }
 .rule-arrow { color: var(--accent2); }
 .rule-cat { color: var(--green); font-weight: 500; }
@@ -1201,6 +1204,8 @@ function updateYearSelects() {
 // NAVIGATION
 // ============================================================
 let currentPanel = 'month-0';
+let monthCatFilter = {};  // { [mi]: categoryName } — active category filter per month
+let monthSort = {};  // { [mi]: {col, dir} } — active sort per month
 
 function switchPanel(panelId) {
   currentPanel = panelId;
@@ -1386,8 +1391,9 @@ function renderMonthPanel(mi) {
             const amt = calc.byCategory[cat] || 0;
             if (amt === 0) return '';
             const pct = calc.revenue > 0 ? (amt / calc.revenue * 100).toFixed(1) : '—';
-            return `<tr>
-              <td><span class="badge">${cat}</span></td>
+            const isActive = monthCatFilter[mi] === cat;
+            return `<tr class="cat-clickable${isActive ? ' cat-active' : ''}" onclick="filterByCategory(${mi}, '${cat.replace(/'/g, "\\'")}')" style="cursor:pointer" title="Click to view ${cat} transactions">
+              <td><span class="badge">${cat}</span>${isActive ? ' <span style="font-size:0.65rem;color:var(--accent2)">● filtering</span>' : ''}</td>
               <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
               <td>${pct}%</td>
             </tr>`;
@@ -1447,7 +1453,7 @@ function renderMonthPanel(mi) {
     <!-- LEDGER -->
     <div class="ledger-wrap">
       <div class="ledger-header">
-        <h3>Ledger — ${txs.filter(t => !t._vault).length} entries${txs.some(t => t._vault) ? ` <span style="font-size:0.7rem;color:var(--mist)">(+${txs.filter(t=>t._vault).length} vault)</span>` : ''}</h3>
+        <h3>Ledger — ${(monthCatFilter[mi] ? txs.filter(t => !t._vault && t.category === monthCatFilter[mi]) : txs.filter(t => !t._vault)).length} entries${txs.some(t => t._vault) ? ` <span style="font-size:0.7rem;color:var(--mist)">(+${txs.filter(t=>t._vault).length} vault)</span>` : ''}${monthCatFilter[mi] ? ` <button class="btn btn-outline btn-xs" onclick="filterByCategory(${mi}, null)" style="margin-left:8px;font-size:0.68rem">× ${escHtml(monthCatFilter[mi])} (clear)</button>` : ''}</h3>
         <div style="display:flex;gap:6px;align-items:center">
           ${txs.some(t => t._vault) ? `<label style="font-size:0.72rem;color:var(--mist);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="show-vault-${mi}" onchange="toggleVault(${mi})" style="cursor:pointer"> Show vault</label>` : ''}
           <button class="btn btn-outline btn-xs" onclick="printMonthSummary(${mi})">🖨 Print / PDF</button>
@@ -1457,17 +1463,22 @@ function renderMonthPanel(mi) {
       <table>
         <thead>
           <tr>
-            <th>Date</th>
-            <th>Description</th>
-            <th>Category</th>
-            <th>Vendor</th>
-            <th>Amount</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'date')" style="cursor:pointer">Date ${sortArrow(mi, 'date')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'desc')" style="cursor:pointer">Description ${sortArrow(mi, 'desc')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'category')" style="cursor:pointer">Category ${sortArrow(mi, 'category')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'vendor')" style="cursor:pointer">Vendor ${sortArrow(mi, 'vendor')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'amount')" style="cursor:pointer">Amount ${sortArrow(mi, 'amount')}</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="ledger-body-${mi}">
-          ${txs.filter(t => !t._vault).length === 0 ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>` : ''}
-          ${txs.filter(t => !t._vault).map(t => renderTxRow(t, mi, year)).join('')}
+          ${(() => {
+            let rows = txs.filter(t => !t._vault);
+            if (monthCatFilter[mi]) rows = rows.filter(t => t.category === monthCatFilter[mi]);
+            rows = applySortRows(rows, monthSort[mi]);
+            if (rows.length === 0) return `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>${monthCatFilter[mi] ? 'No transactions in this category' : 'No transactions yet'}</div></td></tr>`;
+            return rows.map(t => renderTxRow(t, mi, year)).join('');
+          })()}
         </tbody>
       </table>
     </div>
@@ -1495,6 +1506,55 @@ function renderMonthPanel(mi) {
   }, 0);
 }
 
+function sortArrow(mi, col) {
+  const s = monthSort[mi];
+  if (!s || s.col !== col) return '<span style="opacity:0.3;font-size:0.7rem">↕</span>';
+  return s.dir === 'asc' ? '<span style="font-size:0.7rem">▲</span>' : '<span style="font-size:0.7rem">▼</span>';
+}
+
+function applySortRows(rows, sort) {
+  if (!sort || !sort.col) return rows;
+  const { col, dir } = sort;
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    let av, bv;
+    if (col === 'amount') {
+      av = a.amount || 0; bv = b.amount || 0;
+      return (av - bv) * mult;
+    }
+    if (col === 'date') {
+      av = a.date || ''; bv = b.date || '';
+      return av < bv ? -1 * mult : av > bv ? 1 * mult : 0;
+    }
+    // text columns: desc, category, vendor
+    av = (a[col] || '').toString().toLowerCase();
+    bv = (b[col] || '').toString().toLowerCase();
+    return av < bv ? -1 * mult : av > bv ? 1 * mult : 0;
+  });
+}
+
+function sortLedger(mi, col) {
+  const s = monthSort[mi];
+  if (s && s.col === col) {
+    // toggle direction, then clear on third click
+    if (s.dir === 'asc') { monthSort[mi] = { col, dir: 'desc' }; }
+    else { monthSort[mi] = null; }
+  } else {
+    monthSort[mi] = { col, dir: 'asc' };
+  }
+  renderMonthPanel(mi);
+}
+
+function filterByCategory(mi, cat) {
+  // Toggle off if clicking the already-active category
+  if (cat && monthCatFilter[mi] === cat) {
+    monthCatFilter[mi] = null;
+  } else {
+    monthCatFilter[mi] = cat;
+  }
+  renderMonthPanel(mi);
+}
+
 function renderTxRow(t, mi, year) {
   const isVault = t._vault;
   const amtClass = t.type === 'in' ? 'amount-in' : 'amount-out';
@@ -1517,7 +1577,9 @@ function toggleVault(mi) {
   const show = document.getElementById(`show-vault-${mi}`).checked;
   const txs = getTransactions(year, mi);
   const tbody = document.getElementById(`ledger-body-${mi}`);
-  const visible = show ? txs : txs.filter(t => !t._vault);
+  let visible = show ? txs : txs.filter(t => !t._vault);
+  if (monthCatFilter[mi]) visible = visible.filter(t => t.category === monthCatFilter[mi]);
+  visible = applySortRows(visible, monthSort[mi]);
   tbody.innerHTML = visible.length === 0
     ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>`
     : visible.map(t => renderTxRow(t, mi, year)).join('');
