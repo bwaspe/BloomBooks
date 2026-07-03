@@ -2984,7 +2984,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Hardgoods:'#e67e22', Gl
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Hardgoods: 2, Glass: 2, Plants: 2.5, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [] };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [] };
 let ctCharts = {};
 
 function ctSave() {
@@ -2993,7 +2993,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -3018,28 +3018,68 @@ function ctLearnCategory(name, category) {
 }
 
 // --- Family/Type (finer grouping within a category, e.g. all rose colors → "Roses") ---
+// Learns by keyword (first word of the item name), not per-exact-item — tag one
+// "Ranunculus Cloni Pink" and every future Ranunculus variant auto-classifies too.
+const DEFAULT_FAMILY_KEYWORDS = [
+  ['spray rose','Spray Roses'], ['garden rose','Garden Roses'], ['rose','Roses'],
+  ['snapdragon','Snapdragon'],
+  ['delphinium','Delphinium'], ['delph','Delphinium'],
+  ['stock','Stock'],
+  ['bells of ireland','Bells of Ireland'],
+  ['alstromeria','Alstroemeria'], ['alstroemeria','Alstroemeria'], ['alstro','Alstroemeria'],
+  ['mini gerbera','Mini Gerbera'], ['gerbera','Gerbera'],
+  ['oriental lily','Oriental Lily'], ['hybrid lily','Hybrid Lily'], ['lily','Lilies'], ['lil ','Lilies'],
+  ['mini carnation','Mini Carnation'], ['carnation','Carnation'],
+  ['cdn','CDN'],
+  ['cremon','Cremon'],
+  ['mardi gras','Mardi Gras'],
+  ['soledago','Solidago'], ['solidago','Solidago'],
+  ['limonium','Limonium'],
+  ['statice','Statice'],
+  ['mini green hydrangea','Mini Green Hydrangea'], ['hydrangea','Hydrangea'],
+  ['lemon','Lemon'],
+  ['leather','Leather'],
+  ['baby blue','Baby Blue'],
+  ['parvifolia','Parvifolia'],
+  ['seeded','Seeded'],
+  ['pittosporum','Pittosporum'],
+  ['teepee palm','Teepee Palm'], ['teepee','Teepee Palm'],
+  ['gypsophila','Gypsophila'],
+  ['campanula','Campanula'],
+  ['peony','Peony'],
+  ['dahlia','Dahlia'],
+  ['tulip','Tulips']
+];
+
 function ctGuessFamily(name) {
   const key = ctCatalogKey(name);
-  if (ctData.family[key]) return ctData.family[key];
-  if (/\bspray rose\b/.test(key)) return 'Spray Roses';
-  if (/\bgarden rose\b/.test(key)) return 'Garden Roses';
-  if (/\brose\b/.test(key)) return 'Roses';
-  if (/\bdelph\w*\b/.test(key)) return 'Delphinium';
-  if (/\bcremon\b/.test(key)) return 'Cremon';
-  if (/\bhydrangea\b/.test(key)) return 'Hydrangea';
-  if (/\btulip\b/.test(key)) return 'Tulips';
-  if (/\balstr\w*\b/.test(key)) return 'Alstroemeria';
-  if (/\blily\b|\blil\b/.test(key)) return 'Lilies';
+  // Exact per-item override, if one was ever explicitly set (rare — mostly legacy)
+  if (ctData.family && ctData.family[key]) return ctData.family[key];
+  // Learned keyword rules, longest keyword first so "spray rose" beats plain "rose"
+  const learned = Object.entries(ctData.familyKeywords || {}).sort((a,b)=>b[0].length-a[0].length);
+  for (const [kw, fam] of learned) if (key.includes(kw)) return fam;
+  // Built-in defaults — also sorted longest-first so multi-word entries (e.g. "mini gerbera")
+  // are checked before their shorter substring (e.g. "gerbera"), regardless of list order above
+  const defaults = [...DEFAULT_FAMILY_KEYWORDS].sort((a,b)=>b[0].length-a[0].length);
+  for (const [kw, fam] of defaults) if (key.includes(kw)) return fam;
   return '';
 }
+
 function ctLearnFamily(name, family) {
+  const trimmed = (family||'').trim();
+  if (!trimmed) return;
   const key = ctCatalogKey(name);
-  if (family) ctData.family[key] = family;
-  else delete ctData.family[key];
+  const firstWord = key.split(/\s+/)[0];
+  if (firstWord && firstWord.length > 1) {
+    ctData.familyKeywords[firstWord] = trimmed;
+  }
   ctSave();
 }
+
 function ctAllFamilies() {
-  return [...new Set(Object.values(ctData.family))].filter(Boolean).sort();
+  const learned = Object.values(ctData.familyKeywords || {});
+  const defaults = DEFAULT_FAMILY_KEYWORDS.map(([,fam])=>fam);
+  return [...new Set([...learned, ...defaults])].sort();
 }
 function ctFamilyDatalist() {
   return `<datalist id="ct-family-list">${ctAllFamilies().map(f => `<option value="${escHtml(f)}">`).join('')}</datalist>`;
@@ -3104,10 +3144,11 @@ function ctShowParseResult(parsed, filename) {
     return;
   }
 
-  // Enrich items with guessed categories and price comparison
+  // Enrich items with guessed categories, guessed family, and price comparison
   const enriched = parsed.items.map(item => ({
     ...item,
     category: ctGuessCategory(item.name),
+    family: ctGuessFamily(item.name),
     priorPrice: ctGetPriorPrice(item.name, parsed.supplier)
   }));
 
@@ -3121,6 +3162,9 @@ function ctShowParseResult(parsed, filename) {
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
         </select>
       </div>
+      <div class="ct-item-family">
+        <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family)}" onchange="ctUpdateItemFamilyField(${i}, this.value)" style="font-size:0.75rem;padding:4px 6px;width:110px">
+      </div>
       <div class="ct-item-price">$${item.unit_price.toFixed(2)}${priceFlag}</div>
       <div class="ct-item-total" style="color:var(--mist)">$${(item.total||item.qty*item.unit_price).toFixed(2)}</div>
     </div>`;
@@ -3130,6 +3174,7 @@ function ctShowParseResult(parsed, filename) {
   window._ctPending = { parsed, enriched, filename };
 
   area.innerHTML = `
+    ${ctFamilyDatalist()}
     <div class="ct-parse-result">
       <div class="ct-parse-header">
         <div>
@@ -3143,7 +3188,7 @@ function ctShowParseResult(parsed, filename) {
         </div>
       </div>
       <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
-        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
+        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:110px">Family/Type</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
       </div>
       ${rows.join('')}
       <div style="padding:12px 18px;text-align:right;border-top:1px solid var(--border);background:var(--paper)">
@@ -3152,7 +3197,7 @@ function ctShowParseResult(parsed, filename) {
       </div>
     </div>
     <div style="font-size:0.72rem;color:var(--mist);margin-top:8px;padding:0 4px">
-      💡 Correct any wrong categories — corrections are remembered for future invoices from this supplier.
+      💡 Correct any wrong categories or add a Family/Type (e.g. "Roses", "Delphinium") — corrections are remembered. Family learns by the item's first word, so tagging one variant applies to future ones too.
     </div>`;
 }
 
@@ -3161,6 +3206,11 @@ function ctUpdateItemCat(idx, category) {
   const item = window._ctPending.enriched[idx];
   item.category = category;
   ctLearnCategory(item.name, category);
+}
+
+function ctUpdateItemFamilyField(idx, family) {
+  if (!window._ctPending) return;
+  window._ctPending.enriched[idx].family = family.trim();
 }
 
 function ctPriceFlag(current, prior) {
@@ -3202,6 +3252,7 @@ function ctSaveInvoice() {
     items: enriched.map(i => ({
       name: i.name,
       category: i.category,
+      family: i.family || '',
       qty: i.qty,
       uom: i.uom,
       unitPrice: i.unit_price,
@@ -3209,8 +3260,11 @@ function ctSaveInvoice() {
     }))
   };
 
-  // Learn all categories
-  enriched.forEach(i => ctLearnCategory(i.name, i.category));
+  // Learn all categories and any families that were entered
+  enriched.forEach(i => {
+    ctLearnCategory(i.name, i.category);
+    if (i.family) ctLearnFamily(i.name, i.family);
+  });
 
   ctData.invoices.push(invoice);
   ctSave();
@@ -3381,11 +3435,11 @@ function ctRetailFlag(item) {
 function ctShowGmailResults(candidates) {
   window._ctGmailPending = candidates.map(inv => ({
     ...inv,
-    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name) }))
+    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name), family: ctGuessFamily(item.name) }))
   }));
 
   const el = document.getElementById('ct-gmail-results');
-  el.innerHTML = window._ctGmailPending.map((inv, invIdx) => {
+  el.innerHTML = ctFamilyDatalist() + window._ctGmailPending.map((inv, invIdx) => {
     const rows = inv.items.map((item, itemIdx) => `
       <div class="ct-item-row">
         <div class="ct-item-name">${escHtml(item.name)}</div>
@@ -3394,6 +3448,9 @@ function ctShowGmailResults(candidates) {
           <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
             ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
           </select>
+        </div>
+        <div class="ct-item-family">
+          <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family)}" onchange="ctUpdateGmailItemFamily(${invIdx}, ${itemIdx}, this.value)" style="font-size:0.75rem;padding:4px 6px;width:100px">
         </div>
         <div class="ct-item-price">$${(item.unit_price||0).toFixed(2)}</div>
         <div class="ct-item-total" style="min-width:100px;text-align:right">${ctRetailFlag(item)}</div>
@@ -3412,18 +3469,23 @@ function ctShowGmailResults(candidates) {
         </div>
       </div>
       <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
-        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:70px;text-align:right">Cost</span><span style="min-width:100px;text-align:right">Retail</span>
+        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:100px">Family/Type</span><span style="min-width:70px;text-align:right">Cost</span><span style="min-width:100px;text-align:right">Retail</span>
       </div>
       ${rows}
     </div>`;
   }).join('') + `<div style="font-size:0.72rem;color:var(--mist);margin-top:4px;padding:0 4px">
-    💡 Retail flags only appear once you've set a price for that item at least once — set it any time via the box on the right.
+    💡 Retail flags only appear once you've set a price for that item at least once. Family/Type learns by the item's first word, so tagging one variant applies to future ones too.
   </div>`;
 }
 
 function ctUpdateGmailItemCat(invIdx, itemIdx, category) {
   if (!window._ctGmailPending) return;
   window._ctGmailPending[invIdx].items[itemIdx].category = category;
+}
+
+function ctUpdateGmailItemFamily(invIdx, itemIdx, family) {
+  if (!window._ctGmailPending) return;
+  window._ctGmailPending[invIdx].items[itemIdx].family = family.trim();
 }
 
 function ctSaveGmailInvoice(invIdx) {
@@ -3446,12 +3508,15 @@ function ctSaveGmailInvoice(invIdx) {
     invoiceNumber: pending.invoiceNumber,
     total: pending.total,
     items: pending.items.map(i => ({
-      name: i.name, category: i.category, qty: i.qty, uom: i.uom,
+      name: i.name, category: i.category, family: i.family || '', qty: i.qty, uom: i.uom,
       unitPrice: i.unit_price, total: i.total || i.qty * i.unit_price
     }))
   };
 
-  pending.items.forEach(i => ctLearnCategory(i.name, i.category));
+  pending.items.forEach(i => {
+    ctLearnCategory(i.name, i.category);
+    if (i.family) ctLearnFamily(i.name, i.family);
+  });
 
   ctData.invoices.push(invoice);
   ctData.importedGmailIds = ctData.importedGmailIds || [];
@@ -3731,6 +3796,42 @@ function renderCtPrices() {
       ? `<span class="ct-flag ${Math.abs(trend)<5 ? '' : trendDir}" style="${Math.abs(trend)<5?'background:var(--green-light);color:var(--green);border-color:var(--green)':''}">${trend>0?'▲':'▼'}${Math.abs(trend).toFixed(0)}% since first purchase</span>`
       : '<span class="ct-flag new">1 purchase</span>';
 
+    // Average price across all recorded purchases
+    const avgPrice = item.records.reduce((s,r)=>s+r.price,0) / item.records.length;
+
+    // Best (lowest) price seen, and which supplier — only meaningful if 2+ distinct suppliers
+    const distinctSuppliers = [...new Set(item.records.map(r=>r.supplier))];
+    const bestRecord = item.records.reduce((min,r)=> r.price < min.price ? r : min, item.records[0]);
+    const hasMultipleSuppliers = distinctSuppliers.length > 1;
+
+    // Per-supplier breakdown, sorted cheapest average first — shown when comparison is meaningful
+    const bySupplier = distinctSuppliers.map(s => {
+      const recs = item.records.filter(r=>r.supplier===s);
+      return {
+        supplier: s,
+        count: recs.length,
+        avg: recs.reduce((sum,r)=>sum+r.price,0)/recs.length,
+        best: Math.min(...recs.map(r=>r.price)),
+        latest: recs[recs.length-1].price
+      };
+    }).sort((a,b)=>a.avg-b.avg);
+
+    const statsLine = hasMultipleSuppliers
+      ? `Avg: $${avgPrice.toFixed(2)} · Best: $${bestRecord.price.toFixed(2)} (${escHtml(bestRecord.supplier)})`
+      : `Avg: $${avgPrice.toFixed(2)}`;
+
+    const supplierCompare = hasMultipleSuppliers
+      ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">Compare Suppliers</div>
+          ${bySupplier.map((s,i) => `<div style="display:flex;gap:12px;font-size:0.75rem;padding:4px 0;align-items:center">
+            <span style="flex:1">${escHtml(s.supplier)}${i===0?' <span class="ct-flag" style="background:var(--green-light);color:var(--green);border-color:var(--green)">best avg</span>':''}</span>
+            <span style="color:var(--mist)">${s.count} purchase${s.count!==1?'s':''}</span>
+            <span style="min-width:60px;text-align:right">avg $${s.avg.toFixed(2)}</span>
+            <span style="min-width:60px;text-align:right;font-weight:600">best $${s.best.toFixed(2)}</span>
+          </div>`).join('')}
+        </div>`
+      : '';
+
     const history = [...item.records].reverse().slice(0,5).map(r =>
       `<div style="display:flex;gap:12px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft)">
         <span style="min-width:90px">${r.date}</span>
@@ -3740,20 +3841,19 @@ function renderCtPrices() {
       </div>`
     ).join('');
 
-    // In "exact item" view, show an inline family-tag control so sprawl can be consolidated retroactively
-    const familyControl = groupBy === 'item'
-      ? `<input type="text" list="ct-family-list" placeholder="Family/Type (optional)" value="${escHtml(ctGuessFamily(item.name))}"
-           onchange="ctUpdateItemFamily('${item.key}', this.value)" style="font-size:0.72rem;padding:3px 6px;width:130px" onclick="event.stopPropagation()">`
+    // Family editing lives on Upload/Gmail Scan now — Price History just displays it
+    const familyDisplay = groupBy === 'item'
+      ? (ctGuessFamily(item.name) ? `<span class="badge" style="font-size:0.68rem">${escHtml(ctGuessFamily(item.name))}</span>` : '')
       : (item.members ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">${item.members.size} item${item.members.size!==1?'s':''}: ${[...item.members].slice(0,4).map(escHtml).join(', ')}${item.members.size>4?` +${item.members.size-4} more`:''}</div>` : '');
 
     return `<div class="ct-price-table" style="margin-bottom:12px">
       <div class="ct-price-table-header" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
         <div style="flex:1">
-          <div style="font-weight:600;font-size:0.9rem">${escHtml(item.name)}</div>
-          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${latest.uom}</div>
-          ${groupBy === 'family' ? familyControl : ''}
+          <div style="font-weight:600;font-size:0.9rem">${escHtml(item.name)} ${groupBy === 'item' ? familyDisplay : ''}</div>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${latest.uom} · ${statsLine}</div>
+          ${groupBy === 'family' ? familyDisplay : ''}
         </div>
-        <div style="display:flex;gap:8px;align-items:center">${groupBy === 'item' ? familyControl : ''}${trendHtml} <span style="color:var(--mist);font-size:0.8rem">▼</span></div>
+        <div style="display:flex;gap:8px;align-items:center">${trendHtml} <span style="color:var(--mist);font-size:0.8rem">▼</span></div>
       </div>
       <div style="padding:10px 18px;display:none">
         <div style="display:flex;gap:12px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);padding-bottom:6px;border-bottom:1px solid var(--border)">
@@ -3761,19 +3861,14 @@ function renderCtPrices() {
         </div>
         ${history}
         ${item.records.length > 5 ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:6px">+ ${item.records.length-5} earlier purchase${item.records.length-5!==1?'s':''}</div>` : ''}
+        ${supplierCompare}
       </div>
     </div>`;
   }).join('');
 }
 
 function ctUpdateItemFamily(itemKey, familyName) {
-  const trimmed = familyName.trim();
-  // itemKey is the catalog key; find the original name from any invoice to learn against
-  for (const inv of ctData.invoices) {
-    const match = inv.items.find(i => ctCatalogKey(i.name) === itemKey);
-    if (match) { ctLearnFamily(match.name, trimmed); break; }
-  }
-  renderCtPrices();
+  // Deprecated — family editing now lives on Upload/Gmail Scan review cards, not Price History
 }
 
 // ============================================================
