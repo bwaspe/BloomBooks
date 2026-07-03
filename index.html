@@ -17,7 +17,3759 @@
   --border-soft: #eeeeF4;
   --accent: #1a1a2e;
   --accent2: #4a4a8a;
+  --green: #2a7a4f;<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌸 Bloom Books</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --ink: #1a1a2e;
+  --ink-soft: #444466;
+  --paper: #f7f7f9;
+  --surface: #ffffff;
+  --border: #e0e0e8;
+  --border-soft: #eeeeF4;
+  --accent: #1a1a2e;
+  --accent2: #4a4a8a;
   --green: #2a7a4f;
+  --green-light: #e8f5ee;
+  --red: #c0392b;
+  --red-light: #fdf0ee;
+  --blue: #1a5fa8;
+  --blue-light: #e8f0fb;
+  --mist: #888899;
+  --sidebar-w: 200px;
+  --header-h: 60px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+/* HEADER */
+#app-header {
+  height: var(--header-h);
+  background: var(--ink);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+  flex-shrink: 0;
+}
+#app-header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+#app-header h1 span { color: #a8a8cc; font-weight: 400; }
+.header-year-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a8a8cc;
+  font-size: 0.8rem;
+}
+.header-year-selector select {
+  background: #2d2d4e;
+  color: #fff;
+  border: 1px solid #4a4a6a;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.header-year-selector button {
+  background: var(--accent2);
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+}
+.header-btns { display: flex; gap: 6px; margin-left: 8px; }
+.header-btns button {
+  background: #2d2d4e;
+  color: #c8c8e8;
+  border: 1px solid #4a4a6a;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
+}
+.header-btns button:hover { background: #4a4a6a; color: #fff; }
+
+/* LAYOUT */
+#layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* SIDEBAR */
+#sidebar {
+  width: var(--sidebar-w);
+  background: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+  border-right: 1px solid #2d2d4e;
+}
+.sidebar-section-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6666aa;
+  padding: 14px 14px 4px;
+  font-weight: 500;
+}
+.sidebar-tab {
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: #8888bb;
+  transition: all 0.12s;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+}
+.sidebar-tab:hover { background: #22224a; color: #ccccee; }
+.sidebar-tab.active {
+  background: #22224a;
+  color: #ffffff;
+  border-left-color: #7777dd;
+  font-weight: 500;
+}
+.sidebar-divider { height: 1px; background: #252540; margin: 6px 0; }
+
+/* MAIN CONTENT */
+#main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+  background: var(--paper);
+}
+
+/* PANELS */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* PAGE TITLE */
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.page-subtitle { font-size: 0.78rem; color: var(--mist); margin-bottom: 24px; }
+
+/* KPI CARDS */
+.kpi-row { display: flex; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  flex: 1;
+  min-width: 140px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.kpi-card.revenue::before { background: var(--green); }
+.kpi-card.expense::before { background: var(--red); }
+.kpi-card.profit::before { background: var(--blue); }
+.kpi-card.cogs::before { background: #9966cc; }
+.kpi-label { font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mist); margin-bottom: 6px; font-weight: 500; }
+.kpi-value { font-size: 1.6rem; font-weight: 600; color: var(--ink); line-height: 1.1; }
+.kpi-sub { font-size: 0.7rem; color: var(--mist); margin-top: 4px; }
+.kpi-growth { font-size: 0.72rem; font-weight: 500; margin-top: 4px; }
+.kpi-growth.up { color: var(--green); }
+.kpi-growth.down { color: var(--red); }
+
+/* MANUAL ENTRY FORM */
+.entry-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
+}
+.entry-form h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: var(--ink);
+}
+.form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.form-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 100px; }
+.form-group label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mist); font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(74,74,138,0.1);
+}
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn-primary { background: var(--ink); color: white; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-danger { background: var(--red); color: white; }
+.btn-danger:hover { background: #e74c3c; }
+.btn-gold { background: var(--accent2); color: white; }
+.btn-gold:hover { background: #6666aa; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--ink); }
+.btn-outline:hover { border-color: var(--accent2); color: var(--accent2); }
+.btn-sm { padding: 5px 10px; font-size: 0.72rem; }
+.btn-xs { padding: 3px 8px; font-size: 0.68rem; }
+
+/* LEDGER TABLE */
+.ledger-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+.ledger-header {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  background: var(--surface);
+}
+.ledger-header h3 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+thead th {
+  background: var(--paper);
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mist);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+tbody tr { border-bottom: 1px solid var(--border-soft); transition: background 0.1s; }
+tbody tr:hover { background: var(--paper); }
+tbody td { padding: 10px 14px; }
+.td-edit { cursor: pointer; }
+.td-edit:hover { background: var(--blue-light); border-radius: 3px; }
+.amount-in { color: var(--green); font-weight: 600; }
+.amount-out { color: var(--red); font-weight: 600; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.66rem;
+  background: var(--paper);
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+}
+
+/* IMPORT / STAGING */
+.staging-area {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
+}
+.staging-area h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 12px; }
+.staging-area textarea {
+  width: 100%;
+  min-height: 120px;
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  background: var(--paper);
+  resize: vertical;
+}
+.staging-table-wrap { overflow-x: auto; margin-top: 12px; }
+.staging-row-review { background: #fffde7 !important; }
+.staging-row-rejected { background: var(--red-light) !important; opacity: 0.6; }
+.staging-row-dupe { background: #fff3e0 !important; border-left: 3px solid var(--red); }
+.staging-row-saved { background: var(--green-light) !important; }
+
+/* TRENDS CHART */
+.chart-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px;
+  margin-bottom: 22px;
+}
+.chart-wrap h3 { font-size: 1rem; font-weight: 600; margin-bottom: 18px; }
+.chart-container { position: relative; height: 340px; }
+
+/* YEARLY SUMMARY GRID */
+.yearly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.year-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.year-card:hover { border-color: var(--accent2); box-shadow: 0 2px 12px rgba(74,74,138,0.1); }
+.year-card h4 { font-size: 1.1rem; font-weight: 600; margin-bottom: 10px; }
+.year-card .stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 5px; color: var(--mist); }
+.year-card .stat-row span:last-child { color: var(--ink); font-weight: 500; }
+
+/* LOGIC TRAINER */
+.rule-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-size: 0.78rem;
+}
+.rule-keyword { font-weight: 600; flex: 1; color: var(--ink); }
+.cat-clickable:hover { background: var(--border); }
+.cat-active { background: var(--blue-light) !important; }
+th.sortable:hover { background: var(--border); }
+.rule-sign { color: var(--mist); font-size: 0.72rem; }
+.rule-arrow { color: var(--accent2); }
+.rule-cat { color: var(--green); font-weight: 500; }
+
+/* MONTH SUMMARY TABLE */
+.month-summary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+.month-summary table { font-size: 0.8rem; }
+
+/* GROWTH BADGE */
+.growth-up {
+  color: var(--green);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.growth-down {
+  color: var(--red);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* MODAL */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(26,26,46,0.6);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 26px;
+  width: 420px;
+  max-width: 95vw;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 40px rgba(26,26,46,0.15);
+}
+.modal h3 { font-family: 'Inter', sans-serif; font-size: 1.1rem; margin-bottom: 14px; }
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* COST TRACKER */
+.ct-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 22px; }
+.ct-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; position: relative; overflow: hidden; }
+.ct-kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+.ct-kpi.flowers::before { background: #c0392b; }
+.ct-kpi.greens::before { background: var(--green); }
+.ct-kpi.hardgoods::before { background: #e67e22; }
+.ct-kpi.glass::before { background: var(--blue); }
+.ct-kpi.plants::before { background: #27ae60; }
+.ct-kpi.total::before { background: var(--accent2); }
+.ct-upload-zone {
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 22px;
+}
+.ct-upload-zone:hover, .ct-upload-zone.drag { border-color: var(--accent2); background: var(--blue-light); }
+.ct-upload-zone .upload-icon { font-size: 2rem; margin-bottom: 8px; }
+.ct-upload-zone p { font-size: 0.82rem; color: var(--mist); margin-bottom: 4px; }
+.ct-upload-zone strong { font-size: 0.85rem; color: var(--ink); }
+.ct-parse-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+.ct-parse-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  background: var(--paper);
+}
+.ct-parse-header h3 { font-size: 0.95rem; font-weight: 600; }
+.ct-item-row { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--border-soft); font-size: 0.82rem; }
+.ct-item-row:last-child { border-bottom: none; }
+.ct-item-row:hover { background: var(--paper); }
+.ct-item-name { flex: 2; color: var(--ink); font-weight: 500; }
+.ct-item-meta { flex: 1; color: var(--mist); font-size: 0.75rem; }
+.ct-item-cat select { font-size: 0.75rem; border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; background: var(--surface); color: var(--ink); font-family: 'Inter', sans-serif; }
+.ct-item-price { min-width: 70px; text-align: right; font-weight: 600; color: var(--ink); }
+.ct-item-total { min-width: 70px; text-align: right; color: var(--mist); font-size: 0.75rem; }
+.ct-flag { font-size: 0.65rem; padding: 2px 6px; border-radius: 10px; background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.ct-flag.up { background: var(--red-light); color: var(--red); border-color: var(--red); }
+.ct-flag.down { background: var(--green-light); color: var(--green); border-color: var(--green); }
+.ct-flag.new { background: var(--blue-light); color: var(--blue); border-color: var(--blue); }
+.ct-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px; }
+.ct-price-table { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 22px; }
+.ct-price-table-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.ct-price-table-header h3 { font-size: 0.95rem; font-weight: 600; }
+.ct-filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+.ct-filter-row select, .ct-filter-row input { font-size: 0.78rem; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--surface); color: var(--ink); font-family: 'Inter', sans-serif; }
+.ct-parsing-overlay { text-align: center; padding: 32px; color: var(--mist); font-size: 0.85rem; }
+.ct-parsing-overlay .spinner { font-size: 1.5rem; animation: spin 1s linear infinite; display: inline-block; margin-bottom: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ct-invoice-history { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 22px; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--blue-light); }
+
+/* INLINE EDIT */
+.inline-input {
+  border: 1.5px solid var(--accent2);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  background: var(--surface);
+  width: 100%;
+}
+
+/* CATEGORY SUMMARY IN MONTH */
+.cat-breakdown {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+/* TREND ANNOTATIONS */
+.trend-controls { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; font-size: 0.73rem; color: var(--mist); }
+.trend-controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+
+/* EMPTY STATE */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--mist);
+  font-size: 0.8rem;
+}
+.empty-state .empty-icon { font-size: 2rem; margin-bottom: 8px; }
+
+/* IMPORT YEAR SELECTOR IN STAGING */
+.staging-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+
+/* NOTIFICATION */
+#notification {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--ink);
+  color: var(--blue-light);
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  border-left: 4px solid var(--green);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.3s;
+  z-index: 200;
+  max-width: 300px;
+}
+#notification.show { opacity: 1; transform: translateY(0); }
+#notification.error { border-left-color: var(--red); }
+</style>
+</head>
+<body>
+
+<div id="app-header">
+  <div>🌸</div>
+  <h1>Bloom <span>Books</span></h1>
+  <div class="header-year-selector">
+    <span>Active Year:</span>
+    <select id="active-year-select" onchange="setActiveYear(this.value)"></select>
+    <button onclick="promptAddYear()">+ Year</button>
+  </div>
+  <div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
+  <button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
+  <div class="header-btns">
+    <button onclick="exportData()">⬇ Export JSON</button>
+    <button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+  </div>
+</div>
+
+<div id="layout">
+  <nav id="sidebar">
+    <div class="sidebar-section-label">Monthly</div>
+    <div id="month-tabs"></div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-label">Analytics</div>
+    <div class="sidebar-tab" data-panel="trends" onclick="switchPanel('trends')">📈 Unified Trends</div>
+    <div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">📋 Yearly Summary</div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-label">Tools</div>
+    <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
+    <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
+    <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
+    <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-label">Cost Tracker</div>
+    <div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">📦 Cost Dashboard</div>
+    <div class="sidebar-tab" data-panel="ct-upload" onclick="switchPanel('ct-upload')">📄 Invoice Upload</div>
+    <div class="sidebar-tab" data-panel="ct-gmail" onclick="switchPanel('ct-gmail')">📧 Gmail Scan</div>
+    <div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">💰 Price History</div>
+  </nav>
+
+  <main id="main-content">
+
+    <!-- MONTHLY PANELS (generated) -->
+    <div id="month-panels"></div>
+
+    <!-- TRENDS PANEL -->
+    <div id="panel-trends" class="panel">
+      <div class="page-title">Unified Trends</div>
+      <div class="page-subtitle">Year-over-year revenue comparison with growth indicators</div>
+      <div class="chart-wrap">
+        <h3>Monthly Revenue — Multi-Year Comparison</h3>
+        <div class="trend-controls">
+          <span>Show years:</span>
+          <label><input type="checkbox" value="2023" checked onchange="renderTrendsChart()"> 2023</label>
+          <label><input type="checkbox" value="2024" checked onchange="renderTrendsChart()"> 2024</label>
+          <label><input type="checkbox" value="2025" checked onchange="renderTrendsChart()"> 2025</label>
+          <label><input type="checkbox" value="2026" checked onchange="renderTrendsChart()"> 2026</label>
+          <span id="extra-year-checks"></span>
+        </div>
+        <div class="chart-container"><canvas id="trendsChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>YoY Growth % by Month</h3>
+        <div class="chart-container"><canvas id="growthChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>📉 COGS % of Revenue — Margin Trend</h3>
+        <div class="chart-container"><canvas id="cogsChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- TAX SUMMARY PANEL -->
+    <div id="panel-tax" class="panel">
+      <div class="page-title">Tax Summary</div>
+      <div class="page-subtitle">Annual category totals for your accountant</div>
+      <div id="tax-summary-content"></div>
+    </div>
+
+    <!-- HOLIDAY REVENUE PANEL -->
+    <div id="panel-holidays" class="panel">
+      <div class="page-title">🌹 Holiday Revenue</div>
+      <div class="page-subtitle">Track how much revenue comes from key holidays</div>
+      <div id="holiday-content"></div>
+    </div>
+
+    <!-- YEARLY SUMMARY PANEL -->
+    <div id="panel-yearly" class="panel">
+      <div class="page-title">Yearly Summary</div>
+      <div class="page-subtitle">Financial performance across all years</div>
+      <div id="yearly-grid-content"></div>
+      <div class="chart-wrap">
+        <h3>Annual Revenue vs Expenses</h3>
+        <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>Annual Category Breakdown</h3>
+        <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <h3>🌿 Supplies Spend by Vendor</h3>
+        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+          <div style="position:relative;width:280px;height:280px;flex-shrink:0"><canvas id="yearlySupplierPie"></canvas></div>
+          <div id="yearlySupplierLegend" style="flex:1;font-size:0.75rem;line-height:2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BULK IMPORT PANEL -->
+    <div id="panel-import" class="panel">
+      <div class="page-title">Bulk Import</div>
+      <div class="page-subtitle">Paste bank or Amex statement — the engine will parse and stage transactions for review</div>
+      <div class="staging-area">
+        <h3>📋 Paste Statement</h3>
+        <div class="staging-controls">
+          <div class="form-group" style="min-width:140px">
+            <label>Source</label>
+            <select id="import-source-sel" onchange="updateImportPlaceholder()">
+              <option value="bank">🏦 Bank (Chase)</option>
+              <option value="amex">💳 Amex</option>
+            </select>
+          </div>
+          <div class="form-group" style="min-width:120px">
+            <label>Import to Year</label>
+            <select id="import-year-sel"></select>
+          </div>
+          <div class="form-group" style="min-width:120px">
+            <label>Import to Month</label>
+            <select id="import-month-sel">
+              <option value="0">January</option><option value="1">February</option>
+              <option value="2">March</option><option value="3">April</option>
+              <option value="4">May</option><option value="5">June</option>
+              <option value="6">July</option><option value="7">August</option>
+              <option value="8">September</option><option value="9">October</option>
+              <option value="10">November</option><option value="11">December</option>
+            </select>
+          </div>
+          <div style="align-self:flex-end">
+            <button class="btn btn-gold" onclick="parseImport()">🔍 Parse & Stage</button>
+          </div>
+        </div>
+        <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
+      </div>
+      <div id="staging-table-area"></div>
+    </div>
+
+    <!-- LOGIC TRAINER PANEL -->
+    <div id="panel-trainer" class="panel">
+      <div class="page-title">Logic Trainer</div>
+      <div class="page-subtitle">Create keyword rules to auto-categorize imported transactions</div>
+      <div class="entry-form">
+        <h3>➕ Add New Rule</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Keyword (contains)</label>
+            <input type="text" id="rule-keyword" placeholder="e.g. FLOWER SHOP">
+          </div>
+          <div class="form-group">
+            <label>Transaction Sign</label>
+            <select id="rule-sign">
+              <option value="any">Any</option>
+              <option value="in">Money In (+)</option>
+              <option value="out">Money Out (−)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Assign Category</label>
+            <select id="rule-category"></select>
+          </div>
+          <div class="form-group">
+            <label>Vendor Label</label>
+            <input type="text" id="rule-vendor" placeholder="e.g. Teleflora">
+          </div>
+          <div style="align-self:flex-end">
+            <button class="btn btn-primary" onclick="addRule()">Add Rule</button>
+          </div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:16px;">
+        <h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
+        <div id="rules-list"></div>
+      </div>
+      <div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
+        <strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
+      </div>
+    </div>
+
+    <!-- COST TRACKER: DASHBOARD -->
+    <div id="panel-ct-dashboard" class="panel">
+      <div class="page-title">Cost Dashboard</div>
+      <div class="page-subtitle">Wholesale purchasing spend by category, supplier and trend</div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+        <div class="form-group" style="min-width:120px;margin:0">
+          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Period</label>
+          <select id="ct-dash-period" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+            <option value="all">All Time</option>
+            <option value="ytd" selected>Year to Date</option>
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select>
+        </div>
+        <div class="form-group" style="min-width:120px;margin:0">
+          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Supplier</label>
+          <select id="ct-dash-supplier" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+            <option value="all">All Suppliers</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ct-kpi-row" id="ct-kpi-row"></div>
+
+      <div class="ct-chart-grid">
+        <div class="chart-wrap" style="margin:0">
+          <h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Category</h3>
+          <div style="position:relative;height:220px"><canvas id="ct-cat-chart"></canvas></div>
+        </div>
+        <div class="chart-wrap" style="margin:0">
+          <h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Supplier</h3>
+          <div style="position:relative;height:220px"><canvas id="ct-supplier-chart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <h3 style="font-size:0.9rem;margin-bottom:14px">Monthly Purchasing Spend</h3>
+        <div style="position:relative;height:260px"><canvas id="ct-trend-chart"></canvas></div>
+      </div>
+
+      <div class="ct-price-table">
+        <div class="ct-price-table-header">
+          <h3>Recent Price Alerts</h3>
+          <span style="font-size:0.72rem;color:var(--mist)">Items with price movement vs prior purchase</span>
+        </div>
+        <div id="ct-alerts-body">
+          <div class="empty-state"><div class="empty-icon">🌱</div>No invoices processed yet — upload one to get started</div>
+        </div>
+      </div>
+
+      <div class="ct-invoice-history">
+        <div class="ct-price-table-header">
+          <h3>Invoice History</h3>
+          <span id="ct-invoice-count" style="font-size:0.72rem;color:var(--mist)">0 invoices</span>
+        </div>
+        <div id="ct-invoice-list">
+          <div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COST TRACKER: UPLOAD -->
+    <div id="panel-ct-upload" class="panel">
+      <div class="page-title">Invoice Upload</div>
+      <div class="page-subtitle">Upload a PDF or photo — Claude will extract line items automatically</div>
+
+      <div class="ct-upload-zone" id="ct-drop-zone" onclick="document.getElementById('ct-file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="ctHandleDrop(event)">
+        <div class="upload-icon">📄</div>
+        <strong>Click to upload or drag and drop</strong>
+        <p>PDF invoices or photo (JPG, PNG) from any supplier</p>
+        <p style="font-size:0.72rem;margin-top:6px">Juliet · DVFlora · Main · Perri · Accent Decor · and more</p>
+      </div>
+      <input type="file" id="ct-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="ctHandleFile(event)">
+
+      <div id="ct-parse-area"></div>
+    </div>
+
+    <!-- COST TRACKER: GMAIL SCAN -->
+    <div id="panel-ct-gmail" class="panel">
+      <div class="page-title">Gmail Scan</div>
+      <div class="page-subtitle">Invoices scanned from wecare@ by Apps Script, reviewed here before they hit your cost data</div>
+
+      <div class="chart-wrap">
+        <h3>⚙️ Setup</h3>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label style="font-size:0.75rem;color:var(--mist)">Google Sheet ID (from the sheet's URL, between /d/ and /edit)</label>
+          <input type="text" id="ct-gmail-sheetid" placeholder="e.g. 1AbCdEfGhIjKlMnOpQrStUvWxYz" style="width:100%">
+        </div>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec — used for manual invoice uploads)</label>
+          <input type="text" id="ct-appsscript-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Connection Settings</button>
+        <div id="ct-gmail-sheet-status" style="font-size:0.72rem;color:var(--mist);margin-top:8px"></div>
+      </div>
+
+      <div class="chart-wrap">
+        <h3>💲 Retail Markup by Category</h3>
+        <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost × markup. Only used to flag items whose stored retail price no longer matches.</p>
+        <div id="ct-markup-inputs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px"></div>
+        <button class="btn btn-outline btn-sm" onclick="ctSaveMarkup()">Save Markup</button>
+      </div>
+
+      <div class="chart-wrap">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <h3 style="margin-bottom:0">📬 Scan Results</h3>
+          <button class="btn btn-primary btn-sm" onclick="ctFetchGmailInvoices()">Check Now</button>
+        </div>
+        <div id="ct-gmail-last-checked" style="font-size:0.72rem;color:var(--mist);margin-top:6px"></div>
+        <div id="ct-gmail-results" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <!-- COST TRACKER: PRICE HISTORY -->
+    <div id="panel-ct-prices" class="panel">
+      <div class="page-title">Price History</div>
+      <div class="page-subtitle">Track unit prices per item across suppliers and time</div>
+
+      <div class="ct-filter-row">
+        <input type="text" id="ct-price-search" placeholder="Search item name..." oninput="renderCtPrices()" style="flex:2;min-width:180px">
+        <select id="ct-price-cat" onchange="renderCtPrices()">
+          <option value="all">All Categories</option>
+          <option value="Flowers">Flowers</option>
+          <option value="Greens">Greens</option>
+          <option value="Hardgoods">Hardgoods</option>
+          <option value="Glass">Glass</option>
+          <option value="Plants">Plants</option>
+          <option value="Other">Other</option>
+        </select>
+        <select id="ct-price-supplier" onchange="renderCtPrices()">
+          <option value="all">All Suppliers</option>
+        </select>
+        <select id="ct-price-groupby" onchange="renderCtPrices()">
+          <option value="item">Group by: Exact Item</option>
+          <option value="family">Group by: Family/Type</option>
+        </select>
+      </div>
+
+      <div id="ct-prices-body">
+        <div class="empty-state"><div class="empty-icon">💐</div>No price data yet — upload an invoice to populate</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL: Edit Transaction -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h3>Edit Transaction</h3>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Date</label>
+      <input type="date" id="edit-date">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Description</label>
+      <input type="text" id="edit-desc">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Category</label>
+      <select id="edit-category"></select>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Vendor</label>
+      <input type="text" id="edit-vendor">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Amount</label>
+      <input type="number" id="edit-amount" step="0.01">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label>Type</label>
+      <select id="edit-type">
+        <option value="in">Money In (Revenue)</option>
+        <option value="out">Money Out (Expense)</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION -->
+<div id="notification"></div>
+
+<script>
+// ============================================================
+// CONSTANTS & CATEGORIES
+// ============================================================
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const CATEGORIES = [
+  'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
+  'Taxes','Utilities','Transpo','Vehicles','Office','Insurance',
+  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
+];
+
+const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue');
+
+// Built-in hardcoded rules (always applied before user rules)
+const BUILTIN_RULES = [
+  // IGNORE
+  { keyword: 'BARAMI WASPE',              ignore: true },
+  { keyword: 'AMERICAN EXPRESS',          ignore: true },
+  { keyword: 'AMEX',                      ignore: true },
+  { keyword: 'MP GARDENS',               ignore: true },
+  { keyword: 'COUNTRY MARKETS',          ignore: true },
+  // REVENUE
+  { keyword: 'FLOWER SHOP',              sign: 'in',  category: 'Revenue',                        vendor: 'Flower Shop' },
+  { keyword: 'STRIPE',                   sign: 'any', category: 'Revenue',                        vendor: 'Stripe' },
+  { keyword: 'REMOTE ONLINE DEPOSIT',    sign: 'any', category: 'Revenue',                        vendor: 'Check Deposit' },
+  { keyword: 'MERCH SETL',               sign: 'any', category: 'Revenue',                        vendor: 'Merchant Settlement' },
+  // FSN
+  { keyword: 'FLOWER SHOP',              sign: 'out', category: 'FSN',                            vendor: 'FSN' },
+  { keyword: 'TELEFLORA',                sign: 'any', category: 'FSN',                            vendor: 'Teleflora' },
+  // COGS
+  { keyword: 'MAIN WHOLESALE FLORIST',   sign: 'any', category: 'Supplies & Materials - COGS',    vendor: 'Main Wholesale Florist' },
+  // PAYROLL — Zelle employee payments
+  { keyword: 'Zelle payment to Rowan',    sign: 'any', category: 'Payroll', vendor: 'Rowan G. Kochman' },
+  { keyword: 'Zelle payment to Brittani', sign: 'any', category: 'Payroll', vendor: 'Brittani' },
+  { keyword: 'Zelle payment to Karen',    sign: 'any', category: 'Payroll', vendor: 'Karen Kubinec' },
+  // GUSTO: FEE (ID:9138864007) = Office; TAX/payroll (ID:9138864001) = Payroll
+  { keyword: '9138864007',               sign: 'any', category: 'Office',   vendor: 'Gusto (Fee)' },
+  { keyword: '9138864001',               sign: 'any', category: 'Payroll',  vendor: 'Gusto (Payroll Tax)' },
+  // RENT — only CHECK_PAID entries (not CHECK_DEPOSIT which are revenue)
+  { keyword: 'CHECK_PAID',               sign: 'any', category: 'Rent',     vendor: 'Rent Check' },
+  // UTILITIES
+  { keyword: 'CON ED',                   sign: 'any', category: 'Utilities', vendor: 'Con Edison' },
+  // AMEX VENDORS
+  { keyword: 'AMAZON TIPS',              ignore: true },
+  { keyword: 'MOBILE PAYMENT',           ignore: true },
+  { keyword: 'YOUR CASH REWARD',         ignore: true },
+  { keyword: 'TRADER JOE',               sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Trader Joes' },
+  { keyword: 'ALEXANDER HAY',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Alexander Hay' },
+  { keyword: 'DELAWARE VALLEY FLOR',     sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Delaware Valley Florist' },
+  { keyword: 'A PERRI FARMS',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'A. Perri Farms' },
+  { keyword: 'FISCH FLORAL',             sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Fisch Floral Supply' },
+  { keyword: 'CLIFTON WHOLESALE',        sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Clifton Wholesale Florist' },
+  { keyword: 'AMAZON',                   sign: 'any', category: 'Office',        vendor: 'Amazon' },
+  { keyword: 'STATE FARM',               sign: 'any', category: 'Insurance',     vendor: 'State Farm' },
+  { keyword: 'TRAVELERS PER INS',        sign: 'any', category: 'Insurance',     vendor: 'Travelers Insurance' },
+  { keyword: 'GOOGLE *ADS',              sign: 'any', category: 'Marketing',     vendor: 'Google Ads' },
+  { keyword: 'GOOGLE *WORKSPACE',        sign: 'any', category: 'Office',        vendor: 'Google Workspace' },
+  { keyword: 'VERIZON',                  sign: 'any', category: 'Phone/Internet', vendor: 'Verizon' },
+  { keyword: 'FLORANEXT',                sign: 'any', category: 'Office',        vendor: 'Floranext' },
+  { keyword: 'EXXONMOBIL',              sign: 'any', category: 'Transpo',       vendor: 'Exxon' },
+  { keyword: 'PASSNY TOLLBYMAI',         sign: 'any', category: 'Transpo',       vendor: 'NY Tolls' },
+  { keyword: 'SP MERI-MERI',            sign: 'any', category: 'Office',        vendor: 'Meri-Meri' },
+];
+
+// ============================================================
+// DATA STORE
+// ============================================================
+let appData = {
+  transactions: {},   // { "2023-0": [ {id,date,desc,category,vendor,amount,type} ] }
+  rules: [],          // [ {keyword, sign, category, vendor} ]
+  years: [2023, 2024, 2025, 2026],
+  activeYear: 2025,
+  notes: {},          // { "2025-0": "text..." }
+  reconciled: {},     // { "2025-0": true }
+  holidays: {}        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
+};
+
+// ============================================================
+// HARDCODED VAULT DATA (2023-2025)
+// ============================================================
+const VAULT_REVENUE = {
+  2023: [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
+  2024: [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
+  2025: [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037]
+};
+
+const VAULT_EXPENSES = {
+  2023: [0,0,0,0,0,0,28334,21320,31738,21162,27981,32645],
+  2024: [29074,37020,32558,29670,39528,33052,22298,22834,28703,45977,35400,39462],
+  2025: [31870,45280,45200,34960,52967,36408,27908,24093,35172,27998,30435,39676]
+};
+
+function ensureVaultData() {
+  // rules now sync to the sheet metadata; ensure it's always a valid array
+  if (!Array.isArray(appData.rules)) appData.rules = [];
+  [2023, 2024, 2025].forEach(year => {
+    MONTHS_SHORT.forEach((_, mi) => {
+      const key = `${year}-${mi}`;
+      if (!appData.transactions[key]) {
+        appData.transactions[key] = [];
+      }
+      // Add vault entries if none exist for that month
+      const hasVault = appData.transactions[key].some(t => t._vault);
+      if (!hasVault) {
+        const rev = VAULT_REVENUE[year] && VAULT_REVENUE[year][mi];
+        const exp = VAULT_EXPENSES[year] && VAULT_EXPENSES[year][mi];
+        if (rev) {
+          appData.transactions[key].unshift({
+            id: `vault-rev-${year}-${mi}`,
+            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
+            desc: 'Total Revenue (Vault)',
+            category: 'Revenue',
+            vendor: 'Flower Shop',
+            amount: rev,
+            type: 'in',
+            _vault: true
+          });
+        }
+        if (exp) {
+          appData.transactions[key].push({
+            id: `vault-exp-${year}-${mi}`,
+            date: `${year}-${String(mi+1).padStart(2,'0')}-01`,
+            desc: 'Total Expenses (Vault)',
+            category: 'Supplies & Materials - COGS',
+            vendor: 'Various',
+            amount: exp,
+            type: 'out',
+            _vault: true
+          });
+        }
+      }
+    });
+  });
+}
+
+// ============================================================
+// GOOGLE SHEETS SYNC (OAuth2)
+// ============================================================
+const OAUTH_CLIENT_ID = '108752503349-c9ilafi09qqoa2kqei3v6su8641v86ha.apps.googleusercontent.com';
+const SHEETS_API_KEY  = 'AIzaSyB9TnR9NOy1jmVAoPLn5H4S7LWx2UF0JYU';
+const SHEET_ID        = '1YHVYcWXb_YD6MzX2mc5y78Zo0xAgUT11EObbgGzr9hU';
+const SHEET_TAB       = 'BloomData';
+const SHEETS_BASE     = 'https://sheets.googleapis.com/v4/spreadsheets';
+const SCOPES          = 'https://www.googleapis.com/auth/spreadsheets';
+
+let accessToken = null;
+let tokenClient = null;
+let gapiReady   = false;
+let gisReady    = false;
+
+function setSyncStatus(s, msg) {
+  const el = document.getElementById('sync-status');
+  const btn = document.getElementById('signin-btn');
+  if (!el) return;
+  const icons = { idle:'☁️', saving:'⏳', loading:'⏳', error:'⚠️', saved:'✓', login:'🔑' };
+  el.textContent = (icons[s] || '☁️') + ' ' + (msg || s);
+  el.style.color = s === 'error' ? 'var(--red)' : s === 'saved' ? 'var(--green)' : 'var(--blue-light)';
+  if (btn) btn.style.display = s === 'login' ? 'inline-block' : 'none';
+}
+
+function gapiLoaded() {
+  gapiReady = true;
+  maybeInit();
+}
+
+function gisLoaded() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: OAUTH_CLIENT_ID,
+    scope: SCOPES,
+    callback: async (resp) => {
+      if (resp.error) { setSyncStatus('error', 'Sign-in failed'); return; }
+      accessToken = resp.access_token;
+      await loadFromSheet();
+      finalizeInit();
+    }
+  });
+  gisReady = true;
+  maybeInit();
+}
+
+function maybeInit() {
+  if (!gapiReady || !gisReady) return;
+  // Check if we already have a token cached
+  const cached = sessionStorage.getItem('bb_token');
+  if (cached) {
+    accessToken = cached;
+    loadFromSheet().then(finalizeInit);
+  } else {
+    setSyncStatus('login', 'Sign in to sync →');
+  }
+}
+
+function signIn() {
+  if (!tokenClient) return;
+  // Try silent sign-in first, fall back to consent prompt
+  tokenClient.requestAccessToken({ prompt: '' });
+}
+
+function parseAppData(raw) {
+  const parsed = JSON.parse(raw);
+  if (parsed.transactions) {
+    Object.keys(parsed.transactions).forEach(k => {
+      parsed.transactions[k] = parsed.transactions[k].filter(t => !t._vault);
+    });
+  }
+  return parsed;
+}
+
+async function loadFromSheet() {
+  setSyncStatus('loading', 'Loading from cloud...');
+  try {
+    // Fetch multiple rows — A1=metadata, A2+=year transactions
+    const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:A20')}`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (res.status === 401) { handleAuthExpiry(); ensureVaultData(); return; }
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const rows = (data.values || []).map(r => r[0] || '');
+
+    if (rows.length === 0 || !rows[0]) {
+      setSyncStatus('saved', 'New sheet — ready');
+      ensureVaultData();
+      return;
+    }
+
+    // Parse sheet data
+    // New format: A1=metadata, then rows with col A=key, col B=transactions JSON
+    // Old format: A1=entire JSON blob
+    let sheetData;
+    try {
+      const meta = JSON.parse(rows[0]);
+      if (meta.transactions !== undefined) {
+        // Old format — entire appData in A1
+        sheetData = meta;
+      } else {
+        // New format — meta in A1, month rows after
+        meta.transactions = {};
+        // Need to fetch col B too for new format
+        const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:B200')}`;
+        const resB = await fetch(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        const dataB = await resB.json();
+        const rowsB = dataB.values || [];
+        rowsB.slice(1).forEach(row => {
+          const key = row[0];
+          const txJson = row[1];
+          if (key && txJson) {
+            try { meta.transactions[key] = JSON.parse(txJson); } catch(e) {}
+          }
+        });
+        sheetData = meta;
+      }
+    } catch(e) {
+      // Fallback: try parsing entire A1 as old format
+      try { sheetData = parseAppData(rows[0]); } catch(e2) { throw e; }
+    }
+    if (sheetData.transactions) {
+      Object.keys(sheetData.transactions).forEach(k => {
+        sheetData.transactions[k] = sheetData.transactions[k].filter(t => !t._vault);
+      });
+    }
+
+    // Timestamp conflict resolution
+    const localRaw = localStorage.getItem('bloombooks_v2');
+    let useSheet = true;
+    if (localRaw) {
+      try {
+        const localData = JSON.parse(localRaw);
+        const sheetTs = sheetData._savedAt || 0;
+        const localTs = localData._savedAt || 0;
+        if (localTs > sheetTs) {
+          console.log('Local data is newer, syncing to sheet');
+          appData = localData;
+          if (appData.transactions) {
+            Object.keys(appData.transactions).forEach(k => {
+              appData.transactions[k] = appData.transactions[k].filter(t => !t._vault);
+            });
+          }
+          ensureVaultData();
+          useSheet = false;
+          setSyncStatus('saving', 'Syncing local to cloud...');
+          await pushToSheet();
+        }
+      } catch(e) {}
+    }
+
+    if (useSheet) {
+      // Preserve locally-stored rules if the sheet copy is missing/empty
+      // (older sheets saved before rules were synced won't contain them)
+      if (!Array.isArray(sheetData.rules) || sheetData.rules.length === 0) {
+        try {
+          const localData = JSON.parse(localStorage.getItem('bloombooks_v2') || '{}');
+          if (Array.isArray(localData.rules) && localData.rules.length > 0) {
+            sheetData.rules = localData.rules;
+          }
+        } catch(e) {}
+      }
+      appData = sheetData;
+      setSyncStatus('saved', 'Synced ✓');
+      setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
+    }
+    if (accessToken) sessionStorage.setItem('bb_token', accessToken);
+  } catch(e) {
+    console.warn('Sheet load error:', e);
+    setSyncStatus('error', 'Load failed — local data');
+    loadFromLocal();
+  }
+  ensureVaultData();
+}
+
+function loadFromLocal() {
+  try {
+    const raw = localStorage.getItem('bloombooks_v2');
+    if (raw) { appData = parseAppData(raw); }
+  } catch(e) {}
+  ensureVaultData();
+}
+
+function isAuthError(text) {
+  return text.includes('401') || text.includes('UNAUTHENTICATED') || text.includes('invalid authentication');
+}
+
+function handleAuthExpiry() {
+  accessToken = null;
+  sessionStorage.removeItem('bb_token');
+  setSyncStatus('login', 'Session expired — sign in again');
+}
+
+function compactTx(t) {
+  // Strip heavy fields before cloud storage to minimize cell size
+  return {
+    id: t.id,
+    date: t.date,
+    desc: (t.desc || '').slice(0, 40),
+    category: t.category,
+    vendor: (t.vendor || '').slice(0, 30),
+    amount: t.amount,
+    type: t.type
+  };
+}
+
+async function pushToSheet() {
+  try {
+    // Row 1: metadata
+    // Row 2+: one row per month (year-month key) to stay under 50k char cell limit
+    const meta = {
+      years: appData.years,
+      activeYear: appData.activeYear,
+      notes: appData.notes || {},
+      reconciled: appData.reconciled || {},
+      holidays: appData.holidays || {},
+      rules: appData.rules || [],
+      _savedAt: appData._savedAt || Date.now()
+    };
+    const monthRows = [];
+    (appData.years || []).forEach(yr => {
+      for (let mi = 0; mi < 12; mi++) {
+        const key = `${yr}-${mi}`;
+        const txs = (appData.transactions[key] || []).filter(t => !t._vault).map(compactTx);
+        // Store key in col A, transactions JSON in col B
+        monthRows.push([key, JSON.stringify(txs)]);
+      }
+    });
+    const values = [[JSON.stringify(meta), ''], ...monthRows];
+    const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1')}?valueInputOption=RAW`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values })
+    });
+    if (res.status === 401) { handleAuthExpiry(); return; }
+    if (!res.ok) throw new Error(await res.text());
+    setSyncStatus('saved', 'Saved to cloud ✓');
+    setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
+  } catch(e) {
+    const msg = e.message || '';
+    if (isAuthError(msg)) { handleAuthExpiry(); return; }
+    setSyncStatus('error', 'Save failed — local only');
+    console.error('Sheet save error:', e);
+  }
+}
+
+let _saveTimer = null;
+function saveData() {
+  appData._savedAt = Date.now();
+  try { localStorage.setItem('bloombooks_v2', JSON.stringify(appData)); } catch(e) {}
+  if (!accessToken) { setSyncStatus('login', 'Sign in to sync →'); return; }
+  // Debounce cloud saves — wait 2s after last change before pushing to sheet
+  setSyncStatus('saving', 'Saving...');
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    await pushToSheet();
+  }, 2000);
+}
+
+async function loadData() {
+  // Will be handled by gapiLoaded/gisLoaded flow
+  // Immediately load from local as fallback while OAuth initializes
+  loadFromLocal();
+}
+
+function finalizeInit() {
+  const editCatSel = document.getElementById('edit-category');
+  if (editCatSel) editCatSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  updateYearSelects();
+  renderMonthTabs();
+  switchPanel('month-0');
+}
+
+// ============================================================
+// EXPORT / IMPORT
+// ============================================================
+function exportData() {
+  const blob = new Blob([JSON.stringify(appData, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `bloom-books-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  notify('Data exported successfully');
+}
+
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      appData = JSON.parse(ev.target.result);
+      ensureVaultData();
+      saveData();
+      initApp();
+      notify('Data imported successfully');
+    } catch(err) { notify('Import failed: invalid JSON', true); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
+function notify(msg, isError = false) {
+  const el = document.getElementById('notification');
+  el.textContent = msg;
+  el.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 3000);
+}
+
+// ============================================================
+// YEAR MANAGEMENT
+// ============================================================
+function setActiveYear(yr) {
+  appData.activeYear = parseInt(yr);
+  saveData();
+  renderMonthTabs();
+  renderCurrentPanel();
+}
+
+function promptAddYear() {
+  const yr = prompt('Enter year to add (e.g. 2027):');
+  if (!yr || isNaN(yr)) return;
+  const y = parseInt(yr);
+  if (y < 2000 || y > 2100) { notify('Invalid year', true); return; }
+  if (!appData.years.includes(y)) {
+    appData.years.push(y);
+    appData.years.sort();
+    saveData();
+  }
+  document.getElementById('active-year-select').value = y;
+  setActiveYear(y);
+  updateYearSelects();
+  notify(`Year ${y} added`);
+}
+
+function updateYearSelects() {
+  const sel = document.getElementById('active-year-select');
+  const importSel = document.getElementById('import-year-sel');
+  [sel, importSel].forEach(s => {
+    if (!s) return;
+    const cur = s.value;
+    s.innerHTML = appData.years.map(y => `<option value="${y}">${y}</option>`).join('');
+    if (cur && appData.years.includes(parseInt(cur))) s.value = cur;
+    else s.value = appData.activeYear;
+  });
+  // Extra checkboxes in trends
+  const extras = document.getElementById('extra-year-checks');
+  if (extras) {
+    const baseYears = [2023,2024,2025,2026];
+    extras.innerHTML = appData.years.filter(y => !baseYears.includes(y))
+      .map(y => `<label><input type="checkbox" value="${y}" checked onchange="renderTrendsChart()"> ${y}</label>`).join(' ');
+  }
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+let currentPanel = 'month-0';
+let monthCatFilter = {};  // { [mi]: categoryName } — active category filter per month
+let monthSort = {};  // { [mi]: {col, dir} } — active sort per month
+
+function switchPanel(panelId) {
+  currentPanel = panelId;
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  const tab = document.querySelector(`[data-panel="${panelId}"]`);
+  if (tab) tab.classList.add('active');
+
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+  if (panelId.startsWith('month-')) {
+    const mi = parseInt(panelId.split('-')[1]);
+    renderMonthPanel(mi);
+    const el = document.getElementById(`panel-month-${mi}`);
+    if (el) el.classList.add('active');
+  } else {
+    const el = document.getElementById(`panel-${panelId}`);
+    if (el) {
+      el.classList.add('active');
+      if (panelId === 'trends')       renderTrendsPanel();
+      if (panelId === 'yearly')       renderYearlyPanel();
+      if (panelId === 'tax')          renderTaxPanel();
+      if (panelId === 'holidays')     renderHolidayPanel();
+      if (panelId === 'import')       renderImportPanel();
+      if (panelId === 'trainer')      renderTrainerPanel();
+      if (panelId === 'ct-dashboard') renderCtDashboard();
+      if (panelId === 'ct-prices')    renderCtPrices();
+      if (panelId === 'ct-gmail')     renderCtGmailPanel();
+    }
+  }
+}
+
+function renderCurrentPanel() { switchPanel(currentPanel); }
+
+// ============================================================
+// MONTH TABS
+// ============================================================
+function renderMonthTabs() {
+  const container = document.getElementById('month-tabs');
+  container.innerHTML = MONTHS_SHORT.map((m, i) =>
+    `<div class="sidebar-tab${currentPanel === 'month-'+i ? ' active' : ''}" data-panel="month-${i}" onclick="switchPanel('month-${i}')">${m}</div>`
+  ).join('');
+
+  // Ensure month panel containers exist
+  const panelsContainer = document.getElementById('month-panels');
+  panelsContainer.innerHTML = MONTHS.map((_, i) =>
+    `<div id="panel-month-${i}" class="panel"></div>`
+  ).join('');
+}
+
+// ============================================================
+// TRANSACTIONS
+// ============================================================
+function getTxKey(year, month) { return `${year}-${month}`; }
+
+function getTransactions(year, month) {
+  return appData.transactions[getTxKey(year, month)] || [];
+}
+
+function addTransaction(year, month, tx) {
+  const key = getTxKey(year, month);
+  if (!appData.transactions[key]) appData.transactions[key] = [];
+  tx.id = 'tx-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  appData.transactions[key].push(tx);
+  saveData();
+}
+
+function deleteTransaction(year, month, id) {
+  const key = getTxKey(year, month);
+  appData.transactions[key] = (appData.transactions[key] || []).filter(t => t.id !== id);
+  saveData();
+}
+
+function updateTransaction(year, month, id, updates) {
+  const key = getTxKey(year, month);
+  const txs = appData.transactions[key] || [];
+  const idx = txs.findIndex(t => t.id === id);
+  if (idx !== -1) { txs[idx] = {...txs[idx], ...updates}; saveData(); }
+}
+
+// ============================================================
+// MONTH CALCULATIONS
+// ============================================================
+function calcMonth(year, month) {
+  const allTxs = getTransactions(year, month);
+  // If real transactions exist, exclude vault entries from totals to avoid double-counting
+  const hasReal = allTxs.some(t => !t._vault);
+  const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
+  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+  const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
+  const expenses = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  const net = revenue - expenses;
+  const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
+  // Category breakdown
+  const byCategory = {};
+  CATEGORIES.forEach(c => { byCategory[c] = 0; });
+  txs.forEach(t => {
+    if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
+  });
+  return { revenue, cogs, expenses, net, cogsRatio, byCategory };
+}
+
+function getRevenue(year, month) {
+  return calcMonth(year, month).revenue;
+}
+
+function calcYoYGrowth(year, month) {
+  const curr = getRevenue(year, month);
+  const prev = getRevenue(year - 1, month);
+  if (prev === 0) return null;
+  return ((curr - prev) / prev * 100);
+}
+
+// ============================================================
+// MONTH PANEL RENDER
+// ============================================================
+function renderMonthPanel(mi) {
+  const year = appData.activeYear;
+  const el = document.getElementById(`panel-month-${mi}`);
+  if (!el) return;
+
+  const txs = getTransactions(year, mi);
+  const calc = calcMonth(year, mi);
+  const yoy = calcYoYGrowth(year, mi);
+
+  // Previous year same month revenue
+  const prevRev = getRevenue(year - 1, mi);
+  const yoyHtml = yoy !== null
+    ? `<span class="kpi-growth ${yoy >= 0 ? 'up' : 'down'}">${yoy >= 0 ? '▲' : '▼'} ${Math.abs(yoy).toFixed(1)}% vs ${year-1}</span>`
+    : '<span class="kpi-growth" style="color:var(--mist)">No prior year data</span>';
+
+  const key = `${year}-${mi}`;
+  const isReconciled = appData.reconciled && appData.reconciled[key];
+  const note = appData.notes && appData.notes[key] ? appData.notes[key] : '';
+
+  // Best/worst month detection across all years
+  const allMonthRevenues = appData.years.flatMap(y => [0,1,2,3,4,5,6,7,8,9,10,11].map(m => ({y,m,rev:getRevenue(y,m)})));
+  const nonZero = allMonthRevenues.filter(x => x.rev > 0);
+  const bestMonth  = nonZero.length ? nonZero.reduce((a,b) => b.rev > a.rev ? b : a) : null;
+  const worstMonth = nonZero.length ? nonZero.reduce((a,b) => b.rev < a.rev ? b : a) : null;
+  const isBest  = bestMonth  && bestMonth.y  === year && bestMonth.m  === mi;
+  const isWorst = worstMonth && worstMonth.y === year && worstMonth.m === mi;
+
+  el.innerHTML = `
+    <div class="page-title">${MONTHS[mi]} ${year}
+      ${isBest  ? '<span style="font-size:0.7rem;background:#4a7c59;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">🏆 Best Month</span>' : ''}
+      ${isWorst ? '<span style="font-size:0.7rem;background:#c0392b;color:#fff;padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">📉 Lowest Month</span>' : ''}
+      ${isReconciled ? '<span style="font-size:0.7rem;background:var(--accent2);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
+    </div>
+    <div class="page-subtitle">Monthly ledger & performance</div>
+
+    <div class="kpi-row">
+      <div class="kpi-card revenue">
+        <div class="kpi-label">Revenue</div>
+        <div class="kpi-value">${fmt(calc.revenue)}</div>
+        ${yoyHtml}
+      </div>
+      <div class="kpi-card expense">
+        <div class="kpi-label">Total Expenses</div>
+        <div class="kpi-value">${fmt(calc.expenses)}</div>
+        <div class="kpi-sub">Incl. payroll, COGS, overhead</div>
+      </div>
+      <div class="kpi-card profit">
+        <div class="kpi-label">Net Income</div>
+        <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
+        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'}</div>
+      </div>
+      <div class="kpi-card cogs">
+        <div class="kpi-label">COGS Efficiency</div>
+        <div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div>
+        <div class="kpi-sub">COGS / Revenue</div>
+      </div>
+      ${prevRev > 0 ? `<div class="kpi-card" style="border-top:3px solid var(--mist)">
+        <div class="kpi-label">${year-1} Revenue</div>
+        <div class="kpi-value" style="font-size:1.1rem">${fmt(prevRev)}</div>
+        <div class="kpi-sub">Prior year baseline</div>
+      </div>` : ''}
+    </div>
+
+    <!-- CATEGORY BREAKDOWN -->
+    <div class="cat-breakdown" style="margin-bottom:22px">
+      <div class="ledger-header"><h3>Category Breakdown</h3></div>
+      <table>
+        <thead><tr><th>Category</th><th>Total</th><th>% of Revenue</th></tr></thead>
+        <tbody>
+          ${CATEGORIES.map(cat => {
+            const amt = calc.byCategory[cat] || 0;
+            if (amt === 0) return '';
+            const pct = calc.revenue > 0 ? (amt / calc.revenue * 100).toFixed(1) : '—';
+            const isActive = monthCatFilter[mi] === cat;
+            return `<tr class="cat-clickable${isActive ? ' cat-active' : ''}" onclick="filterByCategory(${mi}, '${cat.replace(/'/g, "\\'")}')" style="cursor:pointer" title="Click to view ${cat} transactions">
+              <td><span class="badge">${cat}</span>${isActive ? ' <span style="font-size:0.65rem;color:var(--accent2)">● filtering</span>' : ''}</td>
+              <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
+              <td>${pct}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SUPPLIER PIE CHART -->
+    <div class="chart-wrap">
+      <h3>🌿 Supplies Spend by Vendor</h3>
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="position:relative;width:260px;height:260px;flex-shrink:0"><canvas id="monthSupplierPie-${mi}"></canvas></div>
+        <div id="monthSupplierLegend-${mi}" style="flex:1;font-size:0.75rem;line-height:2"></div>
+      </div>
+    </div>
+
+    <!-- MANUAL ENTRY FORM -->
+    <div class="entry-form">
+      <h3>➕ Add Transaction</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="new-date-${mi}" value="${year}-${String(mi+1).padStart(2,'0')}-01">
+        </div>
+        <div class="form-group" style="flex:2">
+          <label>Description</label>
+          <input type="text" id="new-desc-${mi}" placeholder="Transaction description">
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="new-cat-${mi}">
+            ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Vendor</label>
+          <input type="text" id="new-vendor-${mi}" placeholder="Vendor">
+        </div>
+        <div class="form-group">
+          <label>Amount ($)</label>
+          <input type="number" id="new-amount-${mi}" placeholder="0.00" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="new-type-${mi}">
+            <option value="in">Money In</option>
+            <option value="out">Money Out</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="addManualTx(${mi})">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEDGER -->
+    <div class="ledger-wrap">
+      <div class="ledger-header">
+        <h3>Ledger — ${(monthCatFilter[mi] ? txs.filter(t => !t._vault && t.category === monthCatFilter[mi]) : txs.filter(t => !t._vault)).length} entries${txs.some(t => t._vault) ? ` <span style="font-size:0.7rem;color:var(--mist)">(+${txs.filter(t=>t._vault).length} vault)</span>` : ''}${monthCatFilter[mi] ? ` <button class="btn btn-outline btn-xs" onclick="filterByCategory(${mi}, null)" style="margin-left:8px;font-size:0.68rem">× ${escHtml(monthCatFilter[mi])} (clear)</button>` : ''}</h3>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${txs.some(t => t._vault) ? `<label style="font-size:0.72rem;color:var(--mist);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="show-vault-${mi}" onchange="toggleVault(${mi})" style="cursor:pointer"> Show vault</label>` : ''}
+          <button class="btn btn-outline btn-xs" onclick="printMonthSummary(${mi})">🖨 Print / PDF</button>
+          <button class="btn btn-danger btn-xs" onclick="clearMonth(${mi})">🗑 Clear Month</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" onclick="sortLedger(${mi}, 'date')" style="cursor:pointer">Date ${sortArrow(mi, 'date')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'desc')" style="cursor:pointer">Description ${sortArrow(mi, 'desc')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'category')" style="cursor:pointer">Category ${sortArrow(mi, 'category')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'vendor')" style="cursor:pointer">Vendor ${sortArrow(mi, 'vendor')}</th>
+            <th class="sortable" onclick="sortLedger(${mi}, 'amount')" style="cursor:pointer">Amount ${sortArrow(mi, 'amount')}</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ledger-body-${mi}">
+          ${(() => {
+            let rows = txs.filter(t => !t._vault);
+            if (monthCatFilter[mi]) rows = rows.filter(t => t.category === monthCatFilter[mi]);
+            rows = applySortRows(rows, monthSort[mi]);
+            if (rows.length === 0) return `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>${monthCatFilter[mi] ? 'No transactions in this category' : 'No transactions yet'}</div></td></tr>`;
+            return rows.map(t => renderTxRow(t, mi, year)).join('');
+          })()}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- NOTES & RECONCILE -->
+    <div class="entry-form" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3>📝 Month Notes</h3>
+        <button class="btn btn-outline btn-xs" onclick="toggleReconcile(${mi})" style="font-size:0.75rem">
+          ${isReconciled ? '🔓 Un-reconcile' : '✓ Mark Reconciled'}
+        </button>
+      </div>
+      <textarea id="notes-${mi}" rows="3" style="width:100%;background:var(--border);border:1px solid var(--blue-light);border-radius:6px;padding:8px;font-family:Inter,sans-serif;font-size:0.8rem;resize:vertical" placeholder="Add notes about this month... (e.g. Valentine's Day was slow due to snowstorm)">${escHtml(note)}</textarea>
+      <div style="margin-top:6px;text-align:right">
+        <button class="btn btn-outline btn-xs" onclick="saveNote(${mi})">Save Note</button>
+      </div>
+    </div>
+
+  `;
+
+  // Render supplier pie chart after DOM is updated
+  setTimeout(() => {
+    const supplierData = getSupplierData(txs.filter(t => !t._vault));
+    renderSupplierPie(`monthSupplierPie-${mi}`, `monthSupplierLegend-${mi}`, supplierData);
+  }, 0);
+}
+
+function sortArrow(mi, col) {
+  const s = monthSort[mi];
+  if (!s || s.col !== col) return '<span style="opacity:0.3;font-size:0.7rem">↕</span>';
+  return s.dir === 'asc' ? '<span style="font-size:0.7rem">▲</span>' : '<span style="font-size:0.7rem">▼</span>';
+}
+
+function applySortRows(rows, sort) {
+  if (!sort || !sort.col) return rows;
+  const { col, dir } = sort;
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    let av, bv;
+    if (col === 'amount') {
+      av = a.amount || 0; bv = b.amount || 0;
+      return (av - bv) * mult;
+    }
+    if (col === 'date') {
+      av = a.date || ''; bv = b.date || '';
+      return av < bv ? -1 * mult : av > bv ? 1 * mult : 0;
+    }
+    // text columns: desc, category, vendor
+    av = (a[col] || '').toString().toLowerCase();
+    bv = (b[col] || '').toString().toLowerCase();
+    return av < bv ? -1 * mult : av > bv ? 1 * mult : 0;
+  });
+}
+
+function sortLedger(mi, col) {
+  const s = monthSort[mi];
+  if (s && s.col === col) {
+    // toggle direction, then clear on third click
+    if (s.dir === 'asc') { monthSort[mi] = { col, dir: 'desc' }; }
+    else { monthSort[mi] = null; }
+  } else {
+    monthSort[mi] = { col, dir: 'asc' };
+  }
+  renderMonthPanel(mi);
+}
+
+function filterByCategory(mi, cat) {
+  // Toggle off if clicking the already-active category
+  if (cat && monthCatFilter[mi] === cat) {
+    monthCatFilter[mi] = null;
+  } else {
+    monthCatFilter[mi] = cat;
+  }
+  renderMonthPanel(mi);
+}
+
+function renderTxRow(t, mi, year) {
+  const isVault = t._vault;
+  const amtClass = t.type === 'in' ? 'amount-in' : 'amount-out';
+  const sign = t.type === 'in' ? '+' : '−';
+  return `<tr id="row-${t.id}" ${isVault ? 'style="opacity:0.75"' : ''}>
+    <td>${t.date}</td>
+    <td>${escHtml(t.desc || '')}${isVault ? ' <span style="font-size:0.6rem;color:var(--mist)">[vault]</span>' : ''}</td>
+    <td><span class="badge">${t.category}</span></td>
+    <td>${escHtml(t.vendor || '')}</td>
+    <td class="${amtClass}">${sign}${fmt(t.amount)}</td>
+    <td>
+      ${!isVault ? `<button class="btn btn-outline btn-xs" onclick="openEditModal('${t.id}',${mi},${year})">Edit</button>
+      <button class="btn btn-danger btn-xs" style="margin-left:4px" onclick="deleteTx('${t.id}',${mi},${year})">Del</button>` : '<span style="font-size:0.62rem;color:var(--mist)">Vault</span>'}
+    </td>
+  </tr>`;
+}
+
+function toggleVault(mi) {
+  const year = appData.activeYear;
+  const show = document.getElementById(`show-vault-${mi}`).checked;
+  const txs = getTransactions(year, mi);
+  const tbody = document.getElementById(`ledger-body-${mi}`);
+  let visible = show ? txs : txs.filter(t => !t._vault);
+  if (monthCatFilter[mi]) visible = visible.filter(t => t.category === monthCatFilter[mi]);
+  visible = applySortRows(visible, monthSort[mi]);
+  tbody.innerHTML = visible.length === 0
+    ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🌱</div>No transactions yet</div></td></tr>`
+    : visible.map(t => renderTxRow(t, mi, year)).join('');
+}
+
+function addManualTx(mi) {
+  const year = appData.activeYear;
+  const date = document.getElementById(`new-date-${mi}`).value;
+  const desc = document.getElementById(`new-desc-${mi}`).value.trim();
+  const cat = document.getElementById(`new-cat-${mi}`).value;
+  const vendor = document.getElementById(`new-vendor-${mi}`).value.trim();
+  const amount = parseFloat(document.getElementById(`new-amount-${mi}`).value);
+  const type = document.getElementById(`new-type-${mi}`).value;
+
+  if (!date || !desc || isNaN(amount) || amount <= 0) {
+    notify('Please fill all required fields', true); return;
+  }
+  addTransaction(year, mi, { date, desc, category: cat, vendor, amount, type });
+  renderMonthPanel(mi);
+  notify('Transaction added');
+}
+
+function deleteTx(id, mi, year) {
+  if (!confirm('Delete this transaction?')) return;
+  deleteTransaction(year, mi, id);
+  renderMonthPanel(mi);
+  notify('Transaction deleted');
+}
+
+// ============================================================
+// EDIT MODAL
+// ============================================================
+let editContext = null;
+
+function openEditModal(id, mi, year) {
+  const txs = getTransactions(year, mi);
+  const tx = txs.find(t => t.id === id);
+  if (!tx) return;
+  editContext = { id, mi, year };
+
+  const catSel = document.getElementById('edit-category');
+  catSel.innerHTML = CATEGORIES.map(c => `<option value="${c}"${c===tx.category?' selected':''}>${c}</option>`).join('');
+
+  document.getElementById('edit-date').value = tx.date;
+  document.getElementById('edit-desc').value = tx.desc || '';
+  document.getElementById('edit-vendor').value = tx.vendor || '';
+  document.getElementById('edit-amount').value = tx.amount;
+  document.getElementById('edit-type').value = tx.type;
+
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+  editContext = null;
+}
+
+function saveEdit() {
+  if (!editContext) return;
+  const { id, mi, year } = editContext;
+  updateTransaction(year, mi, id, {
+    date: document.getElementById('edit-date').value,
+    desc: document.getElementById('edit-desc').value,
+    category: document.getElementById('edit-category').value,
+    vendor: document.getElementById('edit-vendor').value,
+    amount: parseFloat(document.getElementById('edit-amount').value),
+    type: document.getElementById('edit-type').value
+  });
+  closeModal();
+  renderMonthPanel(mi);
+  notify('Transaction updated');
+}
+
+// ============================================================
+// CLEAR MONTH
+// ============================================================
+function clearMonth(mi) {
+  const year = appData.activeYear;
+  const monthName = MONTHS[mi];
+  const key = `${year}-${mi}`;
+  const txs = getTransactions(year, mi);
+  const nonVault = txs.filter(t => !t._vault);
+  if (nonVault.length === 0) { notify('No transactions to clear'); return; }
+  if (!confirm(`Delete all ${nonVault.length} imported/manual transactions from ${monthName} ${year}?\n\nVault data will be preserved. This cannot be undone.`)) return;
+  appData.transactions[key] = txs.filter(t => t._vault);
+  saveData();
+  renderMonthPanel(mi);
+  notify(`${monthName} ${year} cleared — ${nonVault.length} transactions removed`);
+}
+
+// ============================================================
+// NOTES & RECONCILE
+// ============================================================
+function saveNote(mi) {
+  const key = `${appData.activeYear}-${mi}`;
+  if (!appData.notes) appData.notes = {};
+  appData.notes[key] = document.getElementById(`notes-${mi}`).value;
+  saveData();
+  notify('Note saved');
+}
+
+function toggleReconcile(mi) {
+  const key = `${appData.activeYear}-${mi}`;
+  if (!appData.reconciled) appData.reconciled = {};
+  appData.reconciled[key] = !appData.reconciled[key];
+  saveData();
+  renderMonthPanel(mi);
+  notify(appData.reconciled[key] ? 'Month marked as reconciled ✓' : 'Month un-reconciled');
+}
+
+// ============================================================
+// DUPLICATE DETECTION
+// ============================================================
+function dupKey(date, amount, desc) {
+  return `${date}|${amount}|${(desc||'').slice(0,20).toLowerCase()}`;
+}
+
+function countExisting(yr, mo, date, amount, desc) {
+  const txs = getTransactions(yr, mo);
+  return txs.filter(t =>
+    t.amount === amount &&
+    t.date === date &&
+    (t.desc || '').toLowerCase().includes((desc || '').slice(0, 20).toLowerCase())
+  ).length;
+}
+
+// ============================================================
+// TAX SUMMARY PANEL
+// ============================================================
+function getYearTx(yr) {
+  // Flatten all non-vault transactions for the year (or vault if no real tx)
+  let all = [];
+  MONTHS_SHORT.forEach((_, mi) => {
+    const allTxs = getTransactions(yr, mi);
+    const hasReal = allTxs.some(t => !t._vault);
+    const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
+    all = all.concat(txs);
+  });
+  return all;
+}
+
+function isCashRevenue(t) {
+  if (t.category !== 'Revenue') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d === 'cash' || v === 'cash';
+}
+
+function isPayrollTax(t) {
+  // Gusto payroll-tax draft (ID 9138864001) — identified by vendor tag or description
+  const v = (t.vendor || '').toLowerCase();
+  const d = (t.desc || '').toLowerCase();
+  return v.includes('gusto') && (v.includes('payroll tax') || d.includes('9138864001'));
+}
+
+function isSalesTax(t) {
+  if (t.category !== 'Taxes') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d.includes('sales tax') || d.includes('sw2620818643') || v.includes('sales tax');
+}
+
+function isPropertyTax(t) {
+  if (t.category !== 'Taxes') return false;
+  const d = (t.desc || '').toLowerCase();
+  const v = (t.vendor || '').toLowerCase();
+  return d.includes('property') || v.includes('property');
+}
+
+function renderTaxPanel() {
+  const yr = appData.activeYear;
+  const el = document.getElementById('tax-summary-content');
+  const allTx = getYearTx(yr);
+
+  // Category totals, but: exclude cash revenue from Revenue, and drop Payroll1 entirely
+  const totals = {};
+  CATEGORIES.forEach(c => totals[c] = 0);
+  allTx.forEach(t => {
+    if (totals[t.category] === undefined) return;
+    if (t.category === 'Payroll1') return;          // excluded from accountant view
+    if (isCashRevenue(t)) return;                    // cash revenue excluded
+    totals[t.category] += t.amount;
+  });
+
+  // Tax sub-line breakdown
+  const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
+  const salesTax   = allTx.filter(isSalesTax).reduce((s,t) => s + t.amount, 0);
+  const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
+
+  const revenue = totals['Revenue'] || 0;
+  const totalExp = CATEGORIES.filter(c => c !== 'Revenue' && c !== 'Payroll1').reduce((s,c) => s + (totals[c]||0), 0);
+  const net = revenue - totalExp;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
+      <div class="kpi-card revenue" style="min-width:160px"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(revenue)}</div></div>
+      <div class="kpi-card expense" style="min-width:160px"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${fmt(totalExp)}</div></div>
+      <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
+    </div>
+
+    <div class="ledger-wrap" style="margin-bottom:20px">
+      <div class="ledger-header"><h3>🧾 Tax Breakdown (for accountant)</h3></div>
+      <table>
+        <thead><tr><th>Tax Type</th><th>Annual Total</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge">Payroll Tax</span></td><td class="amount-out">${fmt(payrollTax)}</td></tr>
+          <tr><td><span class="badge">Sales Tax</span></td><td class="amount-out">${fmt(salesTax)}</td></tr>
+          <tr><td><span class="badge">Property Tax</span></td><td class="amount-out">${fmt(propertyTax)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="ledger-wrap">
+      <div class="ledger-header">
+        <h3>📊 ${yr} Category Totals</h3>
+        <button class="btn btn-outline btn-xs" onclick="exportTaxCSV(${yr})">⬇ Export CSV</button>
+      </div>
+      <table>
+        <thead><tr><th>Category</th><th>Annual Total</th><th>% of Revenue</th><th>Monthly Avg</th></tr></thead>
+        <tbody>
+          ${CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).map(c => {
+            const pct = revenue > 0 ? (totals[c]/revenue*100).toFixed(1) : '—';
+            const avg = totals[c] / 12;
+            return `<tr>
+              <td><span class="badge">${c}</span></td>
+              <td class="${c==='Revenue'?'amount-in':'amount-out'}">${fmt(totals[c])}</td>
+              <td>${pct}%</td>
+              <td>${fmt(avg)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function exportTaxCSV(yr) {
+  const allTx = getYearTx(yr);
+  const totals = {};
+  CATEGORIES.forEach(c => totals[c] = 0);
+  allTx.forEach(t => {
+    if (totals[t.category] === undefined) return;
+    if (t.category === 'Payroll1') return;
+    if (isCashRevenue(t)) return;
+    totals[t.category] += t.amount;
+  });
+  const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
+  const salesTax   = allTx.filter(isSalesTax).reduce((s,t) => s + t.amount, 0);
+  const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
+  const rev = totals['Revenue'] || 0;
+
+  let csv = 'Section,Item,Annual Total,% of Revenue,Monthly Avg\n';
+  csv += `Tax Breakdown,Payroll Tax,${payrollTax.toFixed(2)},,\n`;
+  csv += `Tax Breakdown,Sales Tax,${salesTax.toFixed(2)},,\n`;
+  csv += `Tax Breakdown,Property Tax,${propertyTax.toFixed(2)},,\n`;
+  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).forEach(c => {
+    const pct = rev > 0 ? (totals[c]/rev*100).toFixed(1) : '0';
+    csv += `Category Totals,"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
+  });
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `bloom-books-tax-${yr}.csv`;
+  a.click();
+  notify('Tax summary exported');
+}
+
+// ============================================================
+// HOLIDAY REVENUE PANEL
+// ============================================================
+const HOLIDAYS = [
+  { key: 'valentines', label: "Valentine's Day 💕", month: 1 },
+  { key: 'mothers',    label: "Mother's Day 🌸",    month: 4 },
+  { key: 'christmas',  label: "Christmas 🎄",       month: 11 },
+  { key: 'thanksgiving', label: "Thanksgiving 🍂",  month: 10 },
+  { key: 'easter',     label: "Easter 🐣",          month: 3 },
+  { key: 'other',      label: "Other Holiday",      month: -1 },
+];
+
+function renderHolidayPanel() {
+  const el = document.getElementById('holiday-content');
+  if (!appData.holidays) appData.holidays = {};
+
+  const rows = appData.years.map(yr => {
+    const data = {};
+    HOLIDAYS.forEach(h => {
+      const key = `${yr}-${h.month !== -1 ? h.month : 'other'}`;
+      data[h.key] = (appData.holidays[key] || 0);
+    });
+    return { yr, data };
+  });
+
+  el.innerHTML = `
+    <p style="color:var(--mist);font-size:0.8rem;margin-bottom:16px">Enter the revenue you earned specifically from each holiday. This helps you understand how dependent your business is on key dates.</p>
+    <div class="ledger-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Holiday</th>
+            ${appData.years.map(y => `<th>${y}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${HOLIDAYS.map(h => `
+            <tr>
+              <td><strong>${h.label}</strong></td>
+              ${appData.years.map(yr => {
+                const key = `${yr}-${h.month !== -1 ? h.month : 'other'}`;
+                const val = appData.holidays[key] || 0;
+                return `<td><input type="number" value="${val}" step="0.01" min="0"
+                  style="width:90px;background:var(--border);border:1px solid var(--blue-light);border-radius:4px;padding:4px;font-family:Inter,sans-serif;font-size:0.8rem"
+                  onchange="saveHoliday('${key}', this.value)"></td>`;
+              }).join('')}
+            </tr>`).join('')}
+          <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
+            <td>Total Holiday Revenue</td>
+            ${appData.years.map(yr => {
+              const total = HOLIDAYS.reduce((s,h) => {
+                const key = `${yr}-${h.month !== -1 ? h.month : 'other'}`;
+                return s + (appData.holidays[key] || 0);
+              }, 0);
+              const yearRev = MONTHS_SHORT.reduce((s,_,mi) => s + getRevenue(yr,mi), 0);
+              const pct = yearRev > 0 ? (total/yearRev*100).toFixed(1) : '0';
+              return `<td class="amount-in">${fmt(total)}<div style="font-size:0.7rem;color:var(--mist)">${pct}% of revenue</div></td>`;
+            }).join('')}
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function saveHoliday(key, val) {
+  if (!appData.holidays) appData.holidays = {};
+  appData.holidays[key] = parseFloat(val) || 0;
+  saveData();
+  // Re-render totals row without full re-render
+  renderHolidayPanel();
+}
+
+// ============================================================
+// TRENDS PANEL
+// ============================================================
+let trendsChartInst = null;
+let growthChartInst = null;
+let cogsChartInst = null;
+
+function renderTrendsPanel() {
+  updateYearSelects();
+  renderTrendsChart();
+  renderCogsChart();
+}
+
+function renderCogsChart() {
+  const checkboxes = document.querySelectorAll('#panel-trends input[type=checkbox]');
+  const activeYears = Array.from(checkboxes).filter(c => c.checked).map(c => parseInt(c.value)).sort();
+  const yearColors = { 2023:'#8b9b8e', 2024:'#c9a84c', 2025:'#4a7c59', 2026:'#c0392b' };
+  const defaultColors = ['#7a5c8a','#2980b9','#e67e22','#16a085'];
+  let ci = 0;
+  function getColor(y) { return yearColors[y] || defaultColors[ci++ % defaultColors.length]; }
+
+  const datasets = activeYears.map(yr => ({
+    label: String(yr),
+    data: MONTHS_SHORT.map((_, mi) => {
+      const rev = getRevenue(yr, mi);
+      if (rev === 0) return null;
+      const calc = calcMonth(yr, mi);
+      return parseFloat(calc.cogsRatio.toFixed(1));
+    }),
+    borderColor: getColor(yr),
+    backgroundColor: getColor(yr) + '33',
+    fill: false,
+    tension: 0.3,
+    pointRadius: 4,
+    borderWidth: 2,
+    spanGaps: false
+  }));
+
+  if (cogsChartInst) cogsChartInst.destroy();
+  const ctx = document.getElementById('cogsChart');
+  if (!ctx) return;
+  cogsChartInst = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: { labels: MONTHS_SHORT, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}%` } }
+      },
+      scales: {
+        x: { ticks: { font: { family: 'Inter' } } },
+        y: {
+          ticks: { font: { family: 'Inter' }, callback: v => v + '%' },
+          title: { display: true, text: 'COGS % of Revenue', font: { family: 'Inter' } }
+        }
+      }
+    }
+  });
+}
+
+function renderTrendsChart() {
+  const checkboxes = document.querySelectorAll('#panel-trends input[type=checkbox]');
+  const activeYears = Array.from(checkboxes).filter(c => c.checked).map(c => parseInt(c.value)).sort();
+
+  const yearColors = {
+    2023: '#8b9b8e',
+    2024: '#c9a84c',
+    2025: '#4a7c59',
+    2026: '#c0392b'
+  };
+  const defaultColors = ['#7a5c8a','#2980b9','#e67e22','#16a085'];
+  let colorIdx = 0;
+
+  function getColor(y) {
+    if (yearColors[y]) return yearColors[y];
+    return defaultColors[colorIdx++ % defaultColors.length];
+  }
+
+  const datasets = activeYears.map(yr => ({
+    label: String(yr),
+    data: MONTHS_SHORT.map((_, mi) => getRevenue(yr, mi)),
+    backgroundColor: getColor(yr) + 'cc',
+    borderColor: getColor(yr),
+    borderWidth: 1.5,
+    borderRadius: 3
+  }));
+
+  // Growth annotations (current = last active year vs previous)
+  if (trendsChartInst) trendsChartInst.destroy();
+  const ctx = document.getElementById('trendsChart').getContext('2d');
+  trendsChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: MONTHS_SHORT, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmtK(ctx.parsed.y)}`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
+        y: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+
+  // Growth chart
+  if (growthChartInst) growthChartInst.destroy();
+  const growthYears = activeYears.filter(y => activeYears.includes(y - 1));
+  const growthDatasets = growthYears.map(yr => ({
+    label: `${yr} vs ${yr-1}`,
+    data: MONTHS_SHORT.map((_, mi) => {
+      const g = calcYoYGrowth(yr, mi);
+      return g !== null ? parseFloat(g.toFixed(1)) : 0;
+    }),
+    backgroundColor: MONTHS_SHORT.map((_, mi) => {
+      const g = calcYoYGrowth(yr, mi);
+      return g !== null && g >= 0 ? 'rgba(74,124,89,0.7)' : 'rgba(192,57,43,0.7)';
+    }),
+    borderColor: getColor(yr),
+    borderWidth: 1.5,
+    borderRadius: 3
+  }));
+
+  const ctx2 = document.getElementById('growthChart').getContext('2d');
+  growthChartInst = new Chart(ctx2, {
+    type: 'bar',
+    data: { labels: MONTHS_SHORT, datasets: growthDatasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}%` } }
+      },
+      scales: {
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
+        y: {
+          grid: { color: '#e8e8f0' },
+          ticks: { font: { family: 'Inter' }, callback: v => v + '%' },
+          suggestedMin: -30, suggestedMax: 30
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+// YEARLY SUMMARY
+// ============================================================
+let yearlyChartInst = null;
+let yearlyChartInst2 = null;
+let yearlySupplierPieInst = null;
+let yearlyChartInst3 = null;
+const monthSupplierPieInsts = {};
+
+const SUPPLIER_COLORS = [
+  '#4a7c59','#c9a84c','#c0392b','#2980b9','#8e44ad',
+  '#e67e22','#16a085','#7a5c8a','#d35400','#1abc9c',
+  '#e74c3c','#f39c12','#27ae60','#2c3e50','#8b9b8e'
+];
+
+function getSupplierData(txs) {
+  // Group COGS transactions by vendor
+  const vendorTotals = {};
+  txs.filter(t => t.category === 'Supplies & Materials - COGS' && t.type === 'out')
+    .forEach(t => {
+      const v = t.vendor || 'Unknown';
+      vendorTotals[v] = (vendorTotals[v] || 0) + t.amount;
+    });
+  // Sort by amount desc
+  const sorted = Object.entries(vendorTotals).sort((a,b) => b[1]-a[1]);
+  return sorted;
+}
+
+function renderSupplierPie(canvasId, legendId, data) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (!data.length) {
+    canvas.parentElement.innerHTML = '<div class="empty-state"><div class="empty-icon">🌱</div>No supply purchases yet</div>';
+    return;
+  }
+  const labels = data.map(d => d[0]);
+  const values = data.map(d => d[1]);
+  const total  = values.reduce((s,v) => s+v, 0);
+  const colors = data.map((_,i) => SUPPLIER_COLORS[i % SUPPLIER_COLORS.length]);
+
+  // Destroy existing
+  if (Chart.getChart(canvas)) Chart.getChart(canvas).destroy();
+
+  new Chart(canvas.getContext('2d'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#faf7f0' }] },
+    options: {
+      responsive: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmt(ctx.parsed)} (${(ctx.parsed/total*100).toFixed(1)}%)` } }
+      }
+    }
+  });
+
+  // Custom legend
+  const legendEl = document.getElementById(legendId);
+  if (legendEl) {
+    legendEl.innerHTML = data.map((d,i) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="width:12px;height:12px;border-radius:2px;background:${colors[i]};flex-shrink:0"></div>
+        <span style="flex:1;color:var(--ink)">${d[0]}</span>
+        <span style="color:var(--green);font-weight:500">${fmt(d[1])}</span>
+        <span style="color:var(--mist)">${(d[1]/total*100).toFixed(1)}%</span>
+      </div>`).join('');
+  }
+}
+
+function renderYearlyPanel() {
+  const grid = document.getElementById('yearly-grid-content');
+  const yearRows = appData.years.map(yr => {
+    const totals = MONTHS_SHORT.reduce((acc, _, mi) => {
+      const c = calcMonth(yr, mi);
+      acc.revenue += c.revenue;
+      acc.expenses += c.expenses;
+      acc.net += c.net;
+      return acc;
+    }, { revenue: 0, expenses: 0, net: 0 });
+
+    // YoY annual growth
+    const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
+    const annualGrowth = prevRevTotal > 0 ? ((totals.revenue - prevRevTotal) / prevRevTotal * 100) : null;
+
+    return { yr, ...totals, annualGrowth };
+  });
+
+  grid.innerHTML = `
+    <div class="yearly-grid">
+      ${yearRows.map(r => `
+        <div class="year-card" onclick="setActiveYear(${r.yr});switchPanel('month-0')">
+          <h4>${r.yr}</h4>
+          <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
+          <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
+          <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
+          ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="chart-wrap" style="margin-bottom:20px;">
+      <h3>Monthly Revenue — Annual Comparison</h3>
+      <div class="chart-container" style="height:380px;"><canvas id="annualComparisonChart"></canvas></div>
+    </div>
+  `;
+
+  // Annual Comparison grouped bar chart (by month, one bar per year)
+  if (yearlyChartInst) yearlyChartInst.destroy();
+  const yearColors = { 2023: '#8b9b8e', 2024: '#c9a84c', 2025: '#4a7c59', 2026: '#c0392b' };
+  const fallbackColors = ['#7a5c8a','#2980b9','#e67e22','#16a085'];
+  let fci = 0;
+  const annualDatasets = appData.years.map(yr => {
+    const color = yearColors[yr] || fallbackColors[fci++ % fallbackColors.length];
+    return {
+      label: String(yr),
+      data: MONTHS_SHORT.map((_, mi) => getRevenue(yr, mi)),
+      backgroundColor: color + 'cc',
+      borderColor: color,
+      borderWidth: 1.5,
+      borderRadius: 3
+    };
+  });
+
+  const ctx = document.getElementById('annualComparisonChart').getContext('2d');
+  yearlyChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: MONTHS_SHORT, datasets: annualDatasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, color: '#1a1a2e' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' } } },
+        y: { grid: { color: '#e8e8f0' }, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) }, beginAtZero: true }
+      }
+    }
+  });
+
+  // Annual totals bar chart (below)
+  if (yearlyChartInst2) yearlyChartInst2.destroy();
+  const annTotals = appData.years.map(yr => {
+    const c = MONTHS_SHORT.reduce((acc,_,mi) => { const m = calcMonth(yr,mi); acc.rev+=m.revenue; acc.exp+=m.expenses; return acc; }, {rev:0,exp:0});
+    return c;
+  });
+  const ctx2 = document.getElementById('yearlyChart').getContext('2d');
+  yearlyChartInst2 = new Chart(ctx2, {
+    type: 'bar',
+    data: {
+      labels: appData.years.map(String),
+      datasets: [
+        { label: 'Revenue', data: annTotals.map(t=>t.rev), backgroundColor: 'rgba(74,124,89,0.8)', borderRadius: 4 },
+        { label: 'Expenses', data: annTotals.map(t=>t.exp), backgroundColor: 'rgba(192,57,43,0.7)', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { family: 'Inter' } } } },
+      scales: {
+        x: { ticks: { font: { family: 'Inter' } } },
+        y: { ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+
+  // Annual Category Breakdown — stacked bar by category per year
+  if (yearlyChartInst3) yearlyChartInst3.destroy();
+  const expCats = CATEGORIES.filter(c => c !== 'Revenue');
+  const catColorMap = {
+    'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
+    'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',
+    'Office':'#7f8c8d','Insurance':'#d35400','FSN':'#27ae60',
+    'Repairs/Maintenance':'#8b0000','Rent':'#2c3e50','Phone/Internet':'#6c3483','Marketing':'#e74c3c'
+  };
+  const catDatasets = expCats.map(cat => ({
+    label: cat,
+    data: appData.years.map(yr =>
+      MONTHS_SHORT.reduce((s, _, mi) => s + (calcMonth(yr, mi).byCategory[cat] || 0), 0)
+    ),
+    backgroundColor: (catColorMap[cat] || '#888') + 'cc',
+    borderWidth: 0
+  })).filter(ds => ds.data.some(v => v > 0));
+
+  const ctx3 = document.getElementById('yearlyCatChart').getContext('2d');
+  yearlyChartInst3 = new Chart(ctx3, {
+    type: 'bar',
+    data: { labels: appData.years.map(String), datasets: catDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' }, boxWidth: 12, fontSize: 11 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { stacked: true, ticks: { font: { family: 'Inter' } } },
+        y: { stacked: true, ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+
+  // Supplier pie — all transactions across active year (exclude vault)
+  const allYearTxs = MONTHS_SHORT.reduce((arr, _, mi) => {
+    return arr.concat(getTransactions(appData.activeYear, mi).filter(t => !t._vault));
+  }, []);
+  setTimeout(() => renderSupplierPie('yearlySupplierPie', 'yearlySupplierLegend', getSupplierData(allYearTxs)), 0);
+}
+
+// ============================================================
+// IMPORT / PARSER ENGINE
+// ============================================================
+let stagingRows = [];
+let ignoredRows = [];
+
+function renderImportPanel() {
+  updateYearSelects();
+  document.getElementById('import-year-sel').value = appData.activeYear;
+}
+
+function updateImportPlaceholder() {
+  const src = document.getElementById('import-source-sel').value;
+  const ta = document.getElementById('import-text');
+  if (src === 'amex') {
+    ta.placeholder = 'Paste Amex TSV here...\n\nExpected columns: Date | Receipt | Description | Card Member | Account # | Amount\nNegative amounts (payments) are automatically ignored.';
+  } else {
+    ta.placeholder = 'Paste Chase bank TSV here...\n\nExpected columns: Date | Description | Amount | TxType';
+  }
+}
+
+function parseAmex() {
+  const raw = document.getElementById('import-text').value.trim();
+  if (!raw) { notify('Paste some text first', true); return; }
+
+  stagingRows = [];
+  const lines = raw.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+
+  lines.forEach((line, idx) => {
+    const cols = line.split('\t');
+    if (cols.length < 6) return;
+
+    const rawDate = cols[0].trim();
+    // col1 = Receipt (skip)
+    const desc    = cols[2].trim();
+    // col3 = Card Member, col4 = Account # (skip)
+    const rawAmt  = cols[5].trim();
+
+    // Parse amount — negative = Amex payment, ignore
+    const amt = parseFloat(rawAmt.replace(/,/g,''));
+    if (isNaN(amt) || amt <= 0) return; // ignore payments and zero
+
+    // Parse date MM/DD/YYYY
+    let date;
+    const dm = rawDate.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dm) {
+      date = `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}`;
+    } else {
+      const yr = parseInt(document.getElementById('import-year-sel').value);
+      const mo = parseInt(document.getElementById('import-month-sel').value);
+      date = `${yr}-${String(mo+1).padStart(2,'0')}-01`;
+    }
+
+    const txYear  = dm ? parseInt(dm[3]) : parseInt(document.getElementById('import-year-sel').value);
+    const txMonth = dm ? parseInt(dm[1]) - 1 : parseInt(document.getElementById('import-month-sel').value);
+
+    const upper = desc.toUpperCase();
+
+    // Apply built-in ignore rules
+    for (const rule of BUILTIN_RULES) {
+      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
+        ignoredRows.push({ desc: desc.slice(0,80), amount: amt, reason: rule.keyword });
+        return;
+      }
+    }
+
+    // Apply category rules (all Amex charges are 'out')
+    let category = 'Office';
+    let vendor = desc.slice(0, 40);
+    for (const rule of BUILTIN_RULES) {
+      if (rule.ignore) continue;
+      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === 'out')) {
+        category = rule.category; vendor = rule.vendor || vendor; break;
+      }
+    }
+    for (const rule of appData.rules) {
+      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === 'out')) {
+        category = rule.category; vendor = rule.vendor || vendor; break;
+      }
+    }
+
+    // Clean description
+    const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
+    const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
+
+    stagingRows.push({
+      _id: 'stage-' + idx,
+      line: line.slice(0, 120),
+      desc: cleanDesc,
+      date, txYear, txMonth,
+      amount: amt,
+      type: 'out',
+      category, vendor,
+      status: 'review'
+    });
+  });
+}
+
+function parseImport() {
+  const raw = document.getElementById('import-text').value.trim();
+  if (!raw) { notify('Paste some text first', true); return; }
+
+  stagingRows = [];
+  ignoredRows = [];
+
+  const source = document.getElementById('import-source-sel').value;
+  if (source === 'amex') {
+    parseAmex();
+    renderStagingTable();
+    if (stagingRows.length === 0) notify('No parseable transactions found', true);
+    else notify(`${stagingRows.length} transactions staged for review`);
+    return;
+  }
+
+  // TSV format: Date \t Description \t Amount \t TxType (one row per line)
+  const lines = raw.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+
+  lines.forEach((line, idx) => {
+    const cols = line.split('\t');
+    if (cols.length < 2) return;
+
+    const rawDate = (cols[0] || '').trim();
+    const desc    = (cols[1] || '').trim();
+    const rawAmt  = (cols[2] || '').trim();
+    const txType  = (cols[3] || '').trim().toUpperCase();
+    const upper   = (desc + ' ' + txType).toUpperCase();
+
+    // --- IGNORE ---
+    for (const rule of BUILTIN_RULES) {
+      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
+        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
+        return;
+      }
+    }
+    for (const rule of appData.rules) {
+      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
+        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
+        return;
+      }
+    }
+
+    // --- DATE from col0 MM/DD/YYYY, fallback to selectors ---
+    let date, txYear, txMonth;
+    const dm = rawDate.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dm) {
+      txYear  = parseInt(dm[3]);
+      txMonth = parseInt(dm[1]) - 1; // 0-indexed
+      date = `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}`;
+    } else {
+      txYear  = parseInt(document.getElementById('import-year-sel').value);
+      txMonth = parseInt(document.getElementById('import-month-sel').value);
+      date = `${txYear}-${String(txMonth+1).padStart(2,'0')}-01`;
+    }
+
+    // --- AMOUNT from col2: TC327.7 or TC-73.99 or -277.99 or 105 ---
+    let amount = null;
+    let isNegative = false;
+    const tcMatch = rawAmt.match(/^TC(-?)([\d.]+)$/i);
+    if (tcMatch) {
+      isNegative = tcMatch[1] === '-';
+      amount = parseFloat(tcMatch[2]);
+    } else {
+      const plainMatch = rawAmt.match(/^(-?)([\d.,]+)$/);
+      if (plainMatch) {
+        isNegative = plainMatch[1] === '-';
+        amount = parseFloat(plainMatch[2].replace(/,/g,''));
+      }
+    }
+
+    if (!amount || amount <= 0) return;
+
+    // --- SIGN: tx type column is authoritative ---
+    let signGuess;
+    if (/ACH_CREDIT|MISC_CREDIT|CHECK_DEPOSIT/.test(txType))                                       signGuess = 'in';
+    else if (/ACH_DEBIT|DEBIT_CARD|MISC_DEBIT|QUICKPAY_DEBIT|CHASE_TO_PARTNERFI|CHECK_PAID/.test(txType)) signGuess = 'out';
+    else signGuess = isNegative ? 'out' : 'in';
+
+    // --- CATEGORY via rules ---
+    let category = signGuess === 'in' ? 'Revenue' : 'Office';
+    let vendor = '';
+    let matched = false;
+    for (const rule of BUILTIN_RULES) {
+      if (rule.ignore) continue;
+      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === signGuess)) {
+        category = rule.category; vendor = rule.vendor || ''; matched = true; break;
+      }
+    }
+    if (!matched) {
+      for (const rule of appData.rules) {
+        if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === signGuess)) {
+          category = rule.category; vendor = rule.vendor || ''; break;
+        }
+      }
+    }
+
+    // Clean description: prefer IND NAME field
+    const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
+    const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
+
+    stagingRows.push({
+      _id: 'stage-' + idx,
+      line: line.slice(0, 120),
+      desc: cleanDesc,
+      date, txYear, txMonth, amount, type: signGuess, category, vendor,
+      status: 'review'
+    });
+  });
+
+  renderStagingTable();
+  if (stagingRows.length === 0) notify('No parseable transactions found', true);
+  else notify(`${stagingRows.length} transactions staged for review`);
+}
+
+function renderStagingTable() {
+  const area = document.getElementById('staging-table-area');
+  if (stagingRows.length === 0) { area.innerHTML = ''; return; }
+
+  const rows = stagingRows.filter(r => r.status !== 'saved');
+
+  area.innerHTML = `
+    <div class="ledger-wrap">
+      <div class="ledger-header">
+        <h3>🟡 Staged Transactions (${rows.length} pending)</h3>
+        <button class="btn btn-primary btn-sm" onclick="saveAllStaged()">✅ Save All to Ledger</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="cancelImport()">✕ Cancel Import</button>
+      </div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Raw Line</th>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Vendor</th>
+              <th>Amount</th>
+              <th>Type</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stagingRows.map(r => {
+              if (r.status === 'saved') return '';
+              const cls = r.status === 'rejected' ? 'staging-row-rejected' : r.status === 'dupe' ? 'staging-row-dupe' : 'staging-row-review';
+              return `<tr class="${cls}" id="stage-row-${r._id}">
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.65rem;color:var(--mist)">${escHtml(r.line)}</td>
+                <td><input class="inline-input" style="width:120px" value="${r.date}" onchange="updateStageRow('${r._id}','date',this.value)"></td>
+                <td>
+                  <select class="inline-input" onchange="updateStageRow('${r._id}','category',this.value)">
+                    ${CATEGORIES.map(c=>`<option value="${c}"${c===r.category?' selected':''}>${c}</option>`).join('')}
+                  </select>
+                </td>
+                <td><input class="inline-input" style="width:100px" value="${escHtml(r.vendor)}" onchange="updateStageRow('${r._id}','vendor',this.value)"></td>
+                <td><input class="inline-input" style="width:80px" type="number" value="${r.amount}" onchange="updateStageRow('${r._id}','amount',parseFloat(this.value))"></td>
+                <td>
+                  <select class="inline-input" onchange="updateStageRow('${r._id}','type',this.value)">
+                    <option value="in"${r.type==='in'?' selected':''}>In</option>
+                    <option value="out"${r.type==='out'?' selected':''}>Out</option>
+                  </select>
+                </td>
+                <td>
+                  ${r.status === 'dupe' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">⚠ Dupe?</span> ' : ''}
+                  <button class="btn btn-primary btn-xs" onclick="saveStagedRow('${r._id}')">Save</button>
+                  <button class="btn btn-danger btn-xs" style="margin-left:3px" onclick="rejectStagedRow('${r._id}')">Reject</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    ${ignoredRows.length > 0 ? `
+    <div class="ledger-wrap" style="margin-top:16px;opacity:0.75">
+      <div class="ledger-header">
+        <h3>⛔ Ignored (${ignoredRows.length}) — matched ignore rules</h3>
+      </div>
+      <table>
+        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th></tr></thead>
+        <tbody>
+          ${ignoredRows.map(r => `
+            <tr style="background:#ffeaea">
+              <td style="font-size:0.8rem">${escHtml(r.desc)}</td>
+              <td class="amount-out">${fmt(r.amount)}</td>
+              <td><span class="badge">${escHtml(r.reason)}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
+function updateStageRow(id, field, val) {
+  const r = stagingRows.find(r => r._id === id);
+  if (r) r[field] = val;
+}
+
+function rejectStagedRow(id) {
+  const r = stagingRows.find(r => r._id === id);
+  if (r) { r.status = 'rejected'; renderStagingTable(); }
+}
+
+function saveStagedRow(id) {
+  const r = stagingRows.find(r => r._id === id);
+  if (!r) return;
+  const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
+  const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+  addTransaction(yr, mo, {
+    date: r.date, desc: r.desc.slice(0, 40), category: r.category,
+    vendor: r.vendor, amount: r.amount, type: r.type
+  });
+  r.status = 'saved';
+  renderStagingTable();
+  notify('Transaction saved to ledger');
+}
+
+function cancelImport() {
+  if (stagingRows.length && !confirm('Discard all staged transactions?')) return;
+  stagingRows = [];
+  document.getElementById('staging-table-area').innerHTML = '';
+  document.getElementById('import-text').value = '';
+  notify('Import cancelled');
+}
+
+function saveAllStaged() {
+  let count = 0, dupes = 0;
+  // Track how many of each duplicate key we're importing in this batch
+  const importCounts = {};
+  stagingRows.forEach(r => {
+    if (r.status !== 'review') return;
+    const yr = r.txYear || parseInt(document.getElementById('import-year-sel').value);
+    const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+    const key = `${yr}-${mo}|` + dupKey(r.date, r.amount, r.desc);
+    importCounts[key] = (importCounts[key] || 0) + 1;
+    const alreadyInLedger = countExisting(yr, mo, r.date, r.amount, r.desc);
+    // Flag as dupe only if ledger already has >= this many of the same tx
+    if (alreadyInLedger >= importCounts[key]) { dupes++; r.status = 'dupe'; return; }
+    addTransaction(yr, mo, {
+      date: r.date, desc: r.desc.slice(0, 40), category: r.category,
+      vendor: r.vendor, amount: r.amount, type: r.type
+    });
+    r.status = 'saved';
+    count++;
+  });
+  renderStagingTable();
+  let msg = `${count} transactions saved to ledger`;
+  if (dupes > 0) msg += ` — ${dupes} possible duplicate(s) flagged`;
+  notify(msg, dupes > 0);
+}
+
+// ============================================================
+// PRINT / PDF EXPORT
+// ============================================================
+function printMonthSummary(mi) {
+  const year = appData.activeYear;
+  const calc = calcMonth(year, mi);
+  const txs = getTransactions(year, mi);
+  const key = `${year}-${mi}`;
+  const note = appData.notes && appData.notes[key] ? appData.notes[key] : '';
+
+  const catRows = CATEGORIES.filter(c => (calc.byCategory[c]||0) > 0).map(c => {
+    const amt = calc.byCategory[c];
+    const pct = calc.revenue > 0 ? (amt/calc.revenue*100).toFixed(1) : '—';
+    return `<tr><td>${c}</td><td>${fmt(amt)}</td><td>${pct}%</td></tr>`;
+  }).join('');
+
+  const txRows = txs.map(t =>
+    `<tr><td>${t.date}</td><td>${t.desc||''}</td><td>${t.category}</td><td>${t.vendor||''}</td><td>${t.type==='in'?'+':'-'}${fmt(t.amount)}</td></tr>`
+  ).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Bloom Books — ${MONTHS[mi]} ${year}</title>
+  <style>
+    body { font-family: monospace; font-size: 12px; color: #1a1a2e; padding: 24px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    h2 { font-size: 14px; margin: 16px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th, td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; }
+    th { background: #f5f0e8; }
+    .kpis { display: flex; gap: 16px; margin: 12px 0; }
+    .kpi { border: 1px solid #ddd; border-radius: 4px; padding: 8px 16px; }
+    .kpi-label { font-size: 10px; color: #888; }
+    .kpi-value { font-size: 18px; font-weight: bold; }
+    .note { background: #fffde7; border: 1px solid #f0d060; padding: 8px; border-radius: 4px; font-style: italic; }
+    @media print { body { padding: 0; } }
+  </style></head><body>
+  <h1>🌸 Bloom Books</h1>
+  <div>${MONTHS[mi]} ${year} — Monthly Summary</div>
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value">${fmt(calc.revenue)}</div></div>
+    <div class="kpi"><div class="kpi-label">Expenses</div><div class="kpi-value">${fmt(calc.expenses)}</div></div>
+    <div class="kpi"><div class="kpi-label">Net Income</div><div class="kpi-value">${fmt(calc.net)}</div></div>
+    <div class="kpi"><div class="kpi-label">COGS %</div><div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div></div>
+  </div>
+  ${note ? `<div class="note">📝 ${note}</div>` : ''}
+  <h2>Category Breakdown</h2>
+  <table><thead><tr><th>Category</th><th>Total</th><th>% of Revenue</th></tr></thead><tbody>${catRows}</tbody></table>
+  <h2>Transactions (${txs.length})</h2>
+  <table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Vendor</th><th>Amount</th></tr></thead><tbody>${txRows}</tbody></table>
+  <script>window.print();<\/script></body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
+// ============================================================
+// LOGIC TRAINER
+// ============================================================
+function renderTrainerPanel() {
+  const catSel = document.getElementById('rule-category');
+  catSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  renderRulesList();
+}
+
+function addRule() {
+  const keyword = document.getElementById('rule-keyword').value.trim();
+  const sign = document.getElementById('rule-sign').value;
+  const category = document.getElementById('rule-category').value;
+  const vendor = document.getElementById('rule-vendor').value.trim();
+  if (!keyword) { notify('Keyword is required', true); return; }
+  appData.rules.push({ keyword, sign, category, vendor });
+  saveData();
+  document.getElementById('rule-keyword').value = '';
+  document.getElementById('rule-vendor').value = '';
+  renderRulesList();
+  notify('Rule added');
+}
+
+function deleteRule(idx) {
+  appData.rules.splice(idx, 1);
+  saveData();
+  renderRulesList();
+  notify('Rule deleted');
+}
+
+function renderRulesList() {
+  const container = document.getElementById('rules-list');
+  document.getElementById('rule-count').textContent = `(${appData.rules.length})`;
+  if (appData.rules.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div>No rules yet — add one above</div>';
+    return;
+  }
+  container.innerHTML = `<div class="rule-list">
+    ${appData.rules.map((r, i) => `
+      <div class="rule-row">
+        <span class="rule-keyword">"${escHtml(r.keyword)}"</span>
+        <span class="rule-sign">+ ${r.sign === 'any' ? 'Any' : r.sign === 'in' ? 'Money In' : 'Money Out'}</span>
+        <span class="rule-arrow">→</span>
+        <span class="rule-cat">${r.category}</span>
+        ${r.vendor ? `<span style="color:var(--mist);font-size:0.68rem">(${escHtml(r.vendor)})</span>` : ''}
+        <button class="btn btn-danger btn-xs" style="margin-left:auto" onclick="deleteRule(${i})">Remove</button>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function fmt(n) {
+  if (isNaN(n)) return '$0.00';
+  return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtK(n) {
+  if (Math.abs(n) >= 1000) return '$' + (n/1000).toFixed(1) + 'k';
+  return '$' + n;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// COST TRACKER
+// ============================================================
+
+// --- Data store ---
+// ctData = {
+//   invoices: [ { id, date, supplier, total, items: [{name,category,qty,uom,unitPrice,total}] } ],
+//   catalog:  { "cdn mix": "Flowers", ... }   // learned category map (fuzzy key → category)
+// }
+const CT_CATEGORIES = ['Flowers','Greens','Hardgoods','Glass','Plants','Other'];
+const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Hardgoods:'#e67e22', Glass:'#1a5fa8', Plants:'#27ae60', Other:'#888899' };
+
+const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Hardgoods: 2, Glass: 2, Plants: 2.5, Other: 2 };
+
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [] };
+let ctCharts = {};
+
+function ctSave() {
+  try { localStorage.setItem('bb_ctdata', JSON.stringify(ctData)); } catch(e) {}
+}
+function ctLoad() {
+  try {
+    const raw = localStorage.getItem('bb_ctdata');
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], ...JSON.parse(raw) };
+  } catch(e) {}
+}
+
+// --- Fuzzy category lookup ---
+function ctCatalogKey(name) {
+  return name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+}
+function ctGuessCategory(name) {
+  const key = ctCatalogKey(name);
+  if (ctData.catalog[key]) return ctData.catalog[key];
+  // Keyword heuristics
+  if (/\b(rose|lil|tulip|orchid|sunflow|delph|snap|stock|alstr|peony|dahlia|gerbera|iris|ranunc|anemon|freesia|lisianthus|cdn|mum|chrysanth|disb|pom|carna|spray|protea|heliconia|anthurium|bird of paradise|hydrangea|wax)\b/.test(key)) return 'Flowers';
+  if (/\b(eucal|fern|ruscus|salal|pittospo|asparagus|leather|tree fern|lemon leaf|israeli ruscus|bear grass|lily grass|monstera|palm|green|foliage|ivy|huck|myrtle|seeded|bupleur)\b/.test(key)) return 'Greens';
+  if (/\b(ribbon|wire|tape|foam|oasis|cage|pick|stake|wrap|bow|bag|tissue|staple|cello|kraft|pin|supply|anchor|glue)\b/.test(key)) return 'Hardgoods';
+  if (/\b(vase|glass|bowl|cube|cylinder|vessel|container|pot|urn|compote|jar)\b/.test(key)) return 'Glass';
+  if (/\b(plant|succulent|cactus|ficus|pothos|orchid plant|bromeliad|monstera plant|bonsai|jade|aloe|dracaena|snake plant|zz|philodendron)\b/.test(key)) return 'Plants';
+  return 'Other';
+}
+function ctLearnCategory(name, category) {
+  ctData.catalog[ctCatalogKey(name)] = category;
+  ctSave();
+}
+
+// --- Family/Type (finer grouping within a category, e.g. all rose colors → "Roses") ---
+function ctGuessFamily(name) {
+  const key = ctCatalogKey(name);
+  if (ctData.family[key]) return ctData.family[key];
+  if (/\bspray rose\b/.test(key)) return 'Spray Roses';
+  if (/\bgarden rose\b/.test(key)) return 'Garden Roses';
+  if (/\brose\b/.test(key)) return 'Roses';
+  if (/\bdelph\w*\b/.test(key)) return 'Delphinium';
+  if (/\bcremon\b/.test(key)) return 'Cremon';
+  if (/\bhydrangea\b/.test(key)) return 'Hydrangea';
+  if (/\btulip\b/.test(key)) return 'Tulips';
+  if (/\balstr\w*\b/.test(key)) return 'Alstroemeria';
+  if (/\blily\b|\blil\b/.test(key)) return 'Lilies';
+  return '';
+}
+function ctLearnFamily(name, family) {
+  const key = ctCatalogKey(name);
+  if (family) ctData.family[key] = family;
+  else delete ctData.family[key];
+  ctSave();
+}
+function ctAllFamilies() {
+  return [...new Set(Object.values(ctData.family))].filter(Boolean).sort();
+}
+function ctFamilyDatalist() {
+  return `<datalist id="ct-family-list">${ctAllFamilies().map(f => `<option value="${escHtml(f)}">`).join('')}</datalist>`;
+}
+
+// --- File handling ---
+function ctHandleDrop(e) {
+  e.preventDefault();
+  document.getElementById('ct-drop-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) ctProcessFile(file);
+}
+function ctHandleFile(e) {
+  const file = e.target.files[0];
+  if (file) ctProcessFile(file);
+  e.target.value = '';
+}
+
+async function ctProcessFile(file) {
+  const area = document.getElementById('ct-parse-area');
+
+  if (!ctData.appsScriptUrl) {
+    area.innerHTML = `<div class="ct-parse-result"><div class="ct-parse-header"><h3 style="color:var(--red)">⚠️ Not connected</h3></div><div style="padding:16px;font-size:0.82rem;color:var(--mist)">Invoice parsing needs the Apps Script Web App URL set in Gmail Scan → Setup first.</div></div>`;
+    return;
+  }
+
+  area.innerHTML = `<div class="ct-parsing-overlay"><div class="spinner">⏳</div><br>Reading invoice with Claude...<br><span style="font-size:0.72rem;color:var(--mist)">This takes about 10–15 seconds</span></div>`;
+
+  try {
+    // Convert file to base64
+    const base64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(',')[1]);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+
+    const isPdf = file.type === 'application/pdf';
+    const mediaType = isPdf ? 'application/pdf' : file.type;
+
+    // Sent as text/plain to avoid a CORS preflight, which Apps Script web apps don't handle
+    const response = await fetch(ctData.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ filename: file.name, mediaType, base64 })
+    });
+
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Apps Script returned an error');
+
+    ctShowParseResult(result.parsed, file.name);
+
+  } catch(err) {
+    area.innerHTML = `<div class="ct-parse-result"><div class="ct-parse-header"><h3 style="color:var(--red)">⚠️ Parse failed</h3></div><div style="padding:16px;font-size:0.82rem;color:var(--mist)">${err.message}<br><br>Try a clearer photo or a PDF version of this invoice.</div></div>`;
+  }
+}
+
+function ctShowParseResult(parsed, filename) {
+  const area = document.getElementById('ct-parse-area');
+  if (!parsed.items || parsed.items.length === 0) {
+    area.innerHTML = `<div class="ct-parse-result"><div class="ct-parse-header"><h3 style="color:var(--red)">No items found</h3></div><div style="padding:16px;font-size:0.82rem;color:var(--mist)">Claude couldn't extract line items from this file. Try a clearer image.</div></div>`;
+    return;
+  }
+
+  // Enrich items with guessed categories and price comparison
+  const enriched = parsed.items.map(item => ({
+    ...item,
+    category: ctGuessCategory(item.name),
+    priorPrice: ctGetPriorPrice(item.name, parsed.supplier)
+  }));
+
+  const rows = enriched.map((item, i) => {
+    const priceFlag = ctPriceFlag(item.unit_price, item.priorPrice);
+    return `<div class="ct-item-row">
+      <div class="ct-item-name">${escHtml(item.name)}</div>
+      <div class="ct-item-meta">${item.qty} ${item.uom}</div>
+      <div class="ct-item-cat">
+        <select onchange="ctUpdateItemCat(${i}, this.value)" data-item="${i}">
+          ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="ct-item-price">$${item.unit_price.toFixed(2)}${priceFlag}</div>
+      <div class="ct-item-total" style="color:var(--mist)">$${(item.total||item.qty*item.unit_price).toFixed(2)}</div>
+    </div>`;
+  });
+
+  // Store enriched for save
+  window._ctPending = { parsed, enriched, filename };
+
+  area.innerHTML = `
+    <div class="ct-parse-result">
+      <div class="ct-parse-header">
+        <div>
+          <h3>✓ ${escHtml(parsed.supplier || 'Unknown Supplier')} — ${parsed.date || 'Date unknown'}</h3>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${parsed.items.length} items · Invoice ${parsed.invoice_number || filename}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:0.85rem;font-weight:600;color:var(--ink)">$${(parsed.total||0).toFixed(2)}</span>
+          <button class="btn btn-primary btn-sm" onclick="ctSaveInvoice()">Save Invoice</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('ct-parse-area').innerHTML=''">Discard</button>
+        </div>
+      </div>
+      <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
+        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
+      </div>
+      ${rows.join('')}
+      <div style="padding:12px 18px;text-align:right;border-top:1px solid var(--border);background:var(--paper)">
+        <span style="font-size:0.72rem;color:var(--mist)">Review categories above, then </span>
+        <button class="btn btn-primary btn-sm" onclick="ctSaveInvoice()">Save Invoice →</button>
+      </div>
+    </div>
+    <div style="font-size:0.72rem;color:var(--mist);margin-top:8px;padding:0 4px">
+      💡 Correct any wrong categories — corrections are remembered for future invoices from this supplier.
+    </div>`;
+}
+
+function ctUpdateItemCat(idx, category) {
+  if (!window._ctPending) return;
+  const item = window._ctPending.enriched[idx];
+  item.category = category;
+  ctLearnCategory(item.name, category);
+}
+
+function ctPriceFlag(current, prior) {
+  if (prior === null) return ' <span class="ct-flag new">new</span>';
+  const diff = ((current - prior) / prior) * 100;
+  if (diff > 5) return ` <span class="ct-flag up">▲${diff.toFixed(0)}%</span>`;
+  if (diff < -5) return ` <span class="ct-flag down">▼${Math.abs(diff).toFixed(0)}%</span>`;
+  return '';
+}
+
+function ctGetPriorPrice(itemName, supplierName) {
+  const key = ctCatalogKey(itemName);
+  // Look for last recorded price from same supplier for same item
+  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
+    const inv = ctData.invoices[i];
+    if (inv.supplier !== supplierName) continue;
+    const match = inv.items.find(it => ctCatalogKey(it.name) === key);
+    if (match) return match.unitPrice;
+  }
+  // Try any supplier
+  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
+    const inv = ctData.invoices[i];
+    const match = inv.items.find(it => ctCatalogKey(it.name) === key);
+    if (match) return match.unitPrice;
+  }
+  return null;
+}
+
+function ctSaveInvoice() {
+  if (!window._ctPending) return;
+  const { parsed, enriched, filename } = window._ctPending;
+
+  const invoice = {
+    id: 'inv-' + Date.now(),
+    date: parsed.date || new Date().toISOString().slice(0,10),
+    supplier: parsed.supplier || 'Unknown',
+    invoiceNumber: parsed.invoice_number || filename,
+    total: parsed.total || enriched.reduce((s,i) => s + (i.total || i.qty*i.unit_price), 0),
+    items: enriched.map(i => ({
+      name: i.name,
+      category: i.category,
+      qty: i.qty,
+      uom: i.uom,
+      unitPrice: i.unit_price,
+      total: i.total || i.qty * i.unit_price
+    }))
+  };
+
+  // Learn all categories
+  enriched.forEach(i => ctLearnCategory(i.name, i.category));
+
+  ctData.invoices.push(invoice);
+  ctSave();
+  window._ctPending = null;
+  document.getElementById('ct-parse-area').innerHTML = `<div style="background:var(--green-light);border:1px solid var(--green);border-radius:8px;padding:14px 18px;font-size:0.82rem;color:var(--green);margin-bottom:12px">✓ Invoice saved — ${invoice.items.length} items added to cost tracker</div>`;
+  notify(`Invoice from ${invoice.supplier} saved`);
+  renderCtDashboard();
+  renderCtPrices();
+}
+
+// ============================================================
+// GMAIL SCAN — reads invoices scanned by Apps Script from a Google Sheet
+// ============================================================
+
+function renderCtGmailPanel() {
+  const el = document.getElementById('ct-gmail-sheetid');
+  if (el) el.value = ctData.gmailSheetId || '';
+
+  const urlEl = document.getElementById('ct-appsscript-url');
+  if (urlEl) urlEl.value = ctData.appsScriptUrl || '';
+
+  const status = document.getElementById('ct-gmail-sheet-status');
+  if (status) status.textContent = ctData.gmailSheetId
+    ? '✓ Connected'
+    : 'Not connected yet — paste your Sheet ID above, then Save.';
+
+  const grid = document.getElementById('ct-markup-inputs');
+  if (grid) {
+    grid.innerHTML = CT_CATEGORIES.map(c => `
+      <div class="form-group" style="margin:0">
+        <label style="font-size:0.72rem;color:var(--mist)">${c}</label>
+        <div style="display:flex;align-items:center;gap:4px">
+          <input type="number" step="0.1" min="0" id="ct-markup-${c}" value="${ctData.markup[c] ?? CT_DEFAULT_MARKUP[c]}" style="width:100%">
+          <span style="font-size:0.72rem;color:var(--mist)">×</span>
+        </div>
+      </div>`).join('');
+  }
+
+  const lastChecked = document.getElementById('ct-gmail-last-checked');
+  if (lastChecked) {
+    lastChecked.textContent = ctData.gmailLastChecked
+      ? `Last checked: ${new Date(ctData.gmailLastChecked).toLocaleString()}`
+      : '';
+  }
+}
+
+function ctSaveGmailSettings() {
+  const val = document.getElementById('ct-gmail-sheetid').value.trim();
+  const scriptUrl = document.getElementById('ct-appsscript-url').value.trim();
+  ctData.gmailSheetId = val;
+  ctData.appsScriptUrl = scriptUrl;
+  ctSave();
+  notify(val ? 'Sheet connected' : 'Sheet disconnected');
+  renderCtGmailPanel();
+  if (val) ctFetchGmailInvoices();
+}
+
+function ctSaveMarkup() {
+  CT_CATEGORIES.forEach(c => {
+    const input = document.getElementById(`ct-markup-${c}`);
+    const num = parseFloat(input?.value);
+    ctData.markup[c] = isNaN(num) ? CT_DEFAULT_MARKUP[c] : num;
+  });
+  ctSave();
+  notify('Markup saved');
+}
+
+// Google Sheets gviz endpoint wraps its JSON in a JS callback — strip that off
+function ctParseGvizResponse(text) {
+  const match = text.match(/setResponse\(([\s\S]*)\);?\s*$/);
+  if (!match) throw new Error('Unexpected response from Google Sheets — check the Sheet ID and sharing settings.');
+  return JSON.parse(match[1]);
+}
+
+// Google's gviz endpoint returns dates as literal "Date(2026,5,3)" strings (month is 0-indexed), not ISO
+function ctParseGvizDate(raw) {
+  if (!raw) return new Date().toISOString().slice(0,10);
+  const m = String(raw).match(/Date\((\d+),(\d+),(\d+)/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${String(parseInt(mo)+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  return String(raw).slice(0,10);
+}
+
+async function ctFetchGmailInvoices(silent) {
+  if (!ctData.gmailSheetId) {
+    if (!silent) notify('Connect a Google Sheet first (Setup section above)');
+    return;
+  }
+  const resultsEl = document.getElementById('ct-gmail-results');
+  if (!silent && resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--mist);padding:12px">Checking Sheet for new invoices...</div>`;
+
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${ctData.gmailSheetId}/gviz/tq?tqx=out:json&sheet=Invoices`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Could not reach the Sheet — make sure it is shared as "Anyone with the link can view."');
+    const text = await resp.text();
+    const gviz = ctParseGvizResponse(text);
+
+    const cols = gviz.table.cols.map(c => (c.label || '').trim());
+    const idx = name => cols.indexOf(name);
+    const rows = gviz.table.rows || [];
+
+    const iMsgId = idx('MessageId'), iVendor = idx('Vendor'), iSupplier = idx('Supplier'),
+          iDate = idx('Date'), iInvNum = idx('InvoiceNumber'), iTotal = idx('Total'), iItems = idx('ItemsJSON');
+
+    const seen = new Set(ctData.importedGmailIds || []);
+    const candidates = [];
+
+    rows.forEach(r => {
+      const c = r.c || [];
+      const messageId = c[iMsgId]?.v;
+      if (!messageId || seen.has(messageId)) return;
+      let items = [];
+      try { items = JSON.parse(c[iItems]?.v || '[]'); } catch(e) { return; }
+      if (!items.length) return;
+      candidates.push({
+        messageId,
+        vendor: c[iVendor]?.v || '',
+        supplier: c[iSupplier]?.v || c[iVendor]?.v || 'Unknown',
+        date: ctParseGvizDate(c[iDate]?.v),
+        invoiceNumber: c[iInvNum]?.v || '',
+        total: parseFloat(c[iTotal]?.v) || items.reduce((s,i)=>s+(i.total||i.qty*i.unit_price||0),0),
+        items
+      });
+    });
+
+    ctData.gmailLastChecked = Date.now();
+    ctSave();
+    renderCtGmailPanel();
+
+    if (candidates.length === 0) {
+      if (!silent && resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--mist);padding:12px">No new invoices found.</div>`;
+      return;
+    }
+
+    if (silent) {
+      notify(`${candidates.length} new invoice${candidates.length!==1?'s':''} found from Gmail scan`);
+      switchPanel('ct-gmail'); // surface it rather than hide a silent find
+    }
+    ctShowGmailResults(candidates);
+
+  } catch(err) {
+    ctData.gmailLastChecked = Date.now();
+    ctSave();
+    if (resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--red);padding:12px">⚠️ ${err.message}</div>`;
+  }
+}
+
+function ctSuggestedRetail(item) {
+  const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
+  return (item.unit_price ?? item.unitPrice ?? 0) * markup;
+}
+
+function ctRetailFlag(item) {
+  const key = ctCatalogKey(item.name);
+  const stored = ctData.retail[key];
+  const suggested = ctSuggestedRetail(item);
+  if (stored === undefined) {
+    return `<input type="number" step="0.01" placeholder="set retail" data-retail-key="${key}" style="width:80px;font-size:0.75rem" title="Suggested: $${suggested.toFixed(2)}">`;
+  }
+  const diff = Math.abs(stored - suggested);
+  if (diff < 0.01) return `<span style="font-size:0.72rem;color:var(--mist)">$${stored.toFixed(2)} ✓</span>`;
+  return `<span class="ct-flag ${suggested > stored ? 'up' : 'down'}" title="Currently $${stored.toFixed(2)}">→ $${suggested.toFixed(2)}?</span>`;
+}
+
+function ctShowGmailResults(candidates) {
+  window._ctGmailPending = candidates.map(inv => ({
+    ...inv,
+    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name) }))
+  }));
+
+  const el = document.getElementById('ct-gmail-results');
+  el.innerHTML = window._ctGmailPending.map((inv, invIdx) => {
+    const rows = inv.items.map((item, itemIdx) => `
+      <div class="ct-item-row">
+        <div class="ct-item-name">${escHtml(item.name)}</div>
+        <div class="ct-item-meta">${item.qty} ${item.uom}</div>
+        <div class="ct-item-cat">
+          <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
+            ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="ct-item-price">$${(item.unit_price||0).toFixed(2)}</div>
+        <div class="ct-item-total" style="min-width:100px;text-align:right">${ctRetailFlag(item)}</div>
+      </div>`).join('');
+
+    return `<div class="ct-parse-result" style="margin-bottom:14px" data-gmail-inv="${invIdx}">
+      <div class="ct-parse-header">
+        <div>
+          <h3>${escHtml(inv.supplier)} — ${inv.date}</h3>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${inv.items.length} items · ${escHtml(inv.vendor)}${inv.invoiceNumber ? ' · #'+escHtml(inv.invoiceNumber) : ''}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:0.85rem;font-weight:600">$${inv.total.toFixed(2)}</span>
+          <button class="btn btn-primary btn-sm" onclick="ctSaveGmailInvoice(${invIdx})">Save</button>
+          <button class="btn btn-outline btn-sm" onclick="ctDiscardGmailInvoice(${invIdx})">Discard</button>
+        </div>
+      </div>
+      <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
+        <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:70px;text-align:right">Cost</span><span style="min-width:100px;text-align:right">Retail</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('') + `<div style="font-size:0.72rem;color:var(--mist);margin-top:4px;padding:0 4px">
+    💡 Retail flags only appear once you've set a price for that item at least once — set it any time via the box on the right.
+  </div>`;
+}
+
+function ctUpdateGmailItemCat(invIdx, itemIdx, category) {
+  if (!window._ctGmailPending) return;
+  window._ctGmailPending[invIdx].items[itemIdx].category = category;
+}
+
+function ctSaveGmailInvoice(invIdx) {
+  if (!window._ctGmailPending) return;
+  const pending = window._ctGmailPending[invIdx];
+  if (!pending) return;
+
+  const card = document.querySelector(`[data-gmail-inv="${invIdx}"]`);
+
+  // Pick up any retail prices typed into this card's inputs
+  card?.querySelectorAll('[data-retail-key]').forEach(inp => {
+    const val = parseFloat(inp.value);
+    if (!isNaN(val) && val > 0) ctData.retail[inp.dataset.retailKey] = val;
+  });
+
+  const invoice = {
+    id: 'inv-gmail-' + pending.messageId,
+    date: pending.date,
+    supplier: pending.supplier,
+    invoiceNumber: pending.invoiceNumber,
+    total: pending.total,
+    items: pending.items.map(i => ({
+      name: i.name, category: i.category, qty: i.qty, uom: i.uom,
+      unitPrice: i.unit_price, total: i.total || i.qty * i.unit_price
+    }))
+  };
+
+  pending.items.forEach(i => ctLearnCategory(i.name, i.category));
+
+  ctData.invoices.push(invoice);
+  ctData.importedGmailIds = ctData.importedGmailIds || [];
+  ctData.importedGmailIds.push(pending.messageId);
+  ctSave();
+
+  if (card) card.remove();
+  notify(`Invoice from ${invoice.supplier} saved`);
+  renderCtDashboard();
+  renderCtPrices();
+}
+
+function ctDiscardGmailInvoice(invIdx) {
+  if (!window._ctGmailPending) return;
+  const pending = window._ctGmailPending[invIdx];
+  if (!pending) return;
+  // Mark as seen so it doesn't reappear on next check, without adding it to cost data
+  ctData.importedGmailIds = ctData.importedGmailIds || [];
+  ctData.importedGmailIds.push(pending.messageId);
+  ctSave();
+  document.querySelector(`[data-gmail-inv="${invIdx}"]`)?.remove();
+}
+
+// --- Dashboard ---
+function ctGetFilteredInvoices() {
+  const period = document.getElementById('ct-dash-period')?.value || 'ytd';
+  const supplier = document.getElementById('ct-dash-supplier')?.value || 'all';
+  const now = new Date();
+  let invoices = [...ctData.invoices];
+
+  if (supplier !== 'all') invoices = invoices.filter(i => i.supplier === supplier);
+
+  if (period === 'ytd') {
+    const yr = now.getFullYear();
+    invoices = invoices.filter(i => i.date && i.date.startsWith(String(yr)));
+  } else if (period === '30') {
+    const cutoff = new Date(now - 30*864e5).toISOString().slice(0,10);
+    invoices = invoices.filter(i => i.date >= cutoff);
+  } else if (period === '90') {
+    const cutoff = new Date(now - 90*864e5).toISOString().slice(0,10);
+    invoices = invoices.filter(i => i.date >= cutoff);
+  }
+  return invoices;
+}
+
+function renderCtDashboard() {
+  const invoices = ctGetFilteredInvoices();
+
+  // Populate supplier filter
+  const supplierSel = document.getElementById('ct-dash-supplier');
+  if (supplierSel) {
+    const suppliers = [...new Set(ctData.invoices.map(i => i.supplier))].sort();
+    const cur = supplierSel.value;
+    supplierSel.innerHTML = `<option value="all">All Suppliers</option>` + suppliers.map(s => `<option value="${escHtml(s)}" ${s===cur?'selected':''}>${escHtml(s)}</option>`).join('');
+  }
+
+  // Spend by category
+  const byCat = {};
+  CT_CATEGORIES.forEach(c => byCat[c] = 0);
+  const bySupplier = {};
+  const byMonth = {};
+
+  invoices.forEach(inv => {
+    bySupplier[inv.supplier] = (bySupplier[inv.supplier]||0) + inv.total;
+    const mo = inv.date ? inv.date.slice(0,7) : 'unknown';
+    byMonth[mo] = (byMonth[mo]||0) + inv.total;
+    inv.items.forEach(item => {
+      byCat[item.category] = (byCat[item.category]||0) + item.total;
+    });
+  });
+
+  const grandTotal = Object.values(byCat).reduce((a,b)=>a+b,0);
+
+  // KPI row
+  const kpiRow = document.getElementById('ct-kpi-row');
+  if (kpiRow) {
+    kpiRow.innerHTML = CT_CATEGORIES.map(c => `
+      <div class="ct-kpi ${c.toLowerCase()}">
+        <div class="kpi-label">${c}</div>
+        <div class="kpi-value" style="font-size:1.3rem">$${(byCat[c]||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+        <div class="kpi-sub">${grandTotal > 0 ? ((byCat[c]||0)/grandTotal*100).toFixed(1)+'% of total' : '—'}</div>
+      </div>`).join('') +
+      `<div class="ct-kpi total">
+        <div class="kpi-label">Total Spend</div>
+        <div class="kpi-value" style="font-size:1.3rem">$${grandTotal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+        <div class="kpi-sub">${invoices.length} invoice${invoices.length!==1?'s':''}</div>
+      </div>`;
+  }
+
+  // Category donut
+  ctDestroyChart('ct-cat-chart');
+  if (document.getElementById('ct-cat-chart')) {
+    const nonZeroCats = CT_CATEGORIES.filter(c => byCat[c] > 0);
+    if (nonZeroCats.length > 0) {
+      ctCharts['ct-cat-chart'] = new Chart(document.getElementById('ct-cat-chart'), {
+        type: 'doughnut',
+        data: {
+          labels: nonZeroCats,
+          datasets: [{ data: nonZeroCats.map(c => byCat[c]), backgroundColor: nonZeroCats.map(c => CT_COLORS[c]||'#888'), borderWidth: 2, borderColor: '#fff' }]
+        },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ font:{size:11}, boxWidth:12 } } } }
+      });
+    }
+  }
+
+  // Supplier bar
+  ctDestroyChart('ct-supplier-chart');
+  if (document.getElementById('ct-supplier-chart')) {
+    const suppliers = Object.entries(bySupplier).sort((a,b)=>b[1]-a[1]);
+    if (suppliers.length > 0) {
+      ctCharts['ct-supplier-chart'] = new Chart(document.getElementById('ct-supplier-chart'), {
+        type: 'bar',
+        data: {
+          labels: suppliers.map(s=>s[0]),
+          datasets: [{ data: suppliers.map(s=>s[1]), backgroundColor: '#4a4a8a', borderRadius:4, borderSkipped:'bottom' }]
+        },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ' $'+Math.round(ctx.parsed.y).toLocaleString() } } }, scales:{ x:{ ticks:{font:{size:11},color:'#888'}, grid:{display:false} }, y:{ ticks:{ callback: v=>'$'+(v/1000).toFixed(0)+'k', font:{size:11}, color:'#888' }, grid:{color:'#e8e8f0'} } } }
+      });
+    }
+  }
+
+  // Monthly trend line
+  ctDestroyChart('ct-trend-chart');
+  if (document.getElementById('ct-trend-chart')) {
+    const months = Object.keys(byMonth).sort();
+    if (months.length > 0) {
+      ctCharts['ct-trend-chart'] = new Chart(document.getElementById('ct-trend-chart'), {
+        type: 'bar',
+        data: {
+          labels: months,
+          datasets: [{ label: 'Purchasing Spend', data: months.map(m=>byMonth[m]), backgroundColor: '#4a4a8a', borderRadius:4, borderSkipped:'bottom' }]
+        },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ' $'+Math.round(ctx.parsed.y).toLocaleString() } } }, scales:{ x:{ ticks:{font:{size:11},color:'#888',maxRotation:45}, grid:{display:false} }, y:{ ticks:{ callback: v=>'$'+(v/1000).toFixed(0)+'k', font:{size:11}, color:'#888' }, grid:{color:'#e8e8f0'} } } }
+      });
+    }
+  }
+
+  // Price alerts
+  const alertsBody = document.getElementById('ct-alerts-body');
+  if (alertsBody) {
+    const alerts = ctBuildAlerts();
+    if (alerts.length === 0) {
+      alertsBody.innerHTML = invoices.length === 0
+        ? `<div class="empty-state"><div class="empty-icon">🌱</div>No invoices processed yet</div>`
+        : `<div class="empty-state"><div class="empty-icon">✓</div>No significant price changes detected</div>`;
+    } else {
+      alertsBody.innerHTML = alerts.slice(0,10).map(a => `
+        <div class="ct-item-row">
+          <div class="ct-item-name">${escHtml(a.name)}</div>
+          <div class="ct-item-meta">${escHtml(a.supplier)}</div>
+          <div class="ct-item-cat"><span class="badge">${escHtml(a.category)}</span></div>
+          <div class="ct-item-price">$${a.current.toFixed(2)} <span class="ct-flag ${a.dir}">${a.dir==='up'?'▲':'▼'}${Math.abs(a.pct).toFixed(0)}%</span></div>
+          <div class="ct-item-total" style="color:var(--mist)">was $${a.prior.toFixed(2)}</div>
+        </div>`).join('');
+    }
+  }
+
+  // Invoice list
+  const invList = document.getElementById('ct-invoice-list');
+  const invCount = document.getElementById('ct-invoice-count');
+  if (invCount) invCount.textContent = `${ctData.invoices.length} invoice${ctData.invoices.length!==1?'s':''}`;
+  if (invList) {
+    const sorted = [...ctData.invoices].sort((a,b)=>b.date.localeCompare(a.date));
+    if (sorted.length === 0) {
+      invList.innerHTML = `<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>`;
+    } else {
+      invList.innerHTML = sorted.slice(0,20).map(inv => `
+        <div class="ct-item-row">
+          <div class="ct-item-name">${escHtml(inv.supplier)}</div>
+          <div class="ct-item-meta">${inv.date} · ${inv.items.length} items</div>
+          <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
+          <div class="ct-item-price" style="margin-left:auto">$${inv.total.toFixed(2)}</div>
+          <div class="ct-item-total"><button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button></div>
+        </div>`).join('');
+    }
+  }
+}
+
+function ctBuildAlerts() {
+  // For each item, find the two most recent prices and compare
+  const itemMap = {}; // name → [ {date, supplier, price} ]
+  [...ctData.invoices].sort((a,b)=>a.date.localeCompare(b.date)).forEach(inv => {
+    inv.items.forEach(item => {
+      const key = ctCatalogKey(item.name);
+      if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, records:[] };
+      itemMap[key].records.push({ date:inv.date, supplier:inv.supplier, price:item.unitPrice });
+    });
+  });
+  const alerts = [];
+  Object.values(itemMap).forEach(entry => {
+    if (entry.records.length < 2) return;
+    const recs = entry.records;
+    const latest = recs[recs.length-1];
+    const prior = recs[recs.length-2];
+    const pct = ((latest.price - prior.price) / prior.price) * 100;
+    if (Math.abs(pct) >= 5) {
+      alerts.push({ name:entry.name, category:entry.category, supplier:latest.supplier, current:latest.price, prior:prior.price, pct, dir: pct>0?'up':'down' });
+    }
+  });
+  return alerts.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
+}
+
+function ctDeleteInvoice(id) {
+  if (!confirm('Delete this invoice? This cannot be undone.')) return;
+  ctData.invoices = ctData.invoices.filter(i => i.id !== id);
+  ctSave();
+  renderCtDashboard();
+  renderCtPrices();
+  notify('Invoice deleted');
+}
+
+function ctDestroyChart(id) {
+  if (ctCharts[id]) { try { ctCharts[id].destroy(); } catch(e){} delete ctCharts[id]; }
+}
+
+// --- Price History ---
+function renderCtPrices() {
+  const search = (document.getElementById('ct-price-search')?.value||'').toLowerCase();
+  const cat = document.getElementById('ct-price-cat')?.value || 'all';
+  const supplier = document.getElementById('ct-price-supplier')?.value || 'all';
+  const groupBy = document.getElementById('ct-price-groupby')?.value || 'item';
+
+  // Populate supplier dropdown
+  const supplierSel = document.getElementById('ct-price-supplier');
+  if (supplierSel) {
+    const suppliers = [...new Set(ctData.invoices.map(i=>i.supplier))].sort();
+    const cur = supplierSel.value;
+    supplierSel.innerHTML = `<option value="all">All Suppliers</option>` + suppliers.map(s=>`<option value="${escHtml(s)}" ${s===cur?'selected':''}>${escHtml(s)}</option>`).join('');
+  }
+
+  // Build item → price history map (always keyed by exact item first)
+  const itemMap = {};
+  [...ctData.invoices]
+    .filter(inv => supplier === 'all' || inv.supplier === supplier)
+    .sort((a,b)=>a.date.localeCompare(b.date))
+    .forEach(inv => {
+      inv.items.forEach(item => {
+        if (cat !== 'all' && item.category !== cat) return;
+        if (search && !item.name.toLowerCase().includes(search)) return;
+        const key = ctCatalogKey(item.name);
+        if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, key, records:[] };
+        itemMap[key].records.push({ date:inv.date, supplier:inv.supplier, price:item.unitPrice, qty:item.qty, uom:item.uom });
+      });
+    });
+
+  const body = document.getElementById('ct-prices-body');
+  if (!body) return;
+
+  let groups;
+  if (groupBy === 'family') {
+    // Roll exact items up into their family, or "Unassigned" if no family is set yet
+    const famMap = {};
+    Object.values(itemMap).forEach(item => {
+      const fam = ctGuessFamily(item.name) || 'Unassigned';
+      if (!famMap[fam]) famMap[fam] = { name: fam, category: item.category, key: null, records: [], members: new Set() };
+      famMap[fam].records.push(...item.records);
+      famMap[fam].members.add(item.name);
+    });
+    groups = Object.values(famMap).map(g => ({ ...g, records: g.records.sort((a,b)=>a.date.localeCompare(b.date)) }));
+  } else {
+    groups = Object.values(itemMap);
+  }
+
+  groups = groups.sort((a,b)=>a.name.localeCompare(b.name));
+
+  if (groups.length === 0) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">💐</div>${ctData.invoices.length===0?'No invoices yet — upload one to see price history':'No items match your filters'}</div>`;
+    return;
+  }
+
+  body.innerHTML = ctFamilyDatalist() + groups.map(item => {
+    const latest = item.records[item.records.length-1];
+    const first = item.records[0];
+    const trend = item.records.length > 1 ? ((latest.price-first.price)/first.price*100) : null;
+    const trendDir = trend > 0 ? 'up' : 'down';
+    const trendHtml = trend !== null
+      ? `<span class="ct-flag ${Math.abs(trend)<5 ? '' : trendDir}" style="${Math.abs(trend)<5?'background:var(--green-light);color:var(--green);border-color:var(--green)':''}">${trend>0?'▲':'▼'}${Math.abs(trend).toFixed(0)}% since first purchase</span>`
+      : '<span class="ct-flag new">1 purchase</span>';
+
+    const history = [...item.records].reverse().slice(0,5).map(r =>
+      `<div style="display:flex;gap:12px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft)">
+        <span style="min-width:90px">${r.date}</span>
+        <span style="flex:1">${escHtml(r.supplier)}</span>
+        <span>${r.qty} ${r.uom}</span>
+        <span style="font-weight:600;color:var(--ink);min-width:55px;text-align:right">$${r.price.toFixed(2)}</span>
+      </div>`
+    ).join('');
+
+    // In "exact item" view, show an inline family-tag control so sprawl can be consolidated retroactively
+    const familyControl = groupBy === 'item'
+      ? `<input type="text" list="ct-family-list" placeholder="Family/Type (optional)" value="${escHtml(ctGuessFamily(item.name))}"
+           onchange="ctUpdateItemFamily('${item.key}', this.value)" style="font-size:0.72rem;padding:3px 6px;width:130px" onclick="event.stopPropagation()">`
+      : (item.members ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">${item.members.size} item${item.members.size!==1?'s':''}: ${[...item.members].slice(0,4).map(escHtml).join(', ')}${item.members.size>4?` +${item.members.size-4} more`:''}</div>` : '');
+
+    return `<div class="ct-price-table" style="margin-bottom:12px">
+      <div class="ct-price-table-header" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:0.9rem">${escHtml(item.name)}</div>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px"><span class=
   --green-light: #e8f5ee;
   --red: #c0392b;
   --red-light: #fdf0ee;
