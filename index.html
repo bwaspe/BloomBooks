@@ -819,7 +819,11 @@ th.sortable:hover { background: var(--border); }
           <label style="font-size:0.75rem;color:var(--mist)">Google Sheet ID (from the sheet's URL, between /d/ and /edit)</label>
           <input type="text" id="ct-gmail-sheetid" placeholder="e.g. 1AbCdEfGhIjKlMnOpQrStUvWxYz" style="width:100%">
         </div>
-        <button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Sheet Connection</button>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec — used for manual invoice uploads)</label>
+          <input type="text" id="ct-appsscript-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Connection Settings</button>
         <div id="ct-gmail-sheet-status" style="font-size:0.72rem;color:var(--mist);margin-top:8px"></div>
       </div>
 
@@ -2976,7 +2980,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Hardgoods:'#e67e22', Gl
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Hardgoods: 2, Glass: 2, Plants: 2.5, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', importedGmailIds: [] };
+let ctData = { invoices: [], catalog: {}, retail: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [] };
 let ctCharts = {};
 
 function ctSave() {
@@ -2985,7 +2989,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', importedGmailIds:[], ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -3024,6 +3028,12 @@ function ctHandleFile(e) {
 
 async function ctProcessFile(file) {
   const area = document.getElementById('ct-parse-area');
+
+  if (!ctData.appsScriptUrl) {
+    area.innerHTML = `<div class="ct-parse-result"><div class="ct-parse-header"><h3 style="color:var(--red)">⚠️ Not connected</h3></div><div style="padding:16px;font-size:0.82rem;color:var(--mist)">Invoice parsing needs the Apps Script Web App URL set in Gmail Scan → Setup first.</div></div>`;
+    return;
+  }
+
   area.innerHTML = `<div class="ct-parsing-overlay"><div class="spinner">⏳</div><br>Reading invoice with Claude...<br><span style="font-size:0.72rem;color:var(--mist)">This takes about 10–15 seconds</span></div>`;
 
   try {
@@ -3038,45 +3048,17 @@ async function ctProcessFile(file) {
     const isPdf = file.type === 'application/pdf';
     const mediaType = isPdf ? 'application/pdf' : file.type;
 
-    const prompt = `You are parsing a wholesale florist supplier invoice. Extract ALL line items.
-Return ONLY valid JSON, no markdown, no preamble. Format:
-{
-  "supplier": "supplier name",
-  "date": "YYYY-MM-DD",
-  "invoice_number": "string or null",
-  "items": [
-    { "name": "product name", "qty": number, "uom": "Stem|Bunch|Each|Box|Roll|Other", "unit_price": number, "total": number }
-  ],
-  "subtotal": number,
-  "total": number
-}
-Rules:
-- name: clean product name, no product codes
-- qty and unit_price must be numbers
-- Include ALL line items, even cheap ones
-- uom: use the unit of measure from the invoice (Stem, Bunch, Each, etc.)
-- If date is missing use today's date
-- If supplier name unclear, use the domain or company name visible`;
-
-    const msgContent = isPdf
-      ? [{ type:'document', source:{ type:'base64', media_type: mediaType, data: base64 }}, { type:'text', text: prompt }]
-      : [{ type:'image', source:{ type:'base64', media_type: mediaType, data: base64 }}, { type:'text', text: prompt }];
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Sent as text/plain to avoid a CORS preflight, which Apps Script web apps don't handle
+    const response = await fetch(ctData.appsScriptUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: msgContent }]
-      })
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ filename: file.name, mediaType, base64 })
     });
 
-    const data = await response.json();
-    const text = (data.content || []).map(b => b.text || '').join('').replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(text);
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Apps Script returned an error');
 
-    ctShowParseResult(parsed, file.name);
+    ctShowParseResult(result.parsed, file.name);
 
   } catch(err) {
     area.innerHTML = `<div class="ct-parse-result"><div class="ct-parse-header"><h3 style="color:var(--red)">⚠️ Parse failed</h3></div><div style="padding:16px;font-size:0.82rem;color:var(--mist)">${err.message}<br><br>Try a clearer photo or a PDF version of this invoice.</div></div>`;
@@ -3215,6 +3197,9 @@ function renderCtGmailPanel() {
   const el = document.getElementById('ct-gmail-sheetid');
   if (el) el.value = ctData.gmailSheetId || '';
 
+  const urlEl = document.getElementById('ct-appsscript-url');
+  if (urlEl) urlEl.value = ctData.appsScriptUrl || '';
+
   const status = document.getElementById('ct-gmail-sheet-status');
   if (status) status.textContent = ctData.gmailSheetId
     ? '✓ Connected'
@@ -3242,7 +3227,9 @@ function renderCtGmailPanel() {
 
 function ctSaveGmailSettings() {
   const val = document.getElementById('ct-gmail-sheetid').value.trim();
+  const scriptUrl = document.getElementById('ct-appsscript-url').value.trim();
   ctData.gmailSheetId = val;
+  ctData.appsScriptUrl = scriptUrl;
   ctSave();
   notify(val ? 'Sheet connected' : 'Sheet disconnected');
   renderCtGmailPanel();
@@ -3264,6 +3251,17 @@ function ctParseGvizResponse(text) {
   const match = text.match(/setResponse\(([\s\S]*)\);?\s*$/);
   if (!match) throw new Error('Unexpected response from Google Sheets — check the Sheet ID and sharing settings.');
   return JSON.parse(match[1]);
+}
+
+// Google's gviz endpoint returns dates as literal "Date(2026,5,3)" strings (month is 0-indexed), not ISO
+function ctParseGvizDate(raw) {
+  if (!raw) return new Date().toISOString().slice(0,10);
+  const m = String(raw).match(/Date\((\d+),(\d+),(\d+)/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${String(parseInt(mo)+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  return String(raw).slice(0,10);
 }
 
 async function ctFetchGmailInvoices(silent) {
@@ -3302,7 +3300,7 @@ async function ctFetchGmailInvoices(silent) {
         messageId,
         vendor: c[iVendor]?.v || '',
         supplier: c[iSupplier]?.v || c[iVendor]?.v || 'Unknown',
-        date: c[iDate]?.v ? String(c[iDate].v).slice(0,10) : new Date().toISOString().slice(0,10),
+        date: ctParseGvizDate(c[iDate]?.v),
         invoiceNumber: c[iInvNum]?.v || '',
         total: parseFloat(c[iTotal]?.v) || items.reduce((s,i)=>s+(i.total||i.qty*i.unit_price||0),0),
         items
