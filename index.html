@@ -542,6 +542,11 @@ th.sortable:hover { background: var(--border); }
 </head>
 <body>
 
+<button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
+  align-items:center;gap:6px;padding:10px 18px;border-radius:24px;border:none;
+  background:var(--ink);color:var(--surface);font-size:0.85rem;font-weight:600;cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back</button>
+
 <div id="app-header">
   <div>🌸</div>
   <h1>Bloom <span>Books</span></h1>
@@ -4637,7 +4642,33 @@ function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
   renderCtDashboard();
 }
 
+// General back-navigation — any "click to jump elsewhere" feature can call ctPushNavState()
+// before navigating, so a Back button can return to the exact panel + scroll position.
+window._ctNavStack = window._ctNavStack || [];
+
+function ctPushNavState() {
+  const activePanel = document.querySelector('.panel.active');
+  if (!activePanel) return;
+  window._ctNavStack.push({ panelId: activePanel.id.replace('panel-',''), scrollY: window.scrollY });
+  ctUpdateBackButton();
+}
+
+function ctGoBack() {
+  const state = window._ctNavStack.pop();
+  if (!state) return;
+  switchPanel(state.panelId);
+  // Wait for the panel's render to finish before scrolling, so position is accurate
+  setTimeout(() => window.scrollTo({ top: state.scrollY, behavior: 'auto' }), 60);
+  ctUpdateBackButton();
+}
+
+function ctUpdateBackButton() {
+  const btn = document.getElementById('ct-back-btn');
+  if (btn) btn.style.display = window._ctNavStack.length > 0 ? 'inline-flex' : 'none';
+}
+
 function ctJumpToPriceHistory(itemName) {
+  ctPushNavState();
   switchPanel('ct-prices');
   const searchEl = document.getElementById('ct-price-search');
   const groupEl = document.getElementById('ct-price-groupby');
