@@ -4047,7 +4047,7 @@ function renderCtDashboard() {
     if (sorted.length === 0) {
       invList.innerHTML = `<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>`;
     } else {
-      invList.innerHTML = sorted.slice(0,20).map(inv => `
+      invList.innerHTML = `<div id="ct-edit-invoice-area"></div>` + sorted.slice(0,20).map(inv => `
         <div class="ct-item-row">
           <div class="ct-item-name">${escHtml(inv.supplier)}</div>
           <div class="ct-item-meta">
@@ -4057,7 +4057,10 @@ function renderCtDashboard() {
           </div>
           <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
           <div class="ct-item-price" style="margin-left:auto">$${inv.total.toFixed(2)}</div>
-          <div class="ct-item-total"><button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button></div>
+          <div class="ct-item-total">
+            <button class="btn btn-outline btn-xs" onclick="ctEditInvoice('${inv.id}')">Edit</button>
+            <button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button>
+          </div>
         </div>`).join('');
     }
   }
@@ -4322,6 +4325,171 @@ function ctEditSavedDeliveryDate(id, dateVal) {
   notify(dateVal ? `Delivery date set to ${dateVal}` : 'Delivery date cleared — using invoice date');
   renderCtDashboard();
   renderCtPrices();
+}
+
+function ctEditInvoice(id) {
+  const inv = ctData.invoices.find(i => i.id === id);
+  if (!inv) return;
+  // Deep copy so cancelling doesn't leave partial edits behind
+  window._ctEditingInvoice = JSON.parse(JSON.stringify(inv));
+  window._ctEditingInvoice.items.forEach(item => { item.removed = false; });
+  ctRenderEditInvoice();
+  document.getElementById('ct-edit-invoice-area')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+}
+
+function ctRenderEditInvoice() {
+  const area = document.getElementById('ct-edit-invoice-area');
+  if (!area || !window._ctEditingInvoice) { if (area) area.innerHTML = ''; return; }
+  const inv = window._ctEditingInvoice;
+
+  const activeItems = inv.items.filter(i => !i.removed);
+  const itemsTotal = activeItems.reduce((s,i)=>s+(i.total || i.qty*i.unitPrice), 0);
+  const deliveryFee = inv.deliveryFee || 0;
+  const runningTotal = itemsTotal + deliveryFee;
+
+  const rows = inv.items.map((item, i) => {
+    if (item.removed) {
+      return `<div class="ct-item-row" style="opacity:0.5">
+        <div class="ct-item-name" style="text-decoration:line-through">${escHtml(item.name)}</div>
+        <div class="ct-item-meta" style="grid-column: span 4; text-align:right">
+          <button class="btn btn-outline btn-sm" onclick="ctEditRestoreItem(${i})" style="font-size:0.7rem;padding:2px 8px">Undo remove</button>
+        </div>
+      </div>`;
+    }
+    const stemsInput = item.uom === 'Bunch'
+      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctEditUpdateStemsPerBu(${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px">`
+      : '';
+    return `<div class="ct-item-row">
+      <div class="ct-item-name"><input type="text" value="${escHtml(item.name)}" onchange="ctEditUpdateItemField(${i}, 'name', this.value)" style="font-size:0.82rem;border:none;background:transparent;width:100%"></div>
+      <div class="ct-item-meta">
+        <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
+        <select onchange="ctEditUpdateItemField(${i}, 'uom', this.value)" style="font-size:0.75rem">
+          ${['Stem','Bunch','Each','Box','Roll','Other'].map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
+        </select>
+        ${stemsInput}
+      </div>
+      <div class="ct-item-cat">
+        <select onchange="ctEditUpdateItemField(${i}, 'category', this.value)">
+          ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="ct-item-family">
+        <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family||'')}" onchange="ctEditUpdateItemField(${i}, 'family', this.value)" style="font-size:0.75rem;padding:4px 6px;width:110px">
+      </div>
+      <div class="ct-item-price">
+        <input type="number" step="0.01" min="0" value="${item.unitPrice}" onchange="ctEditUpdateItemField(${i}, 'unitPrice', this.value)" style="width:65px;font-size:0.78rem">
+      </div>
+      <div class="ct-item-total" style="color:var(--mist)">$${(item.qty*item.unitPrice).toFixed(2)}
+        <button onclick="ctEditRemoveItem(${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  area.innerHTML = `${ctFamilyDatalist()}
+    <div class="ct-parse-result" style="margin-bottom:14px;border:2px solid var(--ink)">
+      <div class="ct-parse-header">
+        <div>
+          <h3>✏️ Editing: ${escHtml(inv.supplier)} — ${inv.date}</h3>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">Invoice ${escHtml(inv.invoiceNumber||'—')}</div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <label style="font-size:0.7rem;color:var(--mist)">Delivery date:</label>
+            <input type="date" value="${inv.deliveryDate||''}" onchange="ctEditUpdateField('deliveryDate', this.value)" style="font-size:0.72rem;padding:3px 6px">
+            <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
+            <input type="number" step="0.01" value="${deliveryFee}" onchange="ctEditUpdateField('deliveryFee', this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:0.85rem;font-weight:600">$${runningTotal.toFixed(2)}</span>
+          <button class="btn btn-primary btn-sm" onclick="ctSaveEditedInvoice()">Save Changes</button>
+          <button class="btn btn-outline btn-sm" onclick="ctCancelEditInvoice()">Cancel</button>
+        </div>
+      </div>
+      <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
+        <span style="flex:2">Item</span><span style="flex:1">Qty/UOM</span><span style="flex:1">Category</span><span style="min-width:110px">Family/Type</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
+      </div>
+      ${rows}
+      <div style="padding:10px 18px;border-top:1px dashed var(--border)">
+        <button class="btn btn-outline btn-sm" onclick="ctEditAddItem()">+ Add Item</button>
+      </div>
+    </div>`;
+}
+
+function ctEditUpdateField(field, val) {
+  if (!window._ctEditingInvoice) return;
+  window._ctEditingInvoice[field] = field === 'deliveryFee' ? (parseFloat(val)||0) : (val || null);
+  ctRenderEditInvoice();
+}
+
+function ctEditUpdateItemField(idx, field, val) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  if (field === 'qty' || field === 'unitPrice') item[field] = parseFloat(val) || 0;
+  else item[field] = val;
+  if (field === 'category') ctLearnCategory(item.name, val);
+  if (field === 'family' && val) ctLearnFamily(item.name, val);
+  ctRenderEditInvoice();
+}
+
+function ctEditUpdateStemsPerBu(idx, val) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  const num = parseInt(val);
+  item.stemsPerBu = (num && num > 0) ? num : null;
+}
+
+function ctEditRemoveItem(idx) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  item.removed = true;
+  ctRenderEditInvoice();
+}
+
+function ctEditRestoreItem(idx) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  item.removed = false;
+  ctRenderEditInvoice();
+}
+
+function ctEditAddItem() {
+  if (!window._ctEditingInvoice) return;
+  window._ctEditingInvoice.items.push({
+    name: 'New item', category: 'Other', family: '', qty: 1, uom: 'Each', unitPrice: 0, stemsPerBu: null, removed: false
+  });
+  ctRenderEditInvoice();
+}
+
+function ctSaveEditedInvoice() {
+  const editing = window._ctEditingInvoice;
+  if (!editing) return;
+  const active = editing.items.filter(i => !i.removed);
+  if (active.length === 0) {
+    notify('An invoice needs at least one item — add one or delete the whole invoice instead');
+    return;
+  }
+  const idx = ctData.invoices.findIndex(i => i.id === editing.id);
+  if (idx === -1) return;
+
+  const itemsTotal = active.reduce((s,i)=>s+(i.qty*i.unitPrice), 0);
+  editing.total = itemsTotal + (editing.deliveryFee || 0);
+  editing.items = active.map(i => ({
+    name: i.name, category: i.category, family: i.family || '', qty: i.qty, uom: i.uom,
+    unitPrice: i.unitPrice, stemsPerBu: i.stemsPerBu || null, total: i.qty * i.unitPrice
+  }));
+
+  ctData.invoices[idx] = editing;
+  ctSave();
+  window._ctEditingInvoice = null;
+  document.getElementById('ct-edit-invoice-area').innerHTML = '';
+  notify('Invoice updated');
+  renderCtDashboard();
+  renderCtPrices();
+}
+
+function ctCancelEditInvoice() {
+  window._ctEditingInvoice = null;
+  const area = document.getElementById('ct-edit-invoice-area');
+  if (area) area.innerHTML = '';
 }
 
 function ctDeleteInvoice(id) {
