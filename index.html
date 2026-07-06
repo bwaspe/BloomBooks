@@ -890,11 +890,15 @@ th.sortable:hover { background: var(--border); }
       <div class="page-title">Price History</div>
       <div class="page-subtitle">Track unit prices per item across suppliers and time</div>
 
+      <div style="margin-bottom:14px">
+        <input type="text" id="ct-price-search" placeholder="🔍 Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
+      </div>
+
+      <div id="ct-price-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+
+      <select id="ct-price-cat" style="display:none"><option value="all">All Categories</option></select>
+
       <div class="ct-filter-row">
-        <input type="text" id="ct-price-search" placeholder="Search item name..." oninput="renderCtPrices()" style="flex:2;min-width:180px">
-        <select id="ct-price-cat" onchange="renderCtPrices()">
-          <option value="all">All Categories</option>
-        </select>
         <select id="ct-price-supplier" onchange="renderCtPrices()">
           <option value="all">All Suppliers</option>
         </select>
@@ -3222,9 +3226,10 @@ async function ctProcessOneFile(file, idx) {
       category: ctGuessCategory(item.name),
       family: ctGuessFamily(item.name),
       priorPrice: ctGetPriorPrice(item.name, parsed.supplier),
+      stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null,
       removed: false
     }));
-    window._ctUploadPending[idx] = { status: 'ready', parsed, enriched, filename: file.name, deliveryDate: parsed.delivery_date || null };
+    window._ctUploadPending[idx] = { status: 'ready', parsed, enriched, filename: file.name, deliveryDate: parsed.delivery_date || null, deliveryFee: parsed.delivery_fee || 0 };
   } catch (err) {
     window._ctUploadPending[idx] = { status: 'error', filename: file.name, error: err.message };
   }
@@ -3247,10 +3252,15 @@ function ctBuildUploadCardHtml(p, idx) {
       <button class="btn btn-outline btn-sm" onclick="ctDismissUpload(${idx})">Dismiss</button></div>
       <div style="padding:16px;font-size:0.82rem;color:var(--mist)">${escHtml(p.error)}</div></div>`;
   }
+  if (p.status === 'saved') {
+    return `<div style="background:var(--green-light);border:1px solid var(--green);border-radius:8px;padding:14px 18px;font-size:0.82rem;color:var(--green);margin-bottom:12px">✓ ${escHtml(p.supplier)} saved — ${p.itemCount} items added to cost tracker</div>`;
+  }
 
   const { parsed, enriched, filename } = p;
   const activeItems = enriched.filter(i=>!i.removed);
-  const activeTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const itemsTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const deliveryFee = p.deliveryFee || 0;
+  const activeTotal = itemsTotal + deliveryFee;
   const removedCount = enriched.length - activeItems.length;
 
   const rows = enriched.map((item, i) => {
@@ -3263,9 +3273,12 @@ function ctBuildUploadCardHtml(p, idx) {
       </div>`;
     }
     const priceFlag = ctPriceFlag(item.unit_price, item.priorPrice);
+    const stemsInput = item.uom === 'Bunch'
+      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
+      : '';
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
-      <div class="ct-item-meta">${item.qty} ${item.uom}</div>
+      <div class="ct-item-meta">${item.qty} ${item.uom}${stemsInput ? ' '+stemsInput : ''}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateUploadItemCat(${idx}, ${i}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -3286,9 +3299,11 @@ function ctBuildUploadCardHtml(p, idx) {
       <div>
         <h3>✓ ${escHtml(parsed.supplier || 'Unknown Supplier')} — ${parsed.date || 'Date unknown'}</h3>
         <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · Invoice ${parsed.invoice_number || filename}</div>
-        <div style="margin-top:6px;display:flex;align-items:center;gap:6px">
-          <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${p.deliveryDate?' (auto-detected)':' (not found on document — edit if this order is charged on delivery)'}:</label>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${p.deliveryDate?' (auto-detected)':' (not found — edit if charged on delivery)'}:</label>
           <input type="date" value="${p.deliveryDate||''}" onchange="ctUpdateUploadDeliveryDate(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
+          <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
+          <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateUploadDeliveryFee(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -3301,11 +3316,25 @@ function ctBuildUploadCardHtml(p, idx) {
       <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:110px">Family/Type</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
     </div>
     ${rows.join('')}
+    ${deliveryFee > 0 ? `<div style="padding:6px 18px;font-size:0.75rem;color:var(--mist);border-top:1px dashed var(--border)">+ Delivery fee: $${deliveryFee.toFixed(2)}</div>` : ''}
     <div style="padding:12px 18px;text-align:right;border-top:1px solid var(--border);background:var(--paper)">
       <span style="font-size:0.72rem;color:var(--mist)">Review categories, remove anything that doesn't belong (like a standing order), then </span>
       <button class="btn btn-primary btn-sm" onclick="ctSaveUploadInvoice(${idx})">Save Invoice →</button>
     </div>
   </div>`;
+}
+
+function ctUpdateUploadDeliveryFee(idx, val) {
+  const p = window._ctUploadPending[idx];
+  if (!p) return;
+  p.deliveryFee = parseFloat(val) || 0;
+}
+
+function ctUpdateUploadStemsPerBu(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const num = parseInt(val);
+  item.stemsPerBu = (num && num > 0) ? num : null;
 }
 
 function ctUpdateUploadDeliveryDate(idx, dateVal) {
@@ -3378,6 +3407,18 @@ function ctGetPriorPrice(itemName, supplierName) {
   return null;
 }
 
+// Last known stems-per-bunch for this item — a starting suggestion, not a rule, since
+// this genuinely varies batch to batch (e.g. CDN can be 5, 7, or 10 stems/bunch).
+// Always shown editable, never silently applied.
+function ctGetPriorStemsPerBunch(itemName) {
+  const key = ctCatalogKey(itemName);
+  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
+    const match = ctData.invoices[i].items.find(it => ctCatalogKey(it.name) === key && it.stemsPerBu);
+    if (match) return match.stemsPerBu;
+  }
+  return null;
+}
+
 function ctSaveUploadInvoice(idx) {
   const p = window._ctUploadPending[idx];
   if (!p || p.status !== 'ready') return;
@@ -3389,13 +3430,16 @@ function ctSaveUploadInvoice(idx) {
     return;
   }
 
-  const activeTotal = active.reduce((s,i) => s + (i.total || i.qty*i.unit_price), 0);
-  const useTotal = active.length === enriched.length ? (parsed.total || activeTotal) : activeTotal;
+  const itemsTotal = active.reduce((s,i) => s + (i.total || i.qty*i.unit_price), 0);
+  const deliveryFee = p.deliveryFee || 0;
+  // If items were removed, the document's stated total no longer applies — recalculate from what's kept, plus the fee
+  const useTotal = active.length === enriched.length ? ((parsed.total || itemsTotal) + deliveryFee) : (itemsTotal + deliveryFee);
 
   const invoice = {
     id: 'inv-' + Date.now() + '-' + idx,
     date: parsed.date || new Date().toISOString().slice(0,10),
     deliveryDate: p.deliveryDate || null,
+    deliveryFee,
     supplier: parsed.supplier || 'Unknown',
     invoiceNumber: parsed.invoice_number || filename,
     total: useTotal,
@@ -3406,6 +3450,7 @@ function ctSaveUploadInvoice(idx) {
       qty: i.qty,
       uom: i.uom,
       unitPrice: i.unit_price,
+      stemsPerBu: i.stemsPerBu || null,
       total: i.total || i.qty * i.unit_price
     }))
   };
@@ -3568,7 +3613,7 @@ async function ctFetchGmailInvoices(silent) {
     const rows = gviz.table.rows || [];
 
     const iMsgId = idx('MessageId'), iVendor = idx('Vendor'), iSupplier = idx('Supplier'),
-          iDate = idx('Date'), iDeliveryDate = idx('DeliveryDate'), iInvNum = idx('InvoiceNumber'), iTotal = idx('Total'), iItems = idx('ItemsJSON');
+          iDate = idx('Date'), iDeliveryDate = idx('DeliveryDate'), iDeliveryFee = idx('DeliveryFee'), iInvNum = idx('InvoiceNumber'), iTotal = idx('Total'), iItems = idx('ItemsJSON');
 
     const seen = new Set(ctData.importedGmailIds || []);
     const candidates = [];
@@ -3587,6 +3632,7 @@ async function ctFetchGmailInvoices(silent) {
         supplier: c[iSupplier]?.v || c[iVendor]?.v || 'Unknown',
         date: ctParseGvizDate(c[iDate]?.v),
         deliveryDate: rawDeliveryDate ? ctParseGvizDate(rawDeliveryDate) : null,
+        deliveryFee: iDeliveryFee >= 0 ? (parseFloat(c[iDeliveryFee]?.v) || 0) : 0,
         invoiceNumber: c[iInvNum]?.v || '',
         total: parseFloat(c[iTotal]?.v) || items.reduce((s,i)=>s+(i.total||i.qty*i.unit_price||0),0),
         items
@@ -3615,27 +3661,38 @@ async function ctFetchGmailInvoices(silent) {
   }
 }
 
+// True when we know enough to price this item per-stem rather than per-bunch
+// (only applies when uom is Bunch AND a stem count was actually captured)
+function ctIsPerStem(item) {
+  return item.uom === 'Bunch' && item.stemsPerBu && item.stemsPerBu > 0;
+}
+
 function ctSuggestedRetail(item) {
   const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
-  return (item.unit_price ?? item.unitPrice ?? 0) * markup;
+  const unitPrice = item.unit_price ?? item.unitPrice ?? 0;
+  if (ctIsPerStem(item)) {
+    return (unitPrice / item.stemsPerBu) * markup; // per-stem suggested retail
+  }
+  return unitPrice * markup; // per-bunch/each/etc, as invoiced
 }
 
 function ctRetailFlag(item) {
   const key = ctCatalogKey(item.name);
   const stored = ctData.retail[key];
   const suggested = ctSuggestedRetail(item);
+  const unitLabel = ctIsPerStem(item) ? '/stem' : `/${item.uom||'unit'}`;
   if (stored === undefined) {
-    return `<input type="number" step="0.01" placeholder="set retail" data-retail-key="${key}" style="width:80px;font-size:0.75rem" title="Suggested: $${suggested.toFixed(2)}">`;
+    return `<input type="number" step="0.01" placeholder="set retail${unitLabel}" data-retail-key="${key}" style="width:90px;font-size:0.75rem" title="Suggested: $${suggested.toFixed(2)}${unitLabel}">`;
   }
   const diff = Math.abs(stored - suggested);
-  if (diff < 0.01) return `<span style="font-size:0.72rem;color:var(--mist)">$${stored.toFixed(2)} ✓</span>`;
-  return `<span class="ct-flag ${suggested > stored ? 'up' : 'down'}" title="Currently $${stored.toFixed(2)}">→ $${suggested.toFixed(2)}?</span>`;
+  if (diff < 0.01) return `<span style="font-size:0.72rem;color:var(--mist)">$${stored.toFixed(2)}${unitLabel} ✓</span>`;
+  return `<span class="ct-flag ${suggested > stored ? 'up' : 'down'}" title="Currently $${stored.toFixed(2)}${unitLabel}">→ $${suggested.toFixed(2)}${unitLabel}?</span>`;
 }
 
 function ctShowGmailResults(candidates) {
   window._ctGmailPending = candidates.map(inv => ({
     ...inv,
-    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name), family: ctGuessFamily(item.name), removed: false }))
+    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name), family: ctGuessFamily(item.name), stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null, removed: false }))
   }));
 
   const el = document.getElementById('ct-gmail-results');
@@ -3647,7 +3704,9 @@ function ctShowGmailResults(candidates) {
 
 function ctBuildGmailCardHtml(inv, invIdx) {
   const activeItems = inv.items.filter(i=>!i.removed);
-  const activeTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const itemsTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const deliveryFee = inv.deliveryFee || 0;
+  const activeTotal = itemsTotal + deliveryFee;
   const removedCount = inv.items.length - activeItems.length;
 
   const rows = inv.items.map((item, itemIdx) => {
@@ -3659,9 +3718,12 @@ function ctBuildGmailCardHtml(inv, invIdx) {
         </div>
       </div>`;
     }
+    const stemsInput = item.uom === 'Bunch'
+      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
+      : '';
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
-      <div class="ct-item-meta">${item.qty} ${item.uom}</div>
+      <div class="ct-item-meta">${item.qty} ${item.uom}${stemsInput ? ' '+stemsInput : ''}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -3682,9 +3744,11 @@ function ctBuildGmailCardHtml(inv, invIdx) {
       <div>
         <h3>${escHtml(inv.supplier)} — ${inv.date}</h3>
         <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · ${escHtml(inv.vendor)}${inv.invoiceNumber ? ' · #'+escHtml(inv.invoiceNumber) : ''}</div>
-        <div style="margin-top:6px;display:flex;align-items:center;gap:6px">
-          <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${inv.deliveryDate?' (auto-detected)':' (not found on document — edit if this order is charged on delivery)'}:</label>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${inv.deliveryDate?' (auto-detected)':' (not found — edit if charged on delivery)'}:</label>
           <input type="date" value="${inv.deliveryDate||''}" onchange="ctUpdateGmailDeliveryDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
+          <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
+          <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateGmailDeliveryFee(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -3697,7 +3761,19 @@ function ctBuildGmailCardHtml(inv, invIdx) {
       <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:100px">Family/Type</span><span style="min-width:70px;text-align:right">Cost</span><span style="min-width:100px;text-align:right">Retail</span>
     </div>
     ${rows}
+    ${deliveryFee > 0 ? `<div style="padding:6px 18px;font-size:0.75rem;color:var(--mist);border-top:1px dashed var(--border)">+ Delivery fee: $${deliveryFee.toFixed(2)}</div>` : ''}
   </div>`;
+}
+
+function ctUpdateGmailDeliveryFee(invIdx, val) {
+  if (!window._ctGmailPending) return;
+  window._ctGmailPending[invIdx].deliveryFee = parseFloat(val) || 0;
+}
+
+function ctUpdateGmailStemsPerBu(invIdx, itemIdx, val) {
+  if (!window._ctGmailPending) return;
+  const num = parseInt(val);
+  window._ctGmailPending[invIdx].items[itemIdx].stemsPerBu = (num && num > 0) ? num : null;
 }
 
 function ctRerenderGmailCard(invIdx) {
@@ -3753,20 +3829,22 @@ function ctSaveGmailInvoice(invIdx) {
     if (!isNaN(val) && val > 0) ctData.retail[inp.dataset.retailKey] = val;
   });
 
-  const activeTotal = active.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const itemsTotal = active.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const deliveryFee = pending.deliveryFee || 0;
   // If items were removed, the vendor's stated total no longer applies — use the recalculated one
-  const useTotal = active.length === pending.items.length ? pending.total : activeTotal;
+  const useTotal = (active.length === pending.items.length ? pending.total : itemsTotal) + deliveryFee;
 
   const invoice = {
     id: 'inv-gmail-' + pending.messageId,
     date: pending.date,
     deliveryDate: pending.deliveryDate || null,
+    deliveryFee,
     supplier: pending.supplier,
     invoiceNumber: pending.invoiceNumber,
     total: useTotal,
     items: active.map(i => ({
       name: i.name, category: i.category, family: i.family || '', qty: i.qty, uom: i.uom,
-      unitPrice: i.unit_price, total: i.total || i.qty * i.unit_price
+      unitPrice: i.unit_price, stemsPerBu: i.stemsPerBu || null, total: i.total || i.qty * i.unit_price
     }))
   };
 
@@ -3851,17 +3929,19 @@ function renderCtDashboard() {
   CT_CATEGORIES.forEach(c => byCat[c] = 0);
   const bySupplier = {};
   const byMonth = {};
+  let deliveryFeeTotal = 0;
 
   invoices.forEach(inv => {
     bySupplier[inv.supplier] = (bySupplier[inv.supplier]||0) + inv.total;
     const mo = ctEffDate(inv) ? ctEffDate(inv).slice(0,7) : 'unknown';
     byMonth[mo] = (byMonth[mo]||0) + inv.total;
+    deliveryFeeTotal += (inv.deliveryFee || 0);
     inv.items.forEach(item => {
       byCat[item.category] = (byCat[item.category]||0) + item.total;
     });
   });
 
-  const grandTotal = Object.values(byCat).reduce((a,b)=>a+b,0);
+  const grandTotal = Object.values(byCat).reduce((a,b)=>a+b,0) + deliveryFeeTotal;
 
   // Categories to actually display: any with real spend, including legacy ones
   // (e.g. old "Hardgoods" entries from before the category list changed) so nothing
@@ -3877,6 +3957,12 @@ function renderCtDashboard() {
         <div class="kpi-value" style="font-size:1.3rem">$${(byCat[c]||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
         <div class="kpi-sub">${grandTotal > 0 ? ((byCat[c]||0)/grandTotal*100).toFixed(1)+'% of total' : '—'}</div>
       </div>`).join('') +
+      (deliveryFeeTotal > 0 ? `
+      <div class="ct-kpi" style="border-left:3px solid #999">
+        <div class="kpi-label">Delivery Fees</div>
+        <div class="kpi-value" style="font-size:1.3rem">$${deliveryFeeTotal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+        <div class="kpi-sub">${grandTotal > 0 ? (deliveryFeeTotal/grandTotal*100).toFixed(1)+'% of total' : '—'} · not tied to a category</div>
+      </div>` : '') +
       `<div class="ct-kpi total">
         <div class="kpi-label">Total Spend</div>
         <div class="kpi-value" style="font-size:1.3rem">$${grandTotal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
@@ -3995,7 +4081,10 @@ function renderCtMargin(invoices) {
       const retail = ctData.retail[key];
       if (retail !== undefined) {
         itemsWithRetail++;
-        const rev = retail * item.qty;
+        // When stems-per-bunch is known, retail is priced per stem — so the sellable
+        // quantity is qty × stems, not just qty bunches
+        const effectiveUnits = ctIsPerStem(item) ? item.qty * item.stemsPerBu : item.qty;
+        const rev = retail * effectiveUnits;
         costWithRetail += item.total;
         revenueWithRetail += rev;
         if (!byCat[item.category]) byCat[item.category] = { cost: 0, revenue: 0 };
@@ -4084,10 +4173,7 @@ function renderCtBudget() {
     </div>`;
 }
 
-function renderCtStaleMargin() {
-  const el = document.getElementById('ct-stale-margin-body');
-  if (!el) return;
-
+function ctGetStaleMargins() {
   const stale = [];
   Object.entries(ctData.retail).forEach(([key, retailPrice]) => {
     // Find the most recent purchase of this item, across all invoices
@@ -4104,19 +4190,104 @@ function renderCtStaleMargin() {
       stale.push({ name: latest.name, category: latest.category, retailPrice, suggested, diffPct, direction: suggested > retailPrice ? 'up' : 'down' });
     }
   });
+  return stale.sort((a,b)=>b.diffPct-a.diffPct);
+}
+
+function renderCtStaleMargin() {
+  const el = document.getElementById('ct-stale-margin-body');
+  if (!el) return;
+
+  const stale = ctGetStaleMargins();
 
   if (stale.length === 0) {
     el.innerHTML = `<div style="font-size:0.78rem;color:var(--mist);padding:8px 0">Nothing stale — all retail prices are within 10% of what current costs would suggest.</div>`;
     return;
   }
 
-  stale.sort((a,b)=>b.diffPct-a.diffPct);
   el.innerHTML = stale.map(s => `
     <div style="display:flex;gap:12px;font-size:0.78rem;padding:6px 0;align-items:center;border-bottom:1px solid var(--border-soft)">
       <span style="flex:1">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
       <span style="color:var(--mist)">retail $${s.retailPrice.toFixed(2)}</span>
       <span class="ct-flag ${s.direction}">${s.direction==='up'?'▲':'▼'} suggests $${s.suggested.toFixed(2)}</span>
     </div>`).join('');
+}
+
+// ============================================================
+// WEEKLY DIGEST — BloomBooks computes the summary (since it's the only
+// place with access to categories/retail/margin data), pushes it to the
+// Sheet, and Apps Script emails it on a schedule.
+// ============================================================
+
+function ctComputeWeeklySummary() {
+  const now = new Date();
+  const weekAgo = new Date(now - 7*864e5).toISOString().slice(0,10);
+  const today = now.toISOString().slice(0,10);
+
+  const weekInvoices = ctData.invoices.filter(inv => {
+    const d = ctEffDate(inv);
+    return d && d >= weekAgo && d <= today;
+  });
+  const weeklyTotal = weekInvoices.reduce((s,inv)=>s+inv.total, 0);
+
+  const byCategory = {};
+  weekInvoices.forEach(inv => inv.items.forEach(item => {
+    byCategory[item.category] = (byCategory[item.category]||0) + item.total;
+  }));
+
+  // Budget: seasonal baseline (same calendar month, prior years) if available,
+  // else a trailing 8-week average as an interim stand-in while history builds up
+  const curMonth = today.slice(0,7);
+  const curMonthNum = today.slice(5,7);
+  const curYear = today.slice(0,4);
+  const priorYearsTotals = {};
+  ctData.invoices.forEach(inv => {
+    const d = ctEffDate(inv);
+    if (!d) return;
+    const [yr, mo] = d.split('-');
+    if (mo === curMonthNum && yr !== curYear) priorYearsTotals[yr] = (priorYearsTotals[yr]||0) + inv.total;
+  });
+  const priorYears = Object.keys(priorYearsTotals);
+  const monthActual = ctData.invoices.filter(inv => ctEffDate(inv) && ctEffDate(inv).startsWith(curMonth)).reduce((s,inv)=>s+inv.total,0);
+
+  let budget;
+  if (priorYears.length > 0) {
+    const baseline = Object.values(priorYearsTotals).reduce((a,b)=>a+b,0) / priorYears.length;
+    budget = { type: 'seasonal', baseline, actual: monthActual, priorYearCount: priorYears.length };
+  } else {
+    const eightWeeksAgo = new Date(now - 56*864e5).toISOString().slice(0,10);
+    const trailing = ctData.invoices.filter(inv => { const d = ctEffDate(inv); return d && d >= eightWeeksAgo && d < weekAgo; });
+    const weeksOfData = Math.min(8, Math.max(1, Math.round((new Date(weekAgo) - new Date(eightWeeksAgo)) / 6048e5)));
+    const trailingWeeklyAvg = trailing.reduce((s,inv)=>s+inv.total,0) / weeksOfData;
+    budget = { type: 'trailing', baseline: trailingWeeklyAvg, actual: weeklyTotal, weeksOfData };
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    weekStart: weekAgo,
+    weekEnd: today,
+    weeklyTotal,
+    byCategory,
+    staleMargins: ctGetStaleMargins().slice(0, 10),
+    budget
+  };
+}
+
+async function ctPushWeeklySummary() {
+  if (!ctData.appsScriptUrl) return; // nothing to push to
+  // Throttle to once a day — no need to hit the Sheet on every page load
+  const last = ctData.lastSummaryPush ? new Date(ctData.lastSummaryPush) : null;
+  if (last && (Date.now() - last.getTime()) < 20*3600e3) return;
+
+  try {
+    const summary = ctComputeWeeklySummary();
+    await fetch(ctData.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'summary', summary })
+    });
+    ctData.lastSummaryPush = new Date().toISOString();
+    ctSave();
+  } catch(e) { /* fails silently — a missed daily push just means the digest uses slightly older numbers */ }
 }
 
 function ctBuildAlerts() {
@@ -4198,6 +4369,12 @@ function ctPriceDateFilter(dateStr) {
   return true;
 }
 
+function ctSetPriceCategory(cat) {
+  const sel = document.getElementById('ct-price-cat');
+  if (sel) sel.value = cat;
+  renderCtPrices();
+}
+
 function renderCtPrices() {
   const search = (document.getElementById('ct-price-search')?.value||'').toLowerCase();
   const cat = document.getElementById('ct-price-cat')?.value || 'all';
@@ -4211,10 +4388,33 @@ function renderCtPrices() {
     const cur = supplierSel.value;
     supplierSel.innerHTML = `<option value="all">All Suppliers</option>` + suppliers.map(s=>`<option value="${escHtml(s)}" ${s===cur?'selected':''}>${escHtml(s)}</option>`).join('');
   }
-  // Populate category dropdown from the current (not stale) category list
+  // Populate category dropdown (hidden — used as state, tabs are the visible UI)
   const catSel = document.getElementById('ct-price-cat');
   if (catSel && catSel.options.length <= 1) {
     catSel.innerHTML = `<option value="all">All Categories</option>` + CT_CATEGORIES.map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+  }
+
+  // Build category tabs — only show ones that actually have items, so 15 possible
+  // categories doesn't mean 15 tabs when you've only ever used a handful
+  const tabsEl = document.getElementById('ct-price-tabs');
+  if (tabsEl) {
+    const catsWithData = [...new Set(ctData.invoices.flatMap(inv => inv.items.map(i=>i.category)))];
+    const orderedCats = CT_CATEGORIES.filter(c => catsWithData.includes(c))
+      .concat(catsWithData.filter(c => !CT_CATEGORIES.includes(c))); // legacy categories too
+    const counts = {};
+    ctData.invoices.forEach(inv => inv.items.forEach(i => { counts[i.category] = (counts[i.category]||0)+1; }));
+
+    const pill = (value, label, count) => {
+      const active = cat === value;
+      return `<button onclick="ctSetPriceCategory('${value.replace(/'/g,"\\'")}')" style="
+        font-size:0.78rem;padding:6px 14px;border-radius:20px;cursor:pointer;
+        border:1px solid ${active ? 'var(--ink)' : 'var(--border)'};
+        background:${active ? 'var(--ink)' : 'var(--surface)'};
+        color:${active ? 'var(--surface)' : 'var(--ink)'};
+        font-weight:${active?'600':'400'}">${escHtml(label)}${count!==undefined?` <span style="opacity:0.6">${count}</span>`:''}</button>`;
+    };
+
+    tabsEl.innerHTML = pill('all', 'All') + orderedCats.map(c => pill(c, c, counts[c])).join('');
   }
 
   // Build item → price history map (always keyed by exact item first), respecting the period filter
@@ -4387,6 +4587,7 @@ function initApp() {
 
   // Silent check for new Gmail-scanned invoices, if a Sheet is connected
   if (ctData.gmailSheetId) setTimeout(() => ctFetchGmailInvoices(true), 1500);
+  setTimeout(() => ctPushWeeklySummary(), 3000);
 }
 
 // Close modal on overlay click
