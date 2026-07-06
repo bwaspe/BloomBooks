@@ -869,6 +869,24 @@ th.sortable:hover { background: var(--border); }
       </div>
 
       <div class="chart-wrap">
+        <h3>🔀 Merge Duplicate Suppliers</h3>
+        <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
+          Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). Pick the duplicate and the name it should become — this permanently rewrites every existing invoice, all at once.
+        </p>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="form-group" style="margin:0;min-width:200px">
+            <label style="font-size:0.72rem;color:var(--mist)">Merge this name...</label>
+            <select id="ct-merge-from"></select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:200px">
+            <label style="font-size:0.72rem;color:var(--mist)">...into this name</label>
+            <select id="ct-merge-to"></select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="ctMergeSuppliers()">Merge</button>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
         <h3>💲 Retail Markup by Category</h3>
         <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost × markup. Only used to flag items whose stored retail price no longer matches.</p>
         <div id="ct-markup-inputs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px"></div>
@@ -904,7 +922,7 @@ th.sortable:hover { background: var(--border); }
         </select>
         <select id="ct-price-groupby" onchange="renderCtPrices()">
           <option value="item">Group by: Exact Item</option>
-          <option value="family">Group by: Family/Type</option>
+          <option value="family" selected>Group by: Family/Type</option>
         </select>
         <select id="ct-price-period" onchange="ctPricePeriodChanged()">
           <option value="all" selected>All Time</option>
@@ -3506,6 +3524,18 @@ function renderCtGmailPanel() {
       </div>`).join('');
   }
 
+  const mergeFrom = document.getElementById('ct-merge-from');
+  const mergeTo = document.getElementById('ct-merge-to');
+  if (mergeFrom && mergeTo) {
+    const suppliers = [...new Set(ctData.invoices.map(i=>i.supplier))].sort();
+    const opts = suppliers.map(s => {
+      const count = ctData.invoices.filter(i=>i.supplier===s).length;
+      return `<option value="${escHtml(s)}">${escHtml(s)} (${count} invoice${count!==1?'s':''})</option>`;
+    }).join('');
+    mergeFrom.innerHTML = opts;
+    mergeTo.innerHTML = opts;
+  }
+
   const lastChecked = document.getElementById('ct-gmail-last-checked');
   if (lastChecked) {
     lastChecked.textContent = ctData.gmailLastChecked
@@ -3532,6 +3562,25 @@ function ctExportBackup() {
   a.download = `bloombooks-cost-tracker-backup-${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   notify('Cost tracker backup downloaded');
+}
+
+function ctMergeSuppliers() {
+  const fromName = document.getElementById('ct-merge-from')?.value;
+  const toName = document.getElementById('ct-merge-to')?.value;
+  if (!fromName || !toName) return;
+  if (fromName === toName) { notify('Pick two different names to merge'); return; }
+
+  const count = ctData.invoices.filter(i => i.supplier === fromName).length;
+  if (count === 0) { notify(`No invoices found under "${fromName}"`); return; }
+
+  if (!confirm(`This will permanently rename ${count} invoice${count!==1?'s':''} from "${fromName}" to "${toName}". This can't be automatically undone. Continue?`)) return;
+
+  ctData.invoices.forEach(inv => { if (inv.supplier === fromName) inv.supplier = toName; });
+  ctSave();
+  notify(`Merged "${fromName}" into "${toName}" — ${count} invoice${count!==1?'s':''} updated`);
+  renderCtGmailPanel();
+  renderCtDashboard();
+  renderCtPrices();
 }
 
 function ctResetCostData() {
@@ -4128,8 +4177,8 @@ function renderCtMargin(invoices) {
     .map(v => ({ ...v, margin: v.revenue - v.cost, pct: v.revenue>0 ? (v.revenue-v.cost)/v.revenue*100 : 0 }))
     .sort((a,b)=>b.pct-a.pct);
 
-  const rankRow = it => `<div style="display:flex;gap:12px;font-size:0.78rem;padding:5px 0;align-items:center">
-    <span style="flex:1">${escHtml(it.name)} <span class="badge" style="font-size:0.62rem">${escHtml(it.category)}</span></span>
+  const rankRow = it => `<div style="display:flex;gap:12px;font-size:0.78rem;padding:5px 0;align-items:center;cursor:pointer" onclick="ctJumpToPriceHistory('${it.name.replace(/'/g,"\\'")}')" title="Click to view/edit in Price History">
+    <span style="flex:1;text-decoration:underline;text-decoration-style:dotted">${escHtml(it.name)} <span class="badge" style="font-size:0.62rem">${escHtml(it.category)}</span></span>
     <span style="color:var(--mist);min-width:70px;text-align:right">cost $${it.cost.toFixed(0)}</span>
     <span style="min-width:80px;text-align:right;font-weight:600;color:${it.margin>=0?'var(--green)':'var(--red)'}">${it.pct.toFixed(0)}%</span>
   </div>`;
@@ -4236,8 +4285,8 @@ function renderCtStaleMargin() {
   }
 
   el.innerHTML = stale.map(s => `
-    <div style="display:flex;gap:12px;font-size:0.78rem;padding:6px 0;align-items:center;border-bottom:1px solid var(--border-soft)">
-      <span style="flex:1">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
+    <div style="display:flex;gap:12px;font-size:0.78rem;padding:6px 0;align-items:center;border-bottom:1px solid var(--border-soft);cursor:pointer" onclick="ctJumpToPriceHistory('${s.name.replace(/'/g,"\\'")}')" title="Click to view/edit in Price History">
+      <span style="flex:1;text-decoration:underline;text-decoration-style:dotted">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
       <span style="color:var(--mist)">retail $${s.retailPrice.toFixed(2)}</span>
       <span class="ct-flag ${s.direction}">${s.direction==='up'?'▲':'▼'} suggests $${s.suggested.toFixed(2)}</span>
     </div>`).join('');
@@ -4417,7 +4466,7 @@ function ctRenderEditInvoice() {
     <div class="ct-parse-result" style="margin-bottom:14px;border:2px solid var(--ink)">
       <div class="ct-parse-header">
         <div>
-          <h3>✏️ Editing: ${escHtml(inv.supplier)} — ${inv.date}</h3>
+          <h3>✏️ Editing: <input type="text" value="${escHtml(inv.supplier)}" onchange="ctEditUpdateField('supplier', this.value)" style="font-size:0.95rem;font-weight:600;border:1px solid var(--border);border-radius:4px;padding:2px 6px;width:200px"> — ${inv.date}</h3>
           <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">Invoice ${escHtml(inv.invoiceNumber||'—')}</div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="font-size:0.7rem;color:var(--mist)">Delivery date:</label>
@@ -4565,6 +4614,48 @@ function ctPriceDateFilter(dateStr) {
   return true;
 }
 
+function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
+  const inv = ctData.invoices.find(i => i.id === invoiceId);
+  if (!inv || !inv.items[itemIndex]) return;
+  const item = inv.items[itemIndex];
+
+  if (field === 'unitPrice') {
+    const num = parseFloat(val);
+    if (isNaN(num) || num < 0) return;
+    item.unitPrice = num;
+    item.total = item.qty * num;
+  } else if (field === 'stemsPerBu') {
+    const num = parseInt(val);
+    item.stemsPerBu = (num && num > 0) ? num : null;
+  }
+
+  // Recalculate the invoice total from all its items plus delivery fee
+  inv.total = inv.items.reduce((s,i)=>s+(i.total||i.qty*i.unitPrice), 0) + (inv.deliveryFee||0);
+  ctSave();
+  notify('Updated — this changes the original invoice, so it affects margin/history calculations too');
+  renderCtPrices();
+  renderCtDashboard();
+}
+
+function ctJumpToPriceHistory(itemName) {
+  switchPanel('ct-prices');
+  const searchEl = document.getElementById('ct-price-search');
+  const groupEl = document.getElementById('ct-price-groupby');
+  if (searchEl) searchEl.value = itemName;
+  if (groupEl) groupEl.value = 'item'; // jumping to one specific item, not a family rollup
+  renderCtPrices();
+  // Expand the matching row and scroll to it
+  setTimeout(() => {
+    const body = document.getElementById('ct-prices-body');
+    const header = body?.querySelector('.ct-price-table-header');
+    if (header) {
+      const detail = header.nextElementSibling;
+      if (detail) detail.style.display = 'block';
+      header.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }
+  }, 50);
+}
+
 function ctSetPriceCategory(cat) {
   const sel = document.getElementById('ct-price-cat');
   if (sel) sel.value = cat;
@@ -4584,7 +4675,7 @@ function renderCtPrices() {
   const search = (document.getElementById('ct-price-search')?.value||'').toLowerCase();
   const cat = document.getElementById('ct-price-cat')?.value || 'all';
   const supplier = document.getElementById('ct-price-supplier')?.value || 'all';
-  const groupBy = document.getElementById('ct-price-groupby')?.value || 'item';
+  const groupBy = document.getElementById('ct-price-groupby')?.value || 'family';
 
   // Populate supplier dropdown
   const supplierSel = document.getElementById('ct-price-supplier');
@@ -4634,7 +4725,7 @@ function renderCtPrices() {
         if (search && !item.name.toLowerCase().includes(search)) return;
         const key = ctCatalogKey(item.name);
         if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, key, records:[] };
-        itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:item.unitPrice, qty:item.qty, uom:item.uom });
+        itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:item.unitPrice, qty:item.qty, uom:item.uom, stemsPerBu:item.stemsPerBu||null, invoiceId:inv.id, itemIndex:inv.items.indexOf(item) });
       });
     });
 
@@ -4715,14 +4806,18 @@ function renderCtPrices() {
         </div>`
       : '';
 
-    const history = [...item.records].reverse().slice(0,5).map(r =>
-      `<div style="display:flex;gap:12px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft)">
+    const history = [...item.records].reverse().slice(0,5).map(r => {
+      const stemsField = r.uom === 'Bunch'
+        ? `<input type="number" min="1" placeholder="stems/bu" value="${r.stemsPerBu||''}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'stemsPerBu', this.value)" style="font-size:0.68rem;padding:1px 4px;width:56px;margin-left:4px" title="Stems per bunch">`
+        : '';
+      return `<div style="display:flex;gap:12px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft);align-items:center">
         <span style="min-width:90px">${r.date}</span>
         <span style="flex:1">${escHtml(r.supplier)}</span>
-        <span>${r.qty} ${r.uom}</span>
-        <span style="font-weight:600;color:var(--ink);min-width:55px;text-align:right">$${r.price.toFixed(2)}</span>
-      </div>`
-    ).join('');
+        <span>${r.qty} ${r.uom}${stemsField}</span>
+        <input type="number" step="0.01" min="0" value="${r.price.toFixed(2)}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'unitPrice', this.value)"
+          style="font-weight:600;color:var(--ink);min-width:55px;width:65px;text-align:right;font-size:0.72rem;padding:1px 4px">
+      </div>`;
+    }).join('');
 
     // Family editing lives on Upload/Gmail Scan now — Price History just displays it
     const familyDisplay = groupBy === 'item'
