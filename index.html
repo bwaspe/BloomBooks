@@ -4543,6 +4543,15 @@ function ctSetPriceCategory(cat) {
   renderCtPrices();
 }
 
+function ctUpdatePriceHistoryRetail(key, val) {
+  const num = parseFloat(val);
+  if (num > 0) ctData.retail[key] = num;
+  else delete ctData.retail[key];
+  ctSave();
+  renderCtPrices();
+  renderCtDashboard(); // margin/stale-margin reports depend on retail too
+}
+
 function renderCtPrices() {
   const search = (document.getElementById('ct-price-search')?.value||'').toLowerCase();
   const cat = document.getElementById('ct-price-cat')?.value || 'all';
@@ -4692,11 +4701,21 @@ function renderCtPrices() {
       ? (ctGuessFamily(item.name) ? `<span class="badge" style="font-size:0.68rem">${escHtml(ctGuessFamily(item.name))}</span>` : '')
       : (item.members ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">${item.members.size} item${item.members.size!==1?'s':''}: ${[...item.members].slice(0,4).map(escHtml).join(', ')}${item.members.size>4?` +${item.members.size-4} more`:''}</div>` : '');
 
+    // Retail price: viewable and editable here for exact items (not meaningful at the
+    // family rollup level, since different members could have different retail prices)
+    const retailControl = (groupBy === 'item' && item.key)
+      ? `<span style="margin-left:8px" onclick="event.stopPropagation()">
+          <label style="font-size:0.68rem;color:var(--mist)">Retail:</label>
+          <input type="number" step="0.01" min="0" placeholder="not set" value="${ctData.retail[item.key] ?? ''}"
+            onchange="ctUpdatePriceHistoryRetail('${item.key}', this.value)" style="width:70px;font-size:0.75rem;padding:2px 4px">
+        </span>`
+      : '';
+
     return `<div class="ct-price-table" style="margin-bottom:12px">
       <div class="ct-price-table-header" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
         <div style="flex:1">
           <div style="font-weight:600;font-size:0.9rem">${escHtml(item.name)} ${groupBy === 'item' ? familyDisplay : ''}</div>
-          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${latest.uom} · ${statsLine}</div>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px;display:flex;align-items:center;flex-wrap:wrap"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${latest.uom} · ${statsLine}${retailControl}</div>
           ${groupBy === 'family' ? familyDisplay : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center">${trendHtml} <span style="color:var(--mist);font-size:0.8rem">▼</span></div>
