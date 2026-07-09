@@ -820,9 +820,18 @@ th.sortable:hover { background: var(--border); }
           <h3>Invoice History</h3>
           <span id="ct-invoice-count" style="font-size:0.72rem;color:var(--mist)">0 invoices</span>
         </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          <input type="text" id="ct-inv-search" placeholder="Search supplier or invoice #..." oninput="ctInvoiceFiltersChanged()" style="flex:1;min-width:180px;font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+          <select id="ct-inv-supplier-filter" onchange="ctInvoiceFiltersChanged()" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+            <option value="all">All Suppliers</option>
+          </select>
+          <input type="date" id="ct-inv-date-start" onchange="ctInvoiceFiltersChanged()" title="From date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+          <input type="date" id="ct-inv-date-end" onchange="ctInvoiceFiltersChanged()" title="To date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+        </div>
         <div id="ct-invoice-list">
           <div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>
         </div>
+        <div id="ct-invoice-pagination" style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:12px;font-size:0.78rem"></div>
       </div>
     </div>
 
@@ -4092,32 +4101,8 @@ function renderCtDashboard() {
     }
   }
 
-  // Invoice list
-  const invList = document.getElementById('ct-invoice-list');
-  const invCount = document.getElementById('ct-invoice-count');
-  if (invCount) invCount.textContent = `${ctData.invoices.length} invoice${ctData.invoices.length!==1?'s':''}`;
-  if (invList) {
-    const sorted = [...ctData.invoices].sort((a,b)=>ctEffDate(b).localeCompare(ctEffDate(a)));
-    if (sorted.length === 0) {
-      invList.innerHTML = `<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>`;
-    } else {
-      invList.innerHTML = `<div id="ct-edit-invoice-area"></div>` + sorted.slice(0,20).map(inv => `
-        <div class="ct-item-row">
-          <div class="ct-item-name">${escHtml(inv.supplier)}</div>
-          <div class="ct-item-meta">
-            Invoiced ${inv.date}
-            <input type="date" value="${inv.deliveryDate||''}" onchange="ctEditSavedDeliveryDate('${inv.id}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
-            · ${inv.items.length} items
-          </div>
-          <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
-          <div class="ct-item-price" style="margin-left:auto">$${inv.total.toFixed(2)}</div>
-          <div class="ct-item-total">
-            <button class="btn btn-outline btn-xs" onclick="ctEditInvoice('${inv.id}')">Edit</button>
-            <button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button>
-          </div>
-        </div>`).join('');
-    }
-  }
+  // Invoice list — search, filter, and pagination live in their own function
+  ctRenderInvoiceList();
 
   renderCtMargin(invoices);
   renderCtBudget();
@@ -4574,6 +4559,87 @@ function ctCancelEditInvoice() {
   if (area) area.innerHTML = '';
 }
 
+window._ctInvoicePage = window._ctInvoicePage || 0;
+const CT_INVOICES_PER_PAGE = 15;
+
+function ctInvoiceFiltersChanged() {
+  window._ctInvoicePage = 0;
+  ctRenderInvoiceList();
+}
+
+function ctRenderInvoiceList() {
+  const invList = document.getElementById('ct-invoice-list');
+  const invCount = document.getElementById('ct-invoice-count');
+  const pagination = document.getElementById('ct-invoice-pagination');
+  if (!invList) return;
+
+  // Populate the supplier filter dropdown (once — preserves selection across re-renders)
+  const supplierSel = document.getElementById('ct-inv-supplier-filter');
+  if (supplierSel && supplierSel.options.length <= 1) {
+    const suppliers = [...new Set(ctData.invoices.map(i=>i.supplier))].sort();
+    supplierSel.innerHTML = `<option value="all">All Suppliers</option>` + suppliers.map(s=>`<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  }
+
+  const search = (document.getElementById('ct-inv-search')?.value || '').toLowerCase();
+  const supplierFilter = document.getElementById('ct-inv-supplier-filter')?.value || 'all';
+  const dateStart = document.getElementById('ct-inv-date-start')?.value;
+  const dateEnd = document.getElementById('ct-inv-date-end')?.value;
+
+  let filtered = [...ctData.invoices].sort((a,b)=>ctEffDate(b).localeCompare(ctEffDate(a)));
+
+  if (supplierFilter !== 'all') filtered = filtered.filter(i => i.supplier === supplierFilter);
+  if (search) filtered = filtered.filter(i => i.supplier.toLowerCase().includes(search) || (i.invoiceNumber||'').toLowerCase().includes(search));
+  if (dateStart) filtered = filtered.filter(i => ctEffDate(i) >= dateStart);
+  if (dateEnd) filtered = filtered.filter(i => ctEffDate(i) <= dateEnd);
+
+  if (invCount) invCount.textContent = `${ctData.invoices.length} invoice${ctData.invoices.length!==1?'s':''}${filtered.length!==ctData.invoices.length ? ` (${filtered.length} match filters)` : ''}`;
+
+  if (ctData.invoices.length === 0) {
+    invList.innerHTML = `<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>`;
+    if (pagination) pagination.innerHTML = '';
+    return;
+  }
+  if (filtered.length === 0) {
+    invList.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>No invoices match your search/filters</div>`;
+    if (pagination) pagination.innerHTML = '';
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / CT_INVOICES_PER_PAGE));
+  if (window._ctInvoicePage >= totalPages) window._ctInvoicePage = totalPages - 1;
+  if (window._ctInvoicePage < 0) window._ctInvoicePage = 0;
+  const pageStart = window._ctInvoicePage * CT_INVOICES_PER_PAGE;
+  const pageItems = filtered.slice(pageStart, pageStart + CT_INVOICES_PER_PAGE);
+
+  invList.innerHTML = `<div id="ct-edit-invoice-area"></div>` + pageItems.map(inv => `
+    <div class="ct-item-row">
+      <div class="ct-item-name">${escHtml(inv.supplier)}</div>
+      <div class="ct-item-meta">
+        Invoiced ${inv.date}
+        <input type="date" value="${inv.deliveryDate||''}" onchange="ctEditSavedDeliveryDate('${inv.id}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
+        · ${inv.items.length} items
+      </div>
+      <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
+      <div class="ct-item-price" style="margin-left:auto">$${inv.total.toFixed(2)}</div>
+      <div class="ct-item-total">
+        <button class="btn btn-outline btn-xs" onclick="ctEditInvoice('${inv.id}')">Edit</button>
+        <button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button>
+      </div>
+    </div>`).join('');
+
+  if (pagination) {
+    pagination.innerHTML = `
+      <button class="btn btn-outline btn-xs" onclick="ctInvoicePage(-1)" ${window._ctInvoicePage===0?'disabled':''}>← Prev</button>
+      <span>Page ${window._ctInvoicePage+1} of ${totalPages} (${filtered.length} invoice${filtered.length!==1?'s':''})</span>
+      <button class="btn btn-outline btn-xs" onclick="ctInvoicePage(1)" ${window._ctInvoicePage>=totalPages-1?'disabled':''}>Next →</button>`;
+  }
+}
+
+function ctInvoicePage(delta) {
+  window._ctInvoicePage += delta;
+  ctRenderInvoiceList();
+}
+
 function ctDeleteInvoice(id) {
   if (!confirm('Delete this invoice? This cannot be undone.')) return;
   ctData.invoices = ctData.invoices.filter(i => i.id !== id);
@@ -4629,6 +4695,15 @@ function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
     if (isNaN(num) || num < 0) return;
     item.unitPrice = num;
     item.total = item.qty * num;
+  } else if (field === 'qty') {
+    const num = parseFloat(val);
+    if (isNaN(num) || num <= 0) return;
+    item.qty = num;
+    item.total = num * item.unitPrice;
+  } else if (field === 'uom') {
+    item.uom = val;
+    // Stems-per-bunch only makes sense for Bunch-priced items — clear it if the unit changed away from Bunch
+    if (val !== 'Bunch') item.stemsPerBu = null;
   } else if (field === 'stemsPerBu') {
     const num = parseInt(val);
     item.stemsPerBu = (num && num > 0) ? num : null;
@@ -4649,7 +4724,8 @@ window._ctNavStack = window._ctNavStack || [];
 function ctPushNavState() {
   const activePanel = document.querySelector('.panel.active');
   if (!activePanel) return;
-  window._ctNavStack.push({ panelId: activePanel.id.replace('panel-',''), scrollY: window.scrollY });
+  const scroller = document.getElementById('main-content');
+  window._ctNavStack.push({ panelId: activePanel.id.replace('panel-',''), scrollY: scroller ? scroller.scrollTop : 0 });
   ctUpdateBackButton();
 }
 
@@ -4657,8 +4733,9 @@ function ctGoBack() {
   const state = window._ctNavStack.pop();
   if (!state) return;
   switchPanel(state.panelId);
+  const scroller = document.getElementById('main-content');
   // Wait for the panel's render to finish before scrolling, so position is accurate
-  setTimeout(() => window.scrollTo({ top: state.scrollY, behavior: 'auto' }), 60);
+  setTimeout(() => { if (scroller) scroller.scrollTop = state.scrollY; }, 60);
   ctUpdateBackButton();
 }
 
@@ -4841,12 +4918,17 @@ function renderCtPrices() {
       const stemsField = r.uom === 'Bunch'
         ? `<input type="number" min="1" placeholder="stems/bu" value="${r.stemsPerBu||''}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'stemsPerBu', this.value)" style="font-size:0.68rem;padding:1px 4px;width:56px;margin-left:4px" title="Stems per bunch">`
         : '';
-      return `<div style="display:flex;gap:12px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft);align-items:center">
+      return `<div style="display:flex;gap:8px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft);align-items:center">
         <span style="min-width:90px">${r.date}</span>
         <span style="flex:1">${escHtml(r.supplier)}</span>
-        <span>${r.qty} ${r.uom}${stemsField}</span>
+        <input type="number" step="0.01" min="0" value="${r.qty}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'qty', this.value)"
+          style="width:48px;font-size:0.72rem;padding:1px 4px">
+        <select onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'uom', this.value)" style="font-size:0.7rem;padding:1px 2px">
+          ${['Stem','Bunch','Each','Box','Roll','Other'].map(u=>`<option value="${u}" ${u===r.uom?'selected':''}>${u}</option>`).join('')}
+        </select>
+        ${stemsField}
         <input type="number" step="0.01" min="0" value="${r.price.toFixed(2)}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'unitPrice', this.value)"
-          style="font-weight:600;color:var(--ink);min-width:55px;width:65px;text-align:right;font-size:0.72rem;padding:1px 4px">
+          style="font-weight:600;color:var(--ink);min-width:55px;width:65px;text-align:right;font-size:0.72rem;padding:1px 4px;margin-left:auto">
       </div>`;
     }).join('');
 
