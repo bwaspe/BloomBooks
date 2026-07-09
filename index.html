@@ -3168,17 +3168,23 @@ const DEFAULT_FAMILY_KEYWORDS = [
   ['tulip','Tulips']
 ];
 
+// Modifier words that commonly prefix multiple distinct families (Mini Gerbera vs Mini
+// Carnation, Spray Rose vs Spray Mum, etc.) — when one of these is the first word, learn
+// a two-word key instead of one, so tagging "Mini Gerbera" doesn't also capture "Mini Carnation".
+const CT_GENERIC_FAMILY_MODIFIERS = ['mini','spray','garden','standard','dwarf','large','jumbo','mixed','assorted','micro','giant'];
+
 function ctGuessFamily(name) {
   const key = ctCatalogKey(name);
   // Exact per-item override, if one was ever explicitly set (rare — mostly legacy)
   if (ctData.family && ctData.family[key]) return ctData.family[key];
-  // Learned keyword rules, longest keyword first so "spray rose" beats plain "rose"
-  const learned = Object.entries(ctData.familyKeywords || {}).sort((a,b)=>b[0].length-a[0].length);
-  for (const [kw, fam] of learned) if (key.includes(kw)) return fam;
-  // Built-in defaults — also sorted longest-first so multi-word entries (e.g. "mini gerbera")
-  // are checked before their shorter substring (e.g. "gerbera"), regardless of list order above
-  const defaults = [...DEFAULT_FAMILY_KEYWORDS].sort((a,b)=>b[0].length-a[0].length);
-  for (const [kw, fam] of defaults) if (key.includes(kw)) return fam;
+  // Merge learned + built-in rules into one list and match by specificity (longest
+  // keyword wins) regardless of source — a specific 2-word default (e.g. "mini gerbera")
+  // must always beat a generic 1-word learned rule (e.g. "mini"), never the other way around.
+  const combined = [
+    ...Object.entries(ctData.familyKeywords || {}),
+    ...DEFAULT_FAMILY_KEYWORDS
+  ].sort((a,b)=>b[0].length-a[0].length);
+  for (const [kw, fam] of combined) if (key.includes(kw)) return fam;
   return '';
 }
 
@@ -3186,9 +3192,14 @@ function ctLearnFamily(name, family) {
   const trimmed = (family||'').trim();
   if (!trimmed) return;
   const key = ctCatalogKey(name);
-  const firstWord = key.split(/\s+/)[0];
-  if (firstWord && firstWord.length > 1) {
-    ctData.familyKeywords[firstWord] = trimmed;
+  const words = key.split(/\s+/);
+  // If the first word is a generic modifier, key on the first two words instead,
+  // so distinct "Mini X" / "Mini Y" families don't collide into one learned rule.
+  const learnKey = (CT_GENERIC_FAMILY_MODIFIERS.includes(words[0]) && words.length > 1)
+    ? words[0] + ' ' + words[1]
+    : words[0];
+  if (learnKey && learnKey.length > 1) {
+    ctData.familyKeywords[learnKey] = trimmed;
   }
   ctSave();
 }
@@ -4879,15 +4890,32 @@ function renderCtPrices() {
 
   body.innerHTML = ctFamilyDatalist() + groups.map(item => {
     const latest = item.records[item.records.length-1];
-    const first = item.records[0];
-    const trend = item.records.length > 1 ? ((latest.price-first.price)/first.price*100) : null;
+    // Normalize each purchase to a per-stem price where possible (Stem and Each are
+    // already per-stem-equivalent in florist trade; Bunch needs a known stems-per-bunch
+    // to convert). This lets suppliers who price by the bunch and suppliers who price
+    // by the stem be fairly compared, rather than mixing incompatible units together.
+    const toPerStem = r => {
+      if (r.uom === 'Stem' || r.uom === 'Each') return r.price;
+      if (r.uom === 'Bunch' && r.stemsPerBu) return r.price / r.stemsPerBu;
+      return null;
+    };
+    const withPerStem = item.records.map(r => ({ ...r, perStem: toPerStem(r) }));
+    const comparable = withPerStem.filter(r => r.perStem !== null);
+    const unknownCount = item.records.length - comparable.length;
+    const usePerStem = comparable.length > 0;
+    const compareBasis = usePerStem ? comparable : withPerStem.map(r => ({ ...r, perStem: r.price }));
+    const priceUnit = usePerStem ? '/stem' : `/${item.records[0]?.uom || 'unit'}`;
+
+    const firstC = compareBasis[0];
+    const latestC = compareBasis[compareBasis.length-1];
+    const trend = compareBasis.length > 1 ? ((latestC.perStem-firstC.perStem)/firstC.perStem*100) : null;
     const trendDir = trend > 0 ? 'up' : 'down';
     const trendHtml = trend !== null
       ? `<span class="ct-flag ${Math.abs(trend)<5 ? '' : trendDir}" style="${Math.abs(trend)<5?'background:var(--green-light);color:var(--green);border-color:var(--green)':''}">${trend>0?'▲':'▼'}${Math.abs(trend).toFixed(0)}% since first purchase</span>`
       : '<span class="ct-flag new">1 purchase</span>';
 
     // Average price across all recorded purchases
-    const avgPrice = item.records.reduce((s,r)=>s+r.price,0) / item.records.length;
+    const avgPrice = compareBasis.reduce((s,r)=>s+r.perStem,0) / compareBasis.length;
 
     // Total quantity ordered over the current period, grouped by unit — never summed across
     // different UOMs (e.g. Bunch + Each), since "42 Bunch + 10 Each" as one number would be meaningless
@@ -4897,34 +4925,35 @@ function renderCtPrices() {
 
     // Best (lowest) price seen, and which supplier — only meaningful if 2+ distinct suppliers
     const distinctSuppliers = [...new Set(item.records.map(r=>r.supplier))];
-    const bestRecord = item.records.reduce((min,r)=> r.price < min.price ? r : min, item.records[0]);
+    const bestRecord = compareBasis.reduce((min,r)=> r.perStem < min.perStem ? r : min, compareBasis[0]);
     const hasMultipleSuppliers = distinctSuppliers.length > 1;
 
     // Per-supplier breakdown, sorted cheapest average first — shown when comparison is meaningful
     const bySupplier = distinctSuppliers.map(s => {
-      const recs = item.records.filter(r=>r.supplier===s);
+      const recs = compareBasis.filter(r=>r.supplier===s);
+      if (recs.length === 0) return null; // this supplier has no comparable purchases for this item
       return {
         supplier: s,
         count: recs.length,
-        avg: recs.reduce((sum,r)=>sum+r.price,0)/recs.length,
-        best: Math.min(...recs.map(r=>r.price)),
-        latest: recs[recs.length-1].price
+        avg: recs.reduce((sum,r)=>sum+r.perStem,0)/recs.length,
+        best: Math.min(...recs.map(r=>r.perStem))
       };
-    }).sort((a,b)=>a.avg-b.avg);
+    }).filter(Boolean).sort((a,b)=>a.avg-b.avg);
 
     const statsLine = hasMultipleSuppliers
-      ? `Total: ${qtyLine} · Avg: $${avgPrice.toFixed(2)} · Best: $${bestRecord.price.toFixed(2)} (${escHtml(bestRecord.supplier)})`
-      : `Total: ${qtyLine} · Avg: $${avgPrice.toFixed(2)}`;
+      ? `Total: ${qtyLine} · Avg: $${avgPrice.toFixed(2)}${priceUnit} · Best: $${bestRecord.perStem.toFixed(2)}${priceUnit} (${escHtml(bestRecord.supplier)})`
+      : `Total: ${qtyLine} · Avg: $${avgPrice.toFixed(2)}${priceUnit}`;
 
     const supplierCompare = hasMultipleSuppliers
       ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-          <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">Compare Suppliers</div>
+          <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">Compare Suppliers ${usePerStem?'(normalized to price per stem)':''}</div>
           ${bySupplier.map((s,i) => `<div style="display:flex;gap:12px;font-size:0.75rem;padding:4px 0;align-items:center">
             <span style="flex:1">${escHtml(s.supplier)}${i===0?' <span class="ct-flag" style="background:var(--green-light);color:var(--green);border-color:var(--green)">best avg</span>':''}</span>
             <span style="color:var(--mist)">${s.count} purchase${s.count!==1?'s':''}</span>
-            <span style="min-width:60px;text-align:right">avg $${s.avg.toFixed(2)}</span>
-            <span style="min-width:60px;text-align:right;font-weight:600">best $${s.best.toFixed(2)}</span>
+            <span style="min-width:70px;text-align:right">avg $${s.avg.toFixed(2)}${priceUnit}</span>
+            <span style="min-width:70px;text-align:right;font-weight:600">best $${s.best.toFixed(2)}${priceUnit}</span>
           </div>`).join('')}
+          ${unknownCount > 0 ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:6px">${unknownCount} purchase${unknownCount!==1?'s':''} excluded from this comparison — bunch pricing with no stem count on file. Add it in the rows below to include them.</div>` : ''}
         </div>`
       : '';
 
