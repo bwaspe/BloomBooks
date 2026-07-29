@@ -1079,24 +1079,74 @@ let appData = {
 };
 
 // ============================================================
-// HARDCODED VAULT DATA (2023-2025)
+// VAULT DATA (historical pre-BloomBooks totals)
+// Source of truth is the private Google Sheet tab defined by VAULT_TAB.
+// Layout of that tab (row 1 is a header and is ignored):
+//   A=year  B=revenue|expenses  C..N = Jan..Dec amounts
+// Cached in localStorage so the figures survive offline / pre-auth loads.
 // ============================================================
-const VAULT_REVENUE = {
-  2023: [0,0,0,0,0,0,20142,24658,32448,32202,31036,34436],
-  2024: [33880,51710,32328,33761,67788,31633,25105,23756,27418,39999,32470,31302],
-  2025: [37776,63253,29403,35929,65300,46121,27262,22442,38536,34280,33314,38037]
-};
+let VAULT_REVENUE  = {};
+let VAULT_EXPENSES = {};
 
-const VAULT_EXPENSES = {
-  2023: [0,0,0,0,0,0,28334,21320,31738,21162,27981,32645],
-  2024: [29074,37020,32558,29670,39528,33052,22298,22834,28703,45977,35400,39462],
-  2025: [31870,45280,45200,34960,52967,36408,27908,24093,35172,27998,30435,39676]
-};
+const VAULT_TAB       = 'VaultTotals';
+const VAULT_CACHE_KEY = 'bloombooks_vault_v1';
+
+function loadVaultFromCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(VAULT_CACHE_KEY) || 'null');
+    if (!cached) return false;
+    VAULT_REVENUE  = cached.revenue  || {};
+    VAULT_EXPENSES = cached.expenses || {};
+    return true;
+  } catch (e) { return false; }
+}
+
+function parseVaultRows(rows) {
+  const rev = {}, exp = {};
+  (rows || []).forEach(row => {
+    const year = parseInt(row[0], 10);
+    const kind = String(row[1] || '').trim().toLowerCase();
+    if (!year || (kind !== 'revenue' && kind !== 'expenses')) return; // skips header/blank rows
+    const months = [];
+    for (let mi = 0; mi < 12; mi++) {
+      const n = parseFloat(String(row[mi + 2] == null ? '' : row[mi + 2]).replace(/[$,\s]/g, ''));
+      months.push(Number.isFinite(n) ? n : 0);
+    }
+    if (kind === 'revenue') rev[year] = months; else exp[year] = months;
+  });
+  return { rev, exp };
+}
+
+async function loadVaultTotals() {
+  if (!accessToken) { loadVaultFromCache(); return; }
+  try {
+    const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(VAULT_TAB + '!A1:N200')}`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!res.ok) { loadVaultFromCache(); return; }
+    const { rev, exp } = parseVaultRows((await res.json()).values);
+    if (!Object.keys(rev).length && !Object.keys(exp).length) { loadVaultFromCache(); return; }
+    VAULT_REVENUE  = rev;
+    VAULT_EXPENSES = exp;
+    try {
+      localStorage.setItem(VAULT_CACHE_KEY, JSON.stringify({ revenue: rev, expenses: exp }));
+    } catch (e) {}
+  } catch (e) {
+    console.warn('Vault totals load failed:', e);
+    loadVaultFromCache();
+  }
+}
 
 function ensureVaultData() {
   // rules now sync to the sheet metadata; ensure it's always a valid array
   if (!Array.isArray(appData.rules)) appData.rules = [];
-  [2023, 2024, 2025].forEach(year => {
+  const vaultYears = new Set(
+    [].concat(
+      Object.keys(VAULT_REVENUE),
+      Object.keys(VAULT_EXPENSES),
+      (appData.years || [])
+    ).map(Number).filter(Boolean)
+  );
+  vaultYears.forEach(year => {
     MONTHS_SHORT.forEach((_, mi) => {
       const key = `${year}-${mi}`;
       if (!appData.transactions[key]) {
@@ -1140,7 +1190,6 @@ function ensureVaultData() {
 // GOOGLE SHEETS SYNC (OAuth2)
 // ============================================================
 const OAUTH_CLIENT_ID = '108752503349-c9ilafi09qqoa2kqei3v6su8641v86ha.apps.googleusercontent.com';
-const SHEETS_API_KEY  = 'AIzaSyB9TnR9NOy1jmVAoPLn5H4S7LWx2UF0JYU';
 const SHEET_ID        = '1YHVYcWXb_YD6MzX2mc5y78Zo0xAgUT11EObbgGzr9hU';
 const SHEET_TAB       = 'BloomData';
 const SHEETS_BASE     = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -1211,6 +1260,7 @@ function parseAppData(raw) {
 
 async function loadFromSheet() {
   setSyncStatus('loading', 'Loading from cloud...');
+  await loadVaultTotals();
   try {
     // Fetch multiple rows — A1=metadata, A2+=year transactions
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:A20')}`;
@@ -1315,6 +1365,7 @@ function loadFromLocal() {
     const raw = localStorage.getItem('bloombooks_v2');
     if (raw) { appData = parseAppData(raw); }
   } catch(e) {}
+  loadVaultFromCache();
   ensureVaultData();
 }
 
