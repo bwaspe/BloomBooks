@@ -597,22 +597,21 @@ function ctSaveMarkup() {
   notify('Markup saved');
 }
 
-// Google Sheets gviz endpoint wraps its JSON in a JS callback — strip that off
-function ctParseGvizResponse(text) {
-  const match = text.match(/setResponse\(([\s\S]*)\);?\s*$/);
-  if (!match) throw new Error('Unexpected response from Google Sheets — check the Sheet ID and sharing settings.');
-  return JSON.parse(match[1]);
-}
-
-// Google's gviz endpoint returns dates as literal "Date(2026,5,3)" strings (month is 0-indexed), not ISO
-function ctParseGvizDate(raw) {
-  if (!raw) return new Date().toISOString().slice(0,10);
-  const m = String(raw).match(/Date\((\d+),(\d+),(\d+)/);
-  if (m) {
-    const [, y, mo, d] = m;
-    return `${y}-${String(parseInt(mo)+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+// The Sheets API (with valueRenderOption=UNFORMATTED_VALUE) returns real date cells
+// as a serial day-count (Sheets epoch = Dec 30, 1899), and text cells as plain strings.
+// Handle both so this keeps working regardless of how the Apps Script wrote the cell.
+function ctParseSheetsApiDate(raw) {
+  if (raw === undefined || raw === null || raw === '') return new Date().toISOString().slice(0,10);
+  if (typeof raw === 'number') {
+    const ms = Date.UTC(1899, 11, 30) + raw * 86400000;
+    return new Date(ms).toISOString().slice(0,10);
   }
-  return String(raw).slice(0,10);
+  const s = String(raw).trim();
+  const iso = s.match(/^\d{4}-\d{2}-\d{2}/);
+  if (iso) return iso[0];
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0,10);
+  return s.slice(0,10);
 }
 
 async function ctFetchGmailInvoices(silent) {
@@ -620,19 +619,28 @@ async function ctFetchGmailInvoices(silent) {
     if (!silent) notify('Connect a Google Sheet first (Setup section above)');
     return;
   }
+  if (!accessToken) {
+    if (!silent) notify('Sign in to BloomBooks first — the Gmail Scan sheet is read using your Google sign-in.');
+    return;
+  }
   const resultsEl = document.getElementById('ct-gmail-results');
   if (!silent && resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--mist);padding:12px">Checking Sheet for new invoices...</div>`;
 
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${ctData.gmailSheetId}/gviz/tq?tqx=out:json&sheet=Invoices`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('Could not reach the Sheet — make sure it is shared as "Anyone with the link can view."');
-    const text = await resp.text();
-    const gviz = ctParseGvizResponse(text);
+    // Authenticated read via the same Sheets API + token used for the main sync, instead of
+    // the old anonymous gviz endpoint — this lets the sheet be shared only with your Google
+    // account rather than requiring "Anyone with the link."
+    const url = `${SHEETS_BASE}/${ctData.gmailSheetId}/values/${encodeURIComponent('Invoices!A1:Z5000')}?valueRenderOption=UNFORMATTED_VALUE`;
+    const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (resp.status === 401) { handleAuthExpiry(); throw new Error('Your sign-in expired — sign in again, then retry the scan.'); }
+    if (!resp.ok) throw new Error('Could not reach the Sheet — make sure the Sheet ID is correct and the sheet is shared with the Google account you sign into BloomBooks with.');
+    const data = await resp.json();
+    const allRows = data.values || [];
+    if (allRows.length === 0) throw new Error('The "Invoices" sheet looks empty — nothing to scan yet.');
 
-    const cols = gviz.table.cols.map(c => (c.label || '').trim());
+    const cols = allRows[0].map(c => String(c ?? '').trim());
     const idx = name => cols.indexOf(name);
-    const rows = gviz.table.rows || [];
+    const rows = allRows.slice(1);
 
     const iMsgId = idx('MessageId'), iVendor = idx('Vendor'), iSupplier = idx('Supplier'),
           iDate = idx('Date'), iDeliveryDate = idx('DeliveryDate'), iDeliveryFee = idx('DeliveryFee'), iInvNum = idx('InvoiceNumber'), iTotal = idx('Total'), iItems = idx('ItemsJSON');
@@ -641,22 +649,21 @@ async function ctFetchGmailInvoices(silent) {
     const candidates = [];
 
     rows.forEach(r => {
-      const c = r.c || [];
-      const messageId = c[iMsgId]?.v;
+      const messageId = r[iMsgId];
       if (!messageId || seen.has(messageId)) return;
       let items = [];
-      try { items = JSON.parse(c[iItems]?.v || '[]'); } catch(e) { return; }
+      try { items = JSON.parse(r[iItems] || '[]'); } catch(e) { return; }
       if (!items.length) return;
-      const rawDeliveryDate = iDeliveryDate >= 0 ? c[iDeliveryDate]?.v : null;
+      const rawDeliveryDate = iDeliveryDate >= 0 ? r[iDeliveryDate] : null;
       candidates.push({
         messageId,
-        vendor: c[iVendor]?.v || '',
-        supplier: c[iSupplier]?.v || c[iVendor]?.v || 'Unknown',
-        date: ctParseGvizDate(c[iDate]?.v),
-        deliveryDate: rawDeliveryDate ? ctParseGvizDate(rawDeliveryDate) : null,
-        deliveryFee: iDeliveryFee >= 0 ? (parseFloat(c[iDeliveryFee]?.v) || 0) : 0,
-        invoiceNumber: c[iInvNum]?.v || '',
-        total: parseFloat(c[iTotal]?.v) || items.reduce((s,i)=>s+(i.total||i.qty*i.unit_price||0),0),
+        vendor: r[iVendor] || '',
+        supplier: r[iSupplier] || r[iVendor] || 'Unknown',
+        date: ctParseSheetsApiDate(r[iDate]),
+        deliveryDate: rawDeliveryDate ? ctParseSheetsApiDate(rawDeliveryDate) : null,
+        deliveryFee: iDeliveryFee >= 0 ? (parseFloat(r[iDeliveryFee]) || 0) : 0,
+        invoiceNumber: r[iInvNum] || '',
+        total: parseFloat(r[iTotal]) || items.reduce((s,i)=>s+(i.total||i.qty*i.unit_price||0),0),
         items
       });
     });
