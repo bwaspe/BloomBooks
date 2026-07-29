@@ -3401,11 +3401,11 @@ function ctBuildUploadCardHtml(p, idx) {
   return `<div class="ct-parse-result" style="margin-bottom:14px" data-upload-idx="${idx}">
     <div class="ct-parse-header">
       <div>
-        <h3>✓ ${escHtml(parsed.supplier || 'Unknown Supplier')} — ${parsed.date || 'Date unknown'}</h3>
-        <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · Invoice ${parsed.invoice_number || filename}</div>
+        <h3>✓ ${escHtml(parsed.supplier || 'Unknown Supplier')} — ${escHtml(parsed.date || 'Date unknown')}</h3>
+        <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · Invoice ${escHtml(parsed.invoice_number || filename)}</div>
         <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${p.deliveryDate?' (auto-detected)':' (not found — edit if charged on delivery)'}:</label>
-          <input type="date" value="${p.deliveryDate||''}" onchange="ctUpdateUploadDeliveryDate(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
+          <input type="date" value="${escHtml(p.deliveryDate||'')}" onchange="ctUpdateUploadDeliveryDate(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
           <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
           <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateUploadDeliveryFee(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
         </div>
@@ -3815,7 +3815,7 @@ function ctRetailFlag(item) {
   const key = ctCatalogKey(item.name);
   const stored = ctData.retail[key];
   const suggested = ctSuggestedRetail(item);
-  const unitLabel = ctIsPerStem(item) ? '/stem' : `/${item.uom||'unit'}`;
+  const unitLabel = ctIsPerStem(item) ? '/stem' : `/${escHtml(item.uom||'unit')}`;
   if (stored === undefined) {
     return `<input type="number" step="0.01" placeholder="set retail${unitLabel}" data-retail-key="${key}" style="width:90px;font-size:0.75rem" title="Suggested: $${suggested.toFixed(2)}${unitLabel}">`;
   }
@@ -3877,11 +3877,11 @@ function ctBuildGmailCardHtml(inv, invIdx) {
   return `<div class="ct-parse-result" style="margin-bottom:14px" data-gmail-inv="${invIdx}">
     <div class="ct-parse-header">
       <div>
-        <h3>${escHtml(inv.supplier)} — ${inv.date}</h3>
+        <h3>${escHtml(inv.supplier)} — ${escHtml(inv.date)}</h3>
         <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · ${escHtml(inv.vendor)}${inv.invoiceNumber ? ' · #'+escHtml(inv.invoiceNumber) : ''}</div>
         <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${inv.deliveryDate?' (auto-detected)':' (not found — edit if charged on delivery)'}:</label>
-          <input type="date" value="${inv.deliveryDate||''}" onchange="ctUpdateGmailDeliveryDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
+          <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctUpdateGmailDeliveryDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
           <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
           <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateGmailDeliveryFee(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
         </div>
@@ -4546,7 +4546,7 @@ function ctRenderEditInvoice() {
           <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">Invoice ${escHtml(inv.invoiceNumber||'—')}</div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="font-size:0.7rem;color:var(--mist)">Delivery date:</label>
-            <input type="date" value="${inv.deliveryDate||''}" onchange="ctEditUpdateField('deliveryDate', this.value)" style="font-size:0.72rem;padding:3px 6px">
+            <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctEditUpdateField('deliveryDate', this.value)" style="font-size:0.72rem;padding:3px 6px">
             <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
             <input type="number" step="0.01" value="${deliveryFee}" onchange="ctEditUpdateField('deliveryFee', this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
           </div>
@@ -4701,8 +4701,8 @@ function ctRenderInvoiceList() {
     <div class="ct-item-row">
       <div class="ct-item-name">${escHtml(inv.supplier)}</div>
       <div class="ct-item-meta">
-        Invoiced ${inv.date}
-        <input type="date" value="${inv.deliveryDate||''}" onchange="ctEditSavedDeliveryDate('${inv.id}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
+        Invoiced ${escHtml(inv.date)}
+        <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctEditSavedDeliveryDate('${inv.id}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
         · ${inv.items.length} items
       </div>
       <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
@@ -4965,7 +4965,7 @@ function renderCtPrices() {
     const unknownCount = item.records.length - comparable.length;
     const usePerStem = comparable.length > 0;
     const compareBasis = usePerStem ? comparable : withPerStem.map(r => ({ ...r, perStem: r.price }));
-    const priceUnit = usePerStem ? '/stem' : `/${item.records[0]?.uom || 'unit'}`;
+    const priceUnit = usePerStem ? '/stem' : `/${escHtml(item.records[0]?.uom || 'unit')}`;
 
     const firstC = compareBasis[0];
     const latestC = compareBasis[compareBasis.length-1];
