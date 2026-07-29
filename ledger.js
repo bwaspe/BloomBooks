@@ -183,11 +183,16 @@ function renderMonthPanel(mi) {
   const isReconciled = appData.reconciled && appData.reconciled[key];
   const note = appData.notes && appData.notes[key] ? appData.notes[key] : '';
 
-  // Best/worst month detection across all years
+  // Best/worst month detection across all years — the current (still in-progress) calendar
+  // month is excluded from the "lowest month" comparison, since a partial month with only a
+  // week or two of entries would otherwise almost always look like the worst month by default.
+  const today = new Date();
+  const curY = today.getFullYear(), curM = today.getMonth();
   const allMonthRevenues = appData.years.flatMap(y => [0,1,2,3,4,5,6,7,8,9,10,11].map(m => ({y,m,rev:getRevenue(y,m)})));
   const nonZero = allMonthRevenues.filter(x => x.rev > 0);
+  const worstCandidates = nonZero.filter(x => !(x.y === curY && x.m === curM));
   const bestMonth  = nonZero.length ? nonZero.reduce((a,b) => b.rev > a.rev ? b : a) : null;
-  const worstMonth = nonZero.length ? nonZero.reduce((a,b) => b.rev < a.rev ? b : a) : null;
+  const worstMonth = worstCandidates.length ? worstCandidates.reduce((a,b) => b.rev < a.rev ? b : a) : null;
   const isBest  = bestMonth  && bestMonth.y  === year && bestMonth.m  === mi;
   const isWorst = worstMonth && worstMonth.y === year && worstMonth.m === mi;
 
