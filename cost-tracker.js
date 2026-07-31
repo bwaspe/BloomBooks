@@ -631,7 +631,7 @@ async function ctFetchGmailInvoices(silent) {
     // the old anonymous gviz endpoint — this lets the sheet be shared only with your Google
     // account rather than requiring "Anyone with the link."
     const url = `${SHEETS_BASE}/${ctData.gmailSheetId}/values/${encodeURIComponent('Invoices!A1:Z5000')}?valueRenderOption=UNFORMATTED_VALUE`;
-    const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    const resp = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (resp.status === 401) { handleAuthExpiry(); throw new Error('Your sign-in expired — sign in again, then retry the scan.'); }
     if (!resp.ok) throw new Error('Could not reach the Sheet — make sure the Sheet ID is correct and the sheet is shared with the Google account you sign into BloomBooks with.');
     const data = await resp.json();

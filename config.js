@@ -119,7 +119,7 @@ async function loadVaultTotals() {
   if (!accessToken) { loadVaultFromCache(); return; }
   try {
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(VAULT_TAB + '!A1:N200')}`;
-    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (!res.ok) { loadVaultFromCache(); return; }
     const { rev, exp } = parseVaultRows((await res.json()).values);
     if (!Object.keys(rev).length && !Object.keys(exp).length) { loadVaultFromCache(); return; }

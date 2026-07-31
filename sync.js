@@ -124,7 +124,11 @@ function describeSheetError(e) {
 async function diagnoseNetworkBlock() {
   const sw = (navigator.serviceWorker && navigator.serviceWorker.controller) ? 'offline cache on' : 'offline cache off';
   try {
-    await fetch(`${SHEETS_BASE}/${SHEET_ID}`, { mode: 'no-cors', cache: 'no-store' });
+    // Retried like everything else. Without this the probe runs inside the
+    // same transient window that broke the original request and reports the
+    // domain as blocked when it is perfectly reachable -- which is exactly
+    // what it did, and it cost a wrong diagnosis.
+    await fetchRetry(`${SHEETS_BASE}/${SHEET_ID}`, { mode: 'no-cors', cache: 'no-store' });
     return `Google is reachable but the signed-in request was refused (${sw})`;
   } catch (e) {
     return `sheets.googleapis.com is blocked on this network or browser (${sw})`;
@@ -137,7 +141,7 @@ async function loadFromSheet() {
   try {
     // Fetch multiple rows — A1=metadata, A2+=year transactions
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:A20')}`;
-    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (res.status === 401) { handleAuthExpiry(); ensureVaultData(); return; }
     // Keep the status code on the error. The body alone doesn't say whether
     // this was a 403 on the sheet or a 429 from the API, and on a phone
@@ -166,7 +170,7 @@ async function loadFromSheet() {
         meta.transactions = {};
         // Need to fetch col B too for new format
         const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:B200')}`;
-        const resB = await fetch(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        const resB = await fetchRetry(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
         // Unchecked before: a failed second fetch left dataB.values undefined,
         // so rowsB became [] and the app loaded with every transaction missing
         // and no indication anything had gone wrong.
@@ -302,7 +306,7 @@ async function pushToSheet() {
     });
     const values = [[JSON.stringify(meta), ''], ...monthRows];
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1')}?valueInputOption=RAW`;
-    const res = await fetch(url, {
+    const res = await fetchRetry(url, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ values })
