@@ -6,6 +6,10 @@
 <title>🌸 Bloom Books</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
 <link rel="manifest" href="manifest.json">
+<!-- iOS ignores SVG manifest icons, so Add to Home Screen needs its own
+     raster icon. Opaque square on purpose — iOS applies its own rounded
+     mask and composites any transparency against black. -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="theme-color" content="#e883a3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -20,6 +24,7 @@ align-items:center;gap:6px;padding:10px 18px;border-radius:24px;border:none;
 background:var(--ink);color:var(--surface);font-size:0.85rem;font-weight:600;cursor:pointer;
 box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back</button>
 <div id="app-header">
+<button id="nav-toggle" onclick="toggleSidebar()" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">☰</button>
 <div>🌸</div>
 <h1>Bloom <span>Books</span></h1>
 <div class="header-year-selector">
@@ -35,6 +40,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
 </div>
 </div>
+<div id="sidebar-backdrop" onclick="closeSidebar()"></div>
 <div id="layout">
 <nav id="sidebar">
 <div class="sidebar-section-label">Monthly</div>

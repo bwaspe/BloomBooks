@@ -528,3 +528,104 @@ th.sortable:hover { background: var(--border); }
 }
 #notification.show { opacity: 1; transform: translateY(0); }
 #notification.error { border-left-color: var(--red); }
+
+/* ============================================================
+   MOBILE
+   The desktop layout is a fixed 200px sidebar sitting beside the
+   content. On a phone that eats over half the screen and leaves
+   the ledger tables unreadable, so below 860px the sidebar comes
+   out of the flow entirely and becomes a drawer behind the ☰
+   button. Nothing above this line changes on desktop.
+   ============================================================ */
+
+/* Hidden by default; the media query below turns them on. */
+#nav-toggle { display: none; }
+#sidebar-backdrop { display: none; }
+
+@media (max-width: 860px) {
+  /* On iOS, 100vh counts the area behind the browser's own
+     chrome, so the bottom of the app sits off-screen — and with
+     body{overflow:hidden} there's no scrolling to reach it.
+     dvh tracks the actually-visible viewport. */
+  body { height: 100dvh; }
+
+  #nav-toggle {
+    display: block;
+    flex-shrink: 0;
+    background: #2d2d4e;
+    color: #c8c8e8;
+    border: 1px solid #4a4a6a;
+    border-radius: 6px;
+    padding: 8px 11px;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  /* Let the header wrap onto a second row instead of overflowing.
+     It holds the year picker, sync status, sign-in and the
+     export/import buttons — and because body is overflow:hidden,
+     anything that overflows is unreachable, not merely off-screen. */
+  #app-header {
+    height: auto;
+    min-height: var(--header-h);
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px 10px;
+  }
+  #app-header h1 { font-size: 1rem; }
+  .header-year-selector { font-size: 0.75rem; }
+  .header-btns { margin-left: 0; }
+
+  /* The drawer itself. */
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 150;
+    width: 240px;
+    max-width: 82vw;
+    padding-top: 8px;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 2px 0 16px rgba(0,0,0,0.35);
+  }
+  body.nav-open #sidebar { transform: translateX(0); }
+
+  #sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 140;
+    background: rgba(26,26,46,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  body.nav-open #sidebar-backdrop { opacity: 1; pointer-events: auto; }
+
+  /* Finger-sized tap targets in the drawer. */
+  .sidebar-tab { padding: 12px 16px; font-size: 0.85rem; }
+
+  #main-content { padding: 16px 14px; }
+  .page-title { font-size: 1.25rem; }
+
+  /* Tables are the reason the drawer exists. Give them a floor
+     width and let each card scroll sideways on its own, rather
+     than squashing the columns to nothing. */
+  .ledger-wrap, .month-summary, .cat-breakdown,
+  .ct-price-table, .ct-invoice-history { overflow-x: auto; }
+  .ledger-wrap table, .month-summary table, .cat-breakdown table,
+  .ct-price-table table, .ct-invoice-history table { min-width: 560px; }
+
+  .ct-chart-grid { grid-template-columns: 1fr; }
+  .chart-container { height: 260px; }
+
+  #ct-back-btn { bottom: 16px; left: 16px; }
+  #notification { left: 12px; right: 12px; bottom: 16px; max-width: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar, #sidebar-backdrop { transition: none; }
+}

@@ -1,6 +1,6 @@
 // BloomBooks service worker
 // Bump this on every deploy so clients pick up fresh app-shell files.
-const CACHE_VERSION = 'bloombooks-v1';
+const CACHE_VERSION = 'bloombooks-v2';
 
 // Only same-origin app-shell files are cached. Google auth/API calls,
 // Chart.js, and fonts are always fetched live — caching those would
@@ -18,13 +18,26 @@ const APP_SHELL = [
   './cost-tracker.js',
   './init.js',
   './manifest.json',
+  './icons/icon.svg',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {
+  // addAll() is all-or-nothing: one 404 rejects the whole promise and the
+  // worker never installs, silently costing offline support entirely.
+  // Cache each file on its own so a single missing asset can't do that.
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_VERSION).then((cache) =>
+      Promise.all(
+        APP_SHELL.map((url) =>
+          cache.add(url).catch((err) => {
+            console.warn('SW: could not cache', url, err);
+          })
+        )
+      )
+    )
   );
   self.skipWaiting();
 });

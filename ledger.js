@@ -50,8 +50,28 @@ let currentPanel = 'month-0';
 let monthCatFilter = {};  // { [mi]: categoryName } — active category filter per month
 let monthSort = {};  // { [mi]: {col, dir} } — active sort per month
 
+// ---- Mobile drawer ----------------------------------------
+// Below 860px the sidebar is an off-canvas drawer (see styles.css).
+// State lives in one class on <body>; on desktop that class is inert,
+// so these are safe to call at any width.
+function setSidebarOpen(open) {
+  document.body.classList.toggle('nav-open', open);
+  const btn = document.getElementById('nav-toggle');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function toggleSidebar() { setSidebarOpen(!document.body.classList.contains('nav-open')); }
+function closeSidebar() { setSidebarOpen(false); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSidebar();
+});
+
 function switchPanel(panelId) {
   currentPanel = panelId;
+  // Every nav click — sidebar tabs and generated month tabs alike —
+  // funnels through here, so this is the one place the drawer needs
+  // to close after a selection.
+  closeSidebar();
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   const tab = document.querySelector(`[data-panel="${panelId}"]`);
   if (tab) tab.classList.add('active');
