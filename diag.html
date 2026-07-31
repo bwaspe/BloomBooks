@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BloomBooks — Connection Diagnostics</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 16px;
+         background: #f7f7f9; color: #1a1a2e; font-size: 16px; }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: #888899; font-size: 0.85rem; }
+  .row { background: #fff; border: 1px solid #e0e0e8; border-radius: 8px;
+         padding: 12px 14px; margin-bottom: 8px; }
+  .name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+  .why { color: #888899; font-size: 0.78rem; margin-bottom: 6px; }
+  .res { font-family: ui-monospace, Menlo, monospace; font-size: 0.82rem; word-break: break-word; }
+  .ok   { color: #2a7a4f; font-weight: 600; }
+  .bad  { color: #c0392b; font-weight: 600; }
+  .pend { color: #888899; }
+  #env { background: #fff; border: 1px solid #e0e0e8; border-radius: 8px;
+         padding: 12px 14px; margin-bottom: 16px; font-family: ui-monospace, Menlo, monospace;
+         font-size: 0.75rem; white-space: pre-wrap; word-break: break-word; }
+  #verdict { margin-top: 16px; padding: 14px; border-radius: 8px; font-size: 0.9rem;
+             background: #fff; border: 2px solid #4a4a8a; }
+</style>
+</head>
+<body>
+<h1>🌸 BloomBooks connection test</h1>
+<p class="sub">Each test isolates one layer. Send Claude a screenshot of this whole page.</p>
+
+<div id="env">collecting…</div>
+<div id="rows"></div>
+<div id="verdict">Running…</div>
+
+<script>
+const SHEET_ID    = '1YHVYcWXb_YD6MzX2mc5y78Zo0xAgUT11EObbgGzr9hU';
+const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+
+const TESTS = [
+  {
+    id: 'nocors-sheets',
+    name: '1. Reach sheets.googleapis.com at all',
+    why: 'no-cors request. Skips CORS entirely, so it only fails if the connection genuinely never happened.',
+    run: () => fetch(`${SHEETS_BASE}/${SHEET_ID}`, { mode: 'no-cors' }).then(() => 'reached')
+  },
+  {
+    id: 'simple-cors',
+    name: '2. Sheets API, no auth header',
+    why: 'A plain CORS GET. No custom headers, so the browser sends NO preflight. Google should answer 401.',
+    run: () => fetch(`${SHEETS_BASE}/${SHEET_ID}`).then(r => 'HTTP ' + r.status)
+  },
+  {
+    id: 'preflight',
+    name: '3. Sheets API WITH an auth header',
+    why: 'THE KEY TEST. The header forces a CORS preflight. A dummy token is fine — 401 still proves the preflight got through.',
+    run: () => fetch(`${SHEETS_BASE}/${SHEET_ID}`, {
+      headers: { 'Authorization': 'Bearer diagnostic-not-a-real-token' }
+    }).then(r => 'HTTP ' + r.status)
+  },
+  {
+    id: 'accounts',
+    name: '4. Reach accounts.google.com',
+    why: 'Sign-in works, so this should pass. Confirms Google in general is not blocked.',
+    run: () => fetch('https://accounts.google.com/gsi/status', { mode: 'no-cors' }).then(() => 'reached')
+  },
+  {
+    id: 'google204',
+    name: '5. Reach www.google.com',
+    why: 'General internet check against a Google host.',
+    run: () => fetch('https://www.google.com/generate_204', { mode: 'no-cors' }).then(() => 'reached')
+  },
+  {
+    id: 'nongoogle',
+    name: '6. Reach a non-Google site',
+    why: 'Tells us whether anything cross-origin works at all.',
+    run: () => fetch('https://example.com', { mode: 'no-cors' }).then(() => 'reached')
+  }
+];
+
+const results = {};
+
+function render() {
+  document.getElementById('rows').innerHTML = TESTS.map(t => {
+    const r = results[t.id];
+    const cls = !r ? 'pend' : r.ok ? 'ok' : 'bad';
+    const txt = !r ? 'running…' : (r.ok ? '✅ ' : '❌ ') + r.text;
+    return `<div class="row"><div class="name">${t.name}</div>` +
+           `<div class="why">${t.why}</div>` +
+           `<div class="res ${cls}">${txt}</div></div>`;
+  }).join('');
+}
+
+function verdict() {
+  const r = id => results[id];
+  const el = document.getElementById('verdict');
+  if (TESTS.some(t => !results[t.id])) return;
+
+  let msg;
+  if (!r('nongoogle').ok && !r('google204').ok && !r('accounts').ok) {
+    msg = 'Nothing cross-origin works. The whole device or network is blocking requests from this page.';
+  } else if (r('nocors-sheets').ok && r('simple-cors').ok && !r('preflight').ok) {
+    msg = 'CONFIRMED: the CORS preflight is what fails. The Sheets domain is reachable and answers a plain ' +
+          'request, but adding the Authorization header kills it. The fix is to stop sending that header ' +
+          'on this device.';
+  } else if (!r('nocors-sheets').ok && r('accounts').ok) {
+    msg = 'sheets.googleapis.com specifically is unreachable, while other Google hosts are fine. That points ' +
+          'at DNS or domain-level filtering for that one host.';
+  } else if (r('preflight').ok) {
+    msg = 'The preflight succeeded here, so the request path works. Whatever breaks the app is not this — ' +
+          'send the screenshot and Claude will look again.';
+  } else {
+    msg = 'Mixed result — send the screenshot and Claude will read it.';
+  }
+  el.textContent = msg;
+}
+
+async function main() {
+  document.getElementById('env').textContent =
+    'online: ' + navigator.onLine +
+    '\nservice worker controlling: ' + !!(navigator.serviceWorker && navigator.serviceWorker.controller) +
+    '\ncookies enabled: ' + navigator.cookieEnabled +
+    '\nUA: ' + navigator.userAgent;
+
+  render();
+  for (const t of TESTS) {
+    try {
+      results[t.id] = { ok: true, text: await t.run() };
+    } catch (e) {
+      results[t.id] = { ok: false, text: (e && e.name ? e.name + ': ' : '') + (e && e.message || String(e)) };
+    }
+    render();
+  }
+  verdict();
+}
+main();
+</script>
+</body>
+</html>
