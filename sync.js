@@ -115,6 +115,22 @@ function describeSheetError(e) {
   return msg.slice(0, 60);
 }
 
+// A network-level failure is the one case the message alone can't explain:
+// it looks identical whether the whole API domain is unreachable (a content
+// blocker, a filtered network) or only our authenticated request was
+// refused. A no-cors probe separates them -- it skips CORS entirely, so it
+// resolves if the request reached Google at all and only rejects when the
+// connection genuinely didn't happen.
+async function diagnoseNetworkBlock() {
+  const sw = (navigator.serviceWorker && navigator.serviceWorker.controller) ? 'offline cache on' : 'offline cache off';
+  try {
+    await fetch(`${SHEETS_BASE}/${SHEET_ID}`, { mode: 'no-cors', cache: 'no-store' });
+    return `Google is reachable but the signed-in request was refused (${sw})`;
+  } catch (e) {
+    return `sheets.googleapis.com is blocked on this network or browser (${sw})`;
+  }
+}
+
 async function loadFromSheet() {
   setSyncStatus('loading', 'Loading from cloud...');
   await loadVaultTotals();
@@ -218,8 +234,14 @@ async function loadFromSheet() {
     if (accessToken) sessionStorage.setItem('bb_token', accessToken);
   } catch(e) {
     console.warn('Sheet load error:', e);
-    setSyncStatus('error', 'Load failed: ' + describeSheetError(e) + ' — showing local data');
+    const reason = describeSheetError(e);
+    setSyncStatus('error', 'Load failed: ' + reason + ' — showing local data');
     loadFromLocal();
+    // Refine the message once the probe answers. Deliberately after
+    // loadFromLocal() so the figures are on screen either way.
+    if (reason === 'network blocked') {
+      diagnoseNetworkBlock().then(detail => setSyncStatus('error', detail));
+    }
   }
   ensureVaultData();
 }
