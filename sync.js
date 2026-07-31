@@ -98,6 +98,23 @@ function parseAppData(raw) {
   return parsed;
 }
 
+// Turns a sync failure into something readable on a phone, where there is
+// no console to go and look in. "Load failed" on its own gave nothing to
+// act on -- a blocked request, the wrong Google account and a rate limit
+// all looked identical.
+function describeSheetError(e) {
+  const msg = (e && e.message) || String(e);
+  // Safari words an unreachable/blocked request "Load failed"; Chrome says
+  // "Failed to fetch". Neither one ever reached Google.
+  if (/load failed|failed to fetch|networkerror/i.test(msg)) return 'network blocked';
+  const code = (msg.match(/^(\d{3})\b/) || [])[1];
+  if (code === '403') return "403 — this Google account can't open the sheet";
+  if (code === '404') return '404 — sheet not found';
+  if (code === '429') return '429 — rate limited, try shortly';
+  if (code) return code + ' from Google';
+  return msg.slice(0, 60);
+}
+
 async function loadFromSheet() {
   setSyncStatus('loading', 'Loading from cloud...');
   await loadVaultTotals();
@@ -106,7 +123,10 @@ async function loadFromSheet() {
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:A20')}`;
     const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (res.status === 401) { handleAuthExpiry(); ensureVaultData(); return; }
-    if (!res.ok) throw new Error(await res.text());
+    // Keep the status code on the error. The body alone doesn't say whether
+    // this was a 403 on the sheet or a 429 from the API, and on a phone
+    // there's no console to go and check.
+    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
     const data = await res.json();
     const rows = (data.values || []).map(r => r[0] || '');
 
@@ -131,6 +151,10 @@ async function loadFromSheet() {
         // Need to fetch col B too for new format
         const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:B200')}`;
         const resB = await fetch(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        // Unchecked before: a failed second fetch left dataB.values undefined,
+        // so rowsB became [] and the app loaded with every transaction missing
+        // and no indication anything had gone wrong.
+        if (!resB.ok) throw new Error(resB.status + ' ' + (await resB.text()).slice(0, 300));
         const dataB = await resB.json();
         const rowsB = dataB.values || [];
         rowsB.slice(1).forEach(row => {
@@ -194,7 +218,7 @@ async function loadFromSheet() {
     if (accessToken) sessionStorage.setItem('bb_token', accessToken);
   } catch(e) {
     console.warn('Sheet load error:', e);
-    setSyncStatus('error', 'Load failed — local data');
+    setSyncStatus('error', 'Load failed: ' + describeSheetError(e) + ' — showing local data');
     loadFromLocal();
   }
   ensureVaultData();
@@ -262,13 +286,13 @@ async function pushToSheet() {
       body: JSON.stringify({ values })
     });
     if (res.status === 401) { handleAuthExpiry(); return; }
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
     setSyncStatus('saved', 'Saved to cloud ✓');
     setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
   } catch(e) {
     const msg = e.message || '';
     if (isAuthError(msg)) { handleAuthExpiry(); return; }
-    setSyncStatus('error', 'Save failed — local only');
+    setSyncStatus('error', 'Save failed: ' + describeSheetError(e) + ' — local only');
     console.error('Sheet save error:', e);
   }
 }
