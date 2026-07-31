@@ -464,11 +464,34 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
+  // The offline cache is deliberately disabled. On iOS Safari, a service
+  // worker controlling this page made every authenticated call to the Google
+  // Sheets API fail before it left the device. Confirmed by A/B test: the app
+  // syncs correctly in a Private Browsing tab, where iOS disables service
+  // workers, and fails in a normal tab with one registered.
+  //
+  // The cause is the Authorization header on our Sheets requests, which forces
+  // a CORS preflight. Preflights are specified to bypass service workers
+  // entirely; Safari has a history of mishandling that, and the request dies
+  // there -- which is why it surfaced as a network error with no HTTP status.
+  // Any fetch handler at all puts the worker in that path, so there is no
+  // version of the cache that keeps sync working.
+  //
+  // Sync is the entire point of this app; offline access is a convenience that
+  // never actually shipped (the worker failed to install on every attempt
+  // before 2026-07-31, so nothing was ever cached). Dropping the registration
+  // is not sufficient on its own -- an already-installed worker keeps running
+  // and keeps breaking sync -- so any existing one is actively removed here.
+  // service-worker.js is left in the repo, unregistered, with its own note.
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('service-worker.js')
-        .catch(err => console.error('SW registration failed:', err));
-    });
+    navigator.serviceWorker.getRegistrations()
+      .then(regs => regs.forEach(r => r.unregister()))
+      .catch(() => {});
+    if (window.caches) {
+      caches.keys()
+        .then(keys => keys.forEach(k => caches.delete(k)))
+        .catch(() => {});
+    }
   }
 </script>
 </body>

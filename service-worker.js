@@ -1,6 +1,26 @@
-// BloomBooks service worker
+// BloomBooks service worker — NOT REGISTERED. Do not re-enable without
+// reading this first.
+//
+// index.html deliberately does not register this file, and actively
+// unregisters any previously installed copy. On iOS Safari, a service worker
+// controlling the page made every authenticated Google Sheets call fail
+// before it left the device: the app synced correctly in a Private Browsing
+// tab (where iOS disables service workers) and failed in a normal tab with
+// one registered.
+//
+// The Authorization header on our Sheets requests forces a CORS preflight,
+// and preflights are specified to bypass service workers entirely. Safari
+// mishandles that, so the request dies in the preflight with no HTTP status,
+// surfacing as a bare network error. Registering a fetch handler at all puts
+// the worker in that path, so narrowing what it caches does not help — this
+// file cannot be re-enabled as-is without breaking sync on iPhone.
+//
+// If offline access is wanted later, it needs a different approach that keeps
+// the worker out of the request path for api calls, and it must be tested on
+// a real iPhone in a normal (non-private) tab before shipping.
+//
 // Bump this on every deploy so clients pick up fresh app-shell files.
-const CACHE_VERSION = 'bloombooks-v2';
+const CACHE_VERSION = 'bloombooks-v3';
 
 // Only same-origin app-shell files are cached. Google auth/API calls,
 // Chart.js, and fonts are always fetched live — caching those would
