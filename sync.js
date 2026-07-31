@@ -32,14 +32,34 @@ function gisLoaded() {
     client_id: OAUTH_CLIENT_ID,
     scope: SCOPES,
     callback: async (resp) => {
-      if (resp.error) { setSyncStatus('error', 'Sign-in failed'); return; }
+      if (resp.error) { signInFailed(resp.error_description || resp.error); return; }
       accessToken = resp.access_token;
       await loadFromSheet();
       finalizeInit();
+    },
+    // Without this, the failures that aren't OAuth errors -- the pop-up being
+    // blocked, or the user dismissing it -- fire into nothing: the callback
+    // above never runs and the status line sits there mid-sign-in forever.
+    // Pop-ups are blocked far more readily on a phone than on a desktop,
+    // which is a large part of why this only ever bit on mobile.
+    error_callback: (err) => {
+      const type = err && err.type;
+      if (type === 'popup_closed') return signInFailed('Sign-in window closed');
+      if (type === 'popup_failed_to_open') return signInFailed('Pop-up blocked — allow pop-ups for this site');
+      return signInFailed((err && err.message) || 'Sign-in failed');
     }
   });
   gisReady = true;
   maybeInit();
+}
+
+// Reports a failure as 'login' rather than 'error' so the button survives.
+// setSyncStatus() hides it for every status except 'login', so the old
+// setSyncStatus('error', ...) removed the only way to try again short of
+// reloading the page -- one failed tap and the button was simply gone.
+function signInFailed(msg) {
+  accessToken = null;
+  setSyncStatus('login', msg + ' — tap to retry');
 }
 
 function maybeInit() {
@@ -56,8 +76,16 @@ function maybeInit() {
 
 function signIn() {
   if (!tokenClient) return;
-  // Try silent sign-in first, fall back to consent prompt
-  tokenClient.requestAccessToken({ prompt: '' });
+  // Interactive on purpose. The old prompt:'' asked Google to authorise with
+  // no UI at all, which only succeeds where there is already a signed-in
+  // Google session that has previously granted this app access -- true of the
+  // desktop this was built on, false of a phone opening it for the first
+  // time. The comment here used to claim it fell back to a consent prompt; it
+  // never did, so on mobile there was no path to signing in at all. A press
+  // of a button labelled "Sign in" is exactly when the account chooser
+  // belongs on screen.
+  setSyncStatus('loading', 'Signing in…');
+  tokenClient.requestAccessToken({ prompt: 'select_account' });
 }
 
 function parseAppData(raw) {
