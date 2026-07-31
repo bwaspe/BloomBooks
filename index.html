@@ -5,464 +5,443 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🌸 Bloom Books</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#e883a3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
-  align-items:center;gap:6px;padding:10px 18px;border-radius:24px;border:none;
-  background:var(--ink);color:var(--surface);font-size:0.85rem;font-weight:600;cursor:pointer;
-  box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back</button>
-
+align-items:center;gap:6px;padding:10px 18px;border-radius:24px;border:none;
+background:var(--ink);color:var(--surface);font-size:0.85rem;font-weight:600;cursor:pointer;
+box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back</button>
 <div id="app-header">
-  <div>🌸</div>
-  <h1>Bloom <span>Books</span></h1>
-  <div class="header-year-selector">
-    <span>Active Year:</span>
-    <select id="active-year-select" onchange="setActiveYear(this.value)"></select>
-    <button onclick="promptAddYear()">+ Year</button>
-  </div>
-  <div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
-  <button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
-  <div class="header-btns">
-    <button onclick="exportData()">⬇ Export JSON</button>
-    <button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
-    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
-  </div>
+<div>🌸</div>
+<h1>Bloom <span>Books</span></h1>
+<div class="header-year-selector">
+<span>Active Year:</span>
+<select id="active-year-select" onchange="setActiveYear(this.value)"></select>
+<button onclick="promptAddYear()">+ Year</button>
+</div>
+<div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
+<button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
+<div class="header-btns">
+<button onclick="exportData()">⬇ Export JSON</button>
+<button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
+<input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+</div>
+</div>
+<div id="layout">
+<nav id="sidebar">
+<div class="sidebar-section-label">Monthly</div>
+<div id="month-tabs"></div>
+<div class="sidebar-divider"></div>
+<div class="sidebar-section-label">Analytics</div>
+<div class="sidebar-tab" data-panel="trends" onclick="switchPanel('trends')">📈 Unified Trends</div>
+<div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">📋 Yearly Summary</div>
+<div class="sidebar-divider"></div>
+<div class="sidebar-section-label">Tools</div>
+<div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
+<div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
+<div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
+<div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
+<div class="sidebar-divider"></div>
+<div class="sidebar-section-label">Cost Tracker</div>
+<div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">📦 Cost Dashboard</div>
+<div class="sidebar-tab" data-panel="ct-upload" onclick="switchPanel('ct-upload')">📄 Invoice Upload</div>
+<div class="sidebar-tab" data-panel="ct-gmail" onclick="switchPanel('ct-gmail')">📧 Gmail Scan</div>
+<div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">💰 Price History</div>
+</nav>
+<main id="main-content">
+<!-- MONTHLY PANELS (generated) -->
+<div id="month-panels"></div>
+
+<!-- TRENDS PANEL -->
+<div id="panel-trends" class="panel">
+<div class="page-title">Unified Trends</div>
+<div class="page-subtitle">Year-over-year revenue comparison with growth indicators</div>
+<div class="chart-wrap">
+<h3>Monthly Revenue — Multi-Year Comparison</h3>
+<div class="trend-controls">
+<span>Show years:</span>
+<label><input type="checkbox" value="2023" checked onchange="renderTrendsChart()"> 2023</label>
+<label><input type="checkbox" value="2024" checked onchange="renderTrendsChart()"> 2024</label>
+<label><input type="checkbox" value="2025" checked onchange="renderTrendsChart()"> 2025</label>
+<label><input type="checkbox" value="2026" checked onchange="renderTrendsChart()"> 2026</label>
+<span id="extra-year-checks"></span>
+</div>
+<div class="chart-container"><canvas id="trendsChart"></canvas></div>
+</div>
+<div class="chart-wrap">
+<h3>YoY Growth % by Month</h3>
+<div class="chart-container"><canvas id="growthChart"></canvas></div>
+</div>
+<div class="chart-wrap">
+<h3>📉 COGS % of Revenue — Margin Trend</h3>
+<div class="chart-container"><canvas id="cogsChart"></canvas></div>
+</div>
 </div>
 
-<div id="layout">
-  <nav id="sidebar">
-    <div class="sidebar-section-label">Monthly</div>
-    <div id="month-tabs"></div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-label">Analytics</div>
-    <div class="sidebar-tab" data-panel="trends" onclick="switchPanel('trends')">📈 Unified Trends</div>
-    <div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">📋 Yearly Summary</div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-label">Tools</div>
-    <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
-    <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
-    <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
-    <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
-    <div class="sidebar-divider"></div>
-    <div class="sidebar-section-label">Cost Tracker</div>
-    <div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">📦 Cost Dashboard</div>
-    <div class="sidebar-tab" data-panel="ct-upload" onclick="switchPanel('ct-upload')">📄 Invoice Upload</div>
-    <div class="sidebar-tab" data-panel="ct-gmail" onclick="switchPanel('ct-gmail')">📧 Gmail Scan</div>
-    <div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">💰 Price History</div>
-  </nav>
+<!-- TAX SUMMARY PANEL -->
+<div id="panel-tax" class="panel">
+<div class="page-title">Tax Summary</div>
+<div class="page-subtitle">Annual category totals for your accountant</div>
+<div id="tax-summary-content"></div>
+</div>
 
-  <main id="main-content">
+<!-- HOLIDAY REVENUE PANEL -->
+<div id="panel-holidays" class="panel">
+<div class="page-title">🌹 Holiday Revenue</div>
+<div class="page-subtitle">Track how much revenue comes from key holidays</div>
+<div id="holiday-content"></div>
+</div>
 
-    <!-- MONTHLY PANELS (generated) -->
-    <div id="month-panels"></div>
+<!-- YEARLY SUMMARY PANEL -->
+<div id="panel-yearly" class="panel">
+<div class="page-title">Yearly Summary</div>
+<div class="page-subtitle">Financial performance across all years</div>
+<div id="yearly-grid-content"></div>
+<div class="chart-wrap">
+<h3>Annual Revenue vs Expenses</h3>
+<div class="chart-container"><canvas id="yearlyChart"></canvas></div>
+</div>
+<div class="chart-wrap">
+<h3>Annual Category Breakdown</h3>
+<div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
+</div>
+<div class="chart-wrap">
+<h3>🌿 Supplies Spend by Vendor</h3>
+<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+<div style="position:relative;width:280px;height:280px;flex-shrink:0"><canvas id="yearlySupplierPie"></canvas></div>
+<div id="yearlySupplierLegend" style="flex:1;font-size:0.75rem;line-height:2"></div>
+</div>
+</div>
+</div>
 
-    <!-- TRENDS PANEL -->
-    <div id="panel-trends" class="panel">
-      <div class="page-title">Unified Trends</div>
-      <div class="page-subtitle">Year-over-year revenue comparison with growth indicators</div>
-      <div class="chart-wrap">
-        <h3>Monthly Revenue — Multi-Year Comparison</h3>
-        <div class="trend-controls">
-          <span>Show years:</span>
-          <label><input type="checkbox" value="2023" checked onchange="renderTrendsChart()"> 2023</label>
-          <label><input type="checkbox" value="2024" checked onchange="renderTrendsChart()"> 2024</label>
-          <label><input type="checkbox" value="2025" checked onchange="renderTrendsChart()"> 2025</label>
-          <label><input type="checkbox" value="2026" checked onchange="renderTrendsChart()"> 2026</label>
-          <span id="extra-year-checks"></span>
-        </div>
-        <div class="chart-container"><canvas id="trendsChart"></canvas></div>
-      </div>
-      <div class="chart-wrap">
-        <h3>YoY Growth % by Month</h3>
-        <div class="chart-container"><canvas id="growthChart"></canvas></div>
-      </div>
-      <div class="chart-wrap">
-        <h3>📉 COGS % of Revenue — Margin Trend</h3>
-        <div class="chart-container"><canvas id="cogsChart"></canvas></div>
-      </div>
-    </div>
+<!-- BULK IMPORT PANEL -->
+<div id="panel-import" class="panel">
+<div class="page-title">Bulk Import</div>
+<div class="page-subtitle">Paste bank or Amex statement — the engine will parse and stage transactions for review</div>
+<div class="staging-area">
+<h3>📋 Paste Statement</h3>
+<div class="staging-controls">
+<div class="form-group" style="min-width:140px">
+<label>Source</label>
+<select id="import-source-sel" onchange="updateImportPlaceholder()">
+<option value="bank">🏦 Bank (Chase)</option>
+<option value="amex">💳 Amex</option>
+</select>
+</div>
+<div class="form-group" style="min-width:120px">
+<label>Import to Year</label>
+<select id="import-year-sel"></select>
+</div>
+<div class="form-group" style="min-width:120px">
+<label>Import to Month</label>
+<select id="import-month-sel">
+<option value="0">January</option><option value="1">February</option>
+<option value="2">March</option><option value="3">April</option>
+<option value="4">May</option><option value="5">June</option>
+<option value="6">July</option><option value="7">August</option>
+<option value="8">September</option><option value="9">October</option>
+<option value="10">November</option><option value="11">December</option>
+</select>
+</div>
+<div style="align-self:flex-end">
+<button class="btn btn-gold" onclick="parseImport()">🔍 Parse & Stage</button>
+</div>
+</div>
+<textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
+</div>
+<div id="staging-table-area"></div>
+</div>
 
-    <!-- TAX SUMMARY PANEL -->
-    <div id="panel-tax" class="panel">
-      <div class="page-title">Tax Summary</div>
-      <div class="page-subtitle">Annual category totals for your accountant</div>
-      <div id="tax-summary-content"></div>
-    </div>
+<!-- LOGIC TRAINER PANEL -->
+<div id="panel-trainer" class="panel">
+<div class="page-title">Logic Trainer</div>
+<div class="page-subtitle">Create keyword rules to auto-categorize imported transactions</div>
+<div class="entry-form">
+<h3>➕ Add New Rule</h3>
+<div class="form-row">
+<div class="form-group">
+<label>Keyword (contains)</label>
+<input type="text" id="rule-keyword" placeholder="e.g. FLOWER SHOP">
+</div>
+<div class="form-group">
+<label>Transaction Sign</label>
+<select id="rule-sign">
+<option value="any">Any</option>
+<option value="in">Money In (+)</option>
+<option value="out">Money Out (−)</option>
+</select>
+</div>
+<div class="form-group">
+<label>Assign Category</label>
+<select id="rule-category"></select>
+</div>
+<div class="form-group">
+<label>Vendor Label</label>
+<input type="text" id="rule-vendor" placeholder="e.g. Teleflora">
+</div>
+<div style="align-self:flex-end">
+<button class="btn btn-primary" onclick="addRule()">Add Rule</button>
+</div>
+</div>
+</div>
+<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:16px;">
+<h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
+<div id="rules-list"></div>
+</div>
+<div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
+<strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
+</div>
+</div>
 
-    <!-- HOLIDAY REVENUE PANEL -->
-    <div id="panel-holidays" class="panel">
-      <div class="page-title">🌹 Holiday Revenue</div>
-      <div class="page-subtitle">Track how much revenue comes from key holidays</div>
-      <div id="holiday-content"></div>
-    </div>
+<!-- COST TRACKER: DASHBOARD -->
+<div id="panel-ct-dashboard" class="panel">
+<div class="page-title">Cost Dashboard</div>
+<div class="page-subtitle">Wholesale purchasing spend by category, supplier and trend</div>
+<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap">
+<div class="form-group" style="min-width:140px;margin:0">
+<label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Period</label>
+<select id="ct-dash-period" onchange="ctDashPeriodChanged()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+<option value="all">All Time</option>
+<option value="ytd" selected>Year to Date</option>
+<option value="30">Last 30 Days</option>
+<option value="90">Last 90 Days</option>
+<option value="month">Specific Month</option>
+<option value="range">Custom Range</option>
+</select>
+</div>
+<div class="form-group" id="ct-dash-month-wrap" style="min-width:140px;margin:0;display:none">
+<label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Month</label>
+<input type="month" id="ct-dash-month" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+</div>
+<div class="form-group" id="ct-dash-range-wrap" style="min-width:120px;margin:0;display:none">
+<label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">From</label>
+<input type="date" id="ct-dash-start" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+</div>
+<div class="form-group" id="ct-dash-range-wrap2" style="min-width:120px;margin:0;display:none">
+<label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">To</label>
+<input type="date" id="ct-dash-end" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+</div>
+<div class="form-group" style="min-width:120px;margin:0">
+<label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Supplier</label>
+<select id="ct-dash-supplier" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
+<option value="all">All Suppliers</option>
+</select>
+</div>
+</div>
+<div class="ct-kpi-row" id="ct-kpi-row"></div>
+<div class="ct-chart-grid">
+<div class="chart-wrap" style="margin:0">
+<h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Category</h3>
+<div style="position:relative;height:220px"><canvas id="ct-cat-chart"></canvas></div>
+</div>
+<div class="chart-wrap" style="margin:0">
+<h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Supplier</h3>
+<div style="position:relative;height:220px"><canvas id="ct-supplier-chart"></canvas></div>
+</div>
+</div>
+<div class="chart-wrap">
+<h3 style="font-size:0.9rem;margin-bottom:14px">Monthly Purchasing Spend</h3>
+<div style="position:relative;height:260px"><canvas id="ct-trend-chart"></canvas></div>
+</div>
+<div class="ct-price-table">
+<div class="ct-price-table-header">
+<h3>Recent Price Alerts</h3>
+<span style="font-size:0.72rem;color:var(--mist)">Items with price movement vs prior purchase</span>
+</div>
+<div id="ct-alerts-body">
+<div class="empty-state"><div class="empty-icon">🌱</div>No invoices processed yet — upload one to get started</div>
+</div>
+</div>
+<div class="chart-wrap">
+<h3>💰 Potential Margin</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Cost vs. your set retail price for the current period — not actual sales data, since BloomBooks doesn't have POS integration. This shows what margin you'd realize <em>if</em> everything sold at the retail price you've set.</p>
+<div id="ct-margin-body"></div>
+</div>
+<div class="chart-wrap">
+<h3>📊 Budget Baseline</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Compares the selected period's spend against the historical average for that same calendar month in prior years — accounts for seasonality automatically as more history builds up.</p>
+<div id="ct-budget-body"></div>
+</div>
+<div class="chart-wrap">
+<h3>⚠️ Stale Margins</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Items where cost has moved since you last set a retail price, but the retail price hasn't been updated to match.</p>
+<div id="ct-stale-margin-body"></div>
+</div>
+<div class="ct-invoice-history">
+<div class="ct-price-table-header">
+<h3>Invoice History</h3>
+<span id="ct-invoice-count" style="font-size:0.72rem;color:var(--mist)">0 invoices</span>
+</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<input type="text" id="ct-inv-search" placeholder="Search supplier or invoice #..." oninput="ctInvoiceFiltersChanged()" style="flex:1;min-width:180px;font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+<select id="ct-inv-supplier-filter" onchange="ctInvoiceFiltersChanged()" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+<option value="all">All Suppliers</option>
+</select>
+<input type="date" id="ct-inv-date-start" onchange="ctInvoiceFiltersChanged()" title="From date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+<input type="date" id="ct-inv-date-end" onchange="ctInvoiceFiltersChanged()" title="To date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
+</div>
+<div id="ct-invoice-list">
+<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>
+</div>
+<div id="ct-invoice-pagination" style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:12px;font-size:0.78rem"></div>
+</div>
+</div>
 
-    <!-- YEARLY SUMMARY PANEL -->
-    <div id="panel-yearly" class="panel">
-      <div class="page-title">Yearly Summary</div>
-      <div class="page-subtitle">Financial performance across all years</div>
-      <div id="yearly-grid-content"></div>
-      <div class="chart-wrap">
-        <h3>Annual Revenue vs Expenses</h3>
-        <div class="chart-container"><canvas id="yearlyChart"></canvas></div>
-      </div>
-      <div class="chart-wrap">
-        <h3>Annual Category Breakdown</h3>
-        <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
-      </div>
-      <div class="chart-wrap">
-        <h3>🌿 Supplies Spend by Vendor</h3>
-        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-          <div style="position:relative;width:280px;height:280px;flex-shrink:0"><canvas id="yearlySupplierPie"></canvas></div>
-          <div id="yearlySupplierLegend" style="flex:1;font-size:0.75rem;line-height:2"></div>
-        </div>
-      </div>
-    </div>
+<!-- COST TRACKER: UPLOAD -->
+<div id="panel-ct-upload" class="panel">
+<div class="page-title">Invoice Upload</div>
+<div class="page-subtitle">Upload a PDF or photo — Claude will extract line items automatically</div>
+<div class="ct-upload-zone" id="ct-drop-zone" onclick="document.getElementById('ct-file-input').click()"
+ondragover="event.preventDefault();this.classList.add('drag')"
+ondragleave="this.classList.remove('drag')"
+ondrop="ctHandleDrop(event)">
+<div class="upload-icon">📄</div>
+<strong>Click to upload or drag and drop</strong>
+<p>PDF invoices or photos (JPG, PNG) — select multiple at once from any supplier</p>
+<p style="font-size:0.72rem;margin-top:6px">Juliet · DVFlora · Main · Perri · Accent Decor · and more</p>
+</div>
+<input type="file" id="ct-file-input" accept=".pdf,.jpg,.jpeg,.png" multiple style="display:none" onchange="ctHandleFile(event)">
+<div id="ct-parse-area"></div>
+</div>
 
-    <!-- BULK IMPORT PANEL -->
-    <div id="panel-import" class="panel">
-      <div class="page-title">Bulk Import</div>
-      <div class="page-subtitle">Paste bank or Amex statement — the engine will parse and stage transactions for review</div>
-      <div class="staging-area">
-        <h3>📋 Paste Statement</h3>
-        <div class="staging-controls">
-          <div class="form-group" style="min-width:140px">
-            <label>Source</label>
-            <select id="import-source-sel" onchange="updateImportPlaceholder()">
-              <option value="bank">🏦 Bank (Chase)</option>
-              <option value="amex">💳 Amex</option>
-            </select>
-          </div>
-          <div class="form-group" style="min-width:120px">
-            <label>Import to Year</label>
-            <select id="import-year-sel"></select>
-          </div>
-          <div class="form-group" style="min-width:120px">
-            <label>Import to Month</label>
-            <select id="import-month-sel">
-              <option value="0">January</option><option value="1">February</option>
-              <option value="2">March</option><option value="3">April</option>
-              <option value="4">May</option><option value="5">June</option>
-              <option value="6">July</option><option value="7">August</option>
-              <option value="8">September</option><option value="9">October</option>
-              <option value="10">November</option><option value="11">December</option>
-            </select>
-          </div>
-          <div style="align-self:flex-end">
-            <button class="btn btn-gold" onclick="parseImport()">🔍 Parse & Stage</button>
-          </div>
-        </div>
-        <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
-      </div>
-      <div id="staging-table-area"></div>
-    </div>
+<!-- COST TRACKER: GMAIL SCAN -->
+<div id="panel-ct-gmail" class="panel">
+<div class="page-title">Gmail Scan</div>
+<div class="page-subtitle">Invoices scanned from wecare@ by Apps Script, reviewed here before they hit your cost data</div>
+<div class="chart-wrap">
+<h3>⚙️ Setup</h3>
+<div class="form-group" style="margin-bottom:10px;">
+<label style="font-size:0.75rem;color:var(--mist)">Google Sheet ID (from the sheet's URL, between /d/ and /edit)</label>
+<input type="text" id="ct-gmail-sheetid" placeholder="e.g. 1AbCdEfGhIjKlMnOpQrStUvWxYz" style="width:100%">
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec — used for manual invoice uploads)</label>
+<input type="text" id="ct-appsscript-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
+</div>
+<button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Connection Settings</button>
+<div id="ct-gmail-sheet-status" style="font-size:0.72rem;color:var(--mist);margin-top:8px"></div>
+</div>
+<div class="chart-wrap">
+<h3>🗄️ Cost Tracker Data</h3>
+<p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
+Manually uploaded invoices exist only here — there's no other copy. Gmail-scanned invoices can always be re-pulled from the Sheet, so resetting is lower-risk for those.
+</p>
+<button class="btn btn-outline btn-sm" onclick="ctExportBackup()">Download Backup (JSON)</button>
+<button class="btn btn-outline btn-sm" onclick="ctResetCostData()" style="color:var(--red);border-color:var(--red)">Reset Cost Data</button>
+</div>
+<div class="chart-wrap">
+<h3>🔀 Merge Duplicate Suppliers</h3>
+<p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
+Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). Pick the duplicate and the name it should become — this permanently rewrites every existing invoice, all at once.
+</p>
+<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+<div class="form-group" style="margin:0;min-width:200px">
+<label style="font-size:0.72rem;color:var(--mist)">Merge this name...</label>
+<select id="ct-merge-from"></select>
+</div>
+<div class="form-group" style="margin:0;min-width:200px">
+<label style="font-size:0.72rem;color:var(--mist)">...into this name</label>
+<select id="ct-merge-to"></select>
+</div>
+<button class="btn btn-primary btn-sm" onclick="ctMergeSuppliers()">Merge</button>
+</div>
+</div>
+<div class="chart-wrap">
+<h3>💲 Retail Markup by Category</h3>
+<p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost × markup. Only used to flag items whose stored retail price no longer matches.</p>
+<div id="ct-markup-inputs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px"></div>
+<button class="btn btn-outline btn-sm" onclick="ctSaveMarkup()">Save Markup</button>
+</div>
+<div class="chart-wrap">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+<h3 style="margin-bottom:0">📬 Scan Results</h3>
+<button class="btn btn-primary btn-sm" onclick="ctFetchGmailInvoices()">Check Now</button>
+</div>
+<div id="ct-gmail-last-checked" style="font-size:0.72rem;color:var(--mist);margin-top:6px"></div>
+<div id="ct-gmail-results" style="margin-top:14px"></div>
+</div>
+</div>
 
-    <!-- LOGIC TRAINER PANEL -->
-    <div id="panel-trainer" class="panel">
-      <div class="page-title">Logic Trainer</div>
-      <div class="page-subtitle">Create keyword rules to auto-categorize imported transactions</div>
-      <div class="entry-form">
-        <h3>➕ Add New Rule</h3>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Keyword (contains)</label>
-            <input type="text" id="rule-keyword" placeholder="e.g. FLOWER SHOP">
-          </div>
-          <div class="form-group">
-            <label>Transaction Sign</label>
-            <select id="rule-sign">
-              <option value="any">Any</option>
-              <option value="in">Money In (+)</option>
-              <option value="out">Money Out (−)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Assign Category</label>
-            <select id="rule-category"></select>
-          </div>
-          <div class="form-group">
-            <label>Vendor Label</label>
-            <input type="text" id="rule-vendor" placeholder="e.g. Teleflora">
-          </div>
-          <div style="align-self:flex-end">
-            <button class="btn btn-primary" onclick="addRule()">Add Rule</button>
-          </div>
-        </div>
-      </div>
-      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:16px;">
-        <h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
-        <div id="rules-list"></div>
-      </div>
-      <div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
-        <strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
-      </div>
-    </div>
+<!-- COST TRACKER: PRICE HISTORY -->
+<div id="panel-ct-prices" class="panel">
+<div class="page-title">Price History</div>
+<div class="page-subtitle">Track unit prices per item across suppliers and time</div>
+<div style="margin-bottom:14px">
+<input type="text" id="ct-price-search" placeholder="🔍 Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
+</div>
+<div id="ct-price-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+<select id="ct-price-cat" style="display:none"><option value="all">All Categories</option></select>
+<div class="ct-filter-row">
+<select id="ct-price-supplier" onchange="renderCtPrices()">
+<option value="all">All Suppliers</option>
+</select>
+<select id="ct-price-groupby" onchange="renderCtPrices()">
+<option value="item">Group by: Exact Item</option>
+<option value="family" selected>Group by: Family/Type</option>
+</select>
+<select id="ct-price-period" onchange="ctPricePeriodChanged()">
+<option value="all" selected>All Time</option>
+<option value="ytd">Year to Date</option>
+<option value="90">Last 90 Days</option>
+<option value="month">Specific Month</option>
+<option value="range">Custom Range</option>
+</select>
+<input type="month" id="ct-price-month" onchange="renderCtPrices()" style="display:none">
+<input type="date" id="ct-price-start" onchange="renderCtPrices()" style="display:none" placeholder="From">
+<input type="date" id="ct-price-end" onchange="renderCtPrices()" style="display:none" placeholder="To">
+</div>
+<div id="ct-prices-body">
+<div class="empty-state"><div class="empty-icon">💐</div>No price data yet — upload an invoice to populate</div>
+</div>
+</div>
 
-    <!-- COST TRACKER: DASHBOARD -->
-    <div id="panel-ct-dashboard" class="panel">
-      <div class="page-title">Cost Dashboard</div>
-      <div class="page-subtitle">Wholesale purchasing spend by category, supplier and trend</div>
-
-      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap">
-        <div class="form-group" style="min-width:140px;margin:0">
-          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Period</label>
-          <select id="ct-dash-period" onchange="ctDashPeriodChanged()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
-            <option value="all">All Time</option>
-            <option value="ytd" selected>Year to Date</option>
-            <option value="30">Last 30 Days</option>
-            <option value="90">Last 90 Days</option>
-            <option value="month">Specific Month</option>
-            <option value="range">Custom Range</option>
-          </select>
-        </div>
-        <div class="form-group" id="ct-dash-month-wrap" style="min-width:140px;margin:0;display:none">
-          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Month</label>
-          <input type="month" id="ct-dash-month" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
-        </div>
-        <div class="form-group" id="ct-dash-range-wrap" style="min-width:120px;margin:0;display:none">
-          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">From</label>
-          <input type="date" id="ct-dash-start" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
-        </div>
-        <div class="form-group" id="ct-dash-range-wrap2" style="min-width:120px;margin:0;display:none">
-          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">To</label>
-          <input type="date" id="ct-dash-end" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
-        </div>
-        <div class="form-group" style="min-width:120px;margin:0">
-          <label style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);font-weight:500">Supplier</label>
-          <select id="ct-dash-supplier" onchange="renderCtDashboard()" style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
-            <option value="all">All Suppliers</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="ct-kpi-row" id="ct-kpi-row"></div>
-
-      <div class="ct-chart-grid">
-        <div class="chart-wrap" style="margin:0">
-          <h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Category</h3>
-          <div style="position:relative;height:220px"><canvas id="ct-cat-chart"></canvas></div>
-        </div>
-        <div class="chart-wrap" style="margin:0">
-          <h3 style="font-size:0.9rem;margin-bottom:14px">Spend by Supplier</h3>
-          <div style="position:relative;height:220px"><canvas id="ct-supplier-chart"></canvas></div>
-        </div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3 style="font-size:0.9rem;margin-bottom:14px">Monthly Purchasing Spend</h3>
-        <div style="position:relative;height:260px"><canvas id="ct-trend-chart"></canvas></div>
-      </div>
-
-      <div class="ct-price-table">
-        <div class="ct-price-table-header">
-          <h3>Recent Price Alerts</h3>
-          <span style="font-size:0.72rem;color:var(--mist)">Items with price movement vs prior purchase</span>
-        </div>
-        <div id="ct-alerts-body">
-          <div class="empty-state"><div class="empty-icon">🌱</div>No invoices processed yet — upload one to get started</div>
-        </div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>💰 Potential Margin</h3>
-        <p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Cost vs. your set retail price for the current period — not actual sales data, since BloomBooks doesn't have POS integration. This shows what margin you'd realize <em>if</em> everything sold at the retail price you've set.</p>
-        <div id="ct-margin-body"></div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>📊 Budget Baseline</h3>
-        <p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Compares the selected period's spend against the historical average for that same calendar month in prior years — accounts for seasonality automatically as more history builds up.</p>
-        <div id="ct-budget-body"></div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>⚠️ Stale Margins</h3>
-        <p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Items where cost has moved since you last set a retail price, but the retail price hasn't been updated to match.</p>
-        <div id="ct-stale-margin-body"></div>
-      </div>
-
-      <div class="ct-invoice-history">
-        <div class="ct-price-table-header">
-          <h3>Invoice History</h3>
-          <span id="ct-invoice-count" style="font-size:0.72rem;color:var(--mist)">0 invoices</span>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-          <input type="text" id="ct-inv-search" placeholder="Search supplier or invoice #..." oninput="ctInvoiceFiltersChanged()" style="flex:1;min-width:180px;font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
-          <select id="ct-inv-supplier-filter" onchange="ctInvoiceFiltersChanged()" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
-            <option value="all">All Suppliers</option>
-          </select>
-          <input type="date" id="ct-inv-date-start" onchange="ctInvoiceFiltersChanged()" title="From date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
-          <input type="date" id="ct-inv-date-end" onchange="ctInvoiceFiltersChanged()" title="To date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
-        </div>
-        <div id="ct-invoice-list">
-          <div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>
-        </div>
-        <div id="ct-invoice-pagination" style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:12px;font-size:0.78rem"></div>
-      </div>
-    </div>
-
-    <!-- COST TRACKER: UPLOAD -->
-    <div id="panel-ct-upload" class="panel">
-      <div class="page-title">Invoice Upload</div>
-      <div class="page-subtitle">Upload a PDF or photo — Claude will extract line items automatically</div>
-
-      <div class="ct-upload-zone" id="ct-drop-zone" onclick="document.getElementById('ct-file-input').click()"
-           ondragover="event.preventDefault();this.classList.add('drag')"
-           ondragleave="this.classList.remove('drag')"
-           ondrop="ctHandleDrop(event)">
-        <div class="upload-icon">📄</div>
-        <strong>Click to upload or drag and drop</strong>
-        <p>PDF invoices or photos (JPG, PNG) — select multiple at once from any supplier</p>
-        <p style="font-size:0.72rem;margin-top:6px">Juliet · DVFlora · Main · Perri · Accent Decor · and more</p>
-      </div>
-      <input type="file" id="ct-file-input" accept=".pdf,.jpg,.jpeg,.png" multiple style="display:none" onchange="ctHandleFile(event)">
-
-      <div id="ct-parse-area"></div>
-    </div>
-
-    <!-- COST TRACKER: GMAIL SCAN -->
-    <div id="panel-ct-gmail" class="panel">
-      <div class="page-title">Gmail Scan</div>
-      <div class="page-subtitle">Invoices scanned from wecare@ by Apps Script, reviewed here before they hit your cost data</div>
-
-      <div class="chart-wrap">
-        <h3>⚙️ Setup</h3>
-        <div class="form-group" style="margin-bottom:10px;">
-          <label style="font-size:0.75rem;color:var(--mist)">Google Sheet ID (from the sheet's URL, between /d/ and /edit)</label>
-          <input type="text" id="ct-gmail-sheetid" placeholder="e.g. 1AbCdEfGhIjKlMnOpQrStUvWxYz" style="width:100%">
-        </div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec — used for manual invoice uploads)</label>
-          <input type="text" id="ct-appsscript-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
-        </div>
-        <button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Connection Settings</button>
-        <div id="ct-gmail-sheet-status" style="font-size:0.72rem;color:var(--mist);margin-top:8px"></div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>🗄️ Cost Tracker Data</h3>
-        <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
-          Manually uploaded invoices exist only here — there's no other copy. Gmail-scanned invoices can always be re-pulled from the Sheet, so resetting is lower-risk for those.
-        </p>
-        <button class="btn btn-outline btn-sm" onclick="ctExportBackup()">Download Backup (JSON)</button>
-        <button class="btn btn-outline btn-sm" onclick="ctResetCostData()" style="color:var(--red);border-color:var(--red)">Reset Cost Data</button>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>🔀 Merge Duplicate Suppliers</h3>
-        <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
-          Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). Pick the duplicate and the name it should become — this permanently rewrites every existing invoice, all at once.
-        </p>
-        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-          <div class="form-group" style="margin:0;min-width:200px">
-            <label style="font-size:0.72rem;color:var(--mist)">Merge this name...</label>
-            <select id="ct-merge-from"></select>
-          </div>
-          <div class="form-group" style="margin:0;min-width:200px">
-            <label style="font-size:0.72rem;color:var(--mist)">...into this name</label>
-            <select id="ct-merge-to"></select>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="ctMergeSuppliers()">Merge</button>
-        </div>
-      </div>
-
-      <div class="chart-wrap">
-        <h3>💲 Retail Markup by Category</h3>
-        <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost × markup. Only used to flag items whose stored retail price no longer matches.</p>
-        <div id="ct-markup-inputs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px"></div>
-        <button class="btn btn-outline btn-sm" onclick="ctSaveMarkup()">Save Markup</button>
-      </div>
-
-      <div class="chart-wrap">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <h3 style="margin-bottom:0">📬 Scan Results</h3>
-          <button class="btn btn-primary btn-sm" onclick="ctFetchGmailInvoices()">Check Now</button>
-        </div>
-        <div id="ct-gmail-last-checked" style="font-size:0.72rem;color:var(--mist);margin-top:6px"></div>
-        <div id="ct-gmail-results" style="margin-top:14px"></div>
-      </div>
-    </div>
-
-    <!-- COST TRACKER: PRICE HISTORY -->
-    <div id="panel-ct-prices" class="panel">
-      <div class="page-title">Price History</div>
-      <div class="page-subtitle">Track unit prices per item across suppliers and time</div>
-
-      <div style="margin-bottom:14px">
-        <input type="text" id="ct-price-search" placeholder="🔍 Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
-      </div>
-
-      <div id="ct-price-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-
-      <select id="ct-price-cat" style="display:none"><option value="all">All Categories</option></select>
-
-      <div class="ct-filter-row">
-        <select id="ct-price-supplier" onchange="renderCtPrices()">
-          <option value="all">All Suppliers</option>
-        </select>
-        <select id="ct-price-groupby" onchange="renderCtPrices()">
-          <option value="item">Group by: Exact Item</option>
-          <option value="family" selected>Group by: Family/Type</option>
-        </select>
-        <select id="ct-price-period" onchange="ctPricePeriodChanged()">
-          <option value="all" selected>All Time</option>
-          <option value="ytd">Year to Date</option>
-          <option value="90">Last 90 Days</option>
-          <option value="month">Specific Month</option>
-          <option value="range">Custom Range</option>
-        </select>
-        <input type="month" id="ct-price-month" onchange="renderCtPrices()" style="display:none">
-        <input type="date" id="ct-price-start" onchange="renderCtPrices()" style="display:none" placeholder="From">
-        <input type="date" id="ct-price-end" onchange="renderCtPrices()" style="display:none" placeholder="To">
-      </div>
-
-      <div id="ct-prices-body">
-        <div class="empty-state"><div class="empty-icon">💐</div>No price data yet — upload an invoice to populate</div>
-      </div>
-    </div>
-
-  </main>
+</main>
 </div>
 
 <!-- MODAL: Edit Transaction -->
 <div class="modal-overlay" id="edit-modal">
-  <div class="modal">
-    <h3>Edit Transaction</h3>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Date</label>
-      <input type="date" id="edit-date">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Description</label>
-      <input type="text" id="edit-desc">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Category</label>
-      <select id="edit-category"></select>
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Vendor</label>
-      <input type="text" id="edit-vendor">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Amount</label>
-      <input type="number" id="edit-amount" step="0.01">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label>Type</label>
-      <select id="edit-type">
-        <option value="in">Money In (Revenue)</option>
-        <option value="out">Money Out (Expense)</option>
-      </select>
-    </div>
-    <div class="modal-btns">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveEdit()">Save</button>
-    </div>
-  </div>
+<div class="modal">
+<h3>Edit Transaction</h3>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Date</label>
+<input type="date" id="edit-date">
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Description</label>
+<input type="text" id="edit-desc">
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Category</label>
+<select id="edit-category"></select>
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Vendor</label>
+<input type="text" id="edit-vendor">
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Amount</label>
+<input type="number" id="edit-amount" step="0.01">
+</div>
+<div class="form-group" style="margin-bottom:10px;">
+<label>Type</label>
+<select id="edit-type">
+<option value="in">Money In (Revenue)</option>
+<option value="out">Money Out (Expense)</option>
+</select>
+</div>
+<div class="modal-btns">
+<button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+<button class="btn btn-primary" onclick="saveEdit()">Save</button>
+</div>
+</div>
 </div>
 
 <!-- NOTIFICATION -->
@@ -478,5 +457,13 @@
 <script src="init.js"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js')
+        .catch(err => console.error('SW registration failed:', err));
+    });
+  }
+</script>
 </body>
 </html>
