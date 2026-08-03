@@ -464,25 +464,30 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
-  // The offline cache is deliberately disabled. On iOS Safari, a service
-  // worker controlling this page made every authenticated call to the Google
-  // Sheets API fail before it left the device. Confirmed by A/B test: the app
-  // syncs correctly in a Private Browsing tab, where iOS disables service
-  // workers, and fails in a normal tab with one registered.
+  // The offline cache is disabled, but NOT because it was at fault -- it was
+  // suspected during a long diagnosis of broken Sheets sync on iPhone, and
+  // then cleared. Recording that properly so nobody re-runs the same hunt:
   //
-  // The cause is the Authorization header on our Sheets requests, which forces
-  // a CORS preflight. Preflights are specified to bypass service workers
-  // entirely; Safari has a history of mishandling that, and the request dies
-  // there -- which is why it surfaced as a network error with no HTTP status.
-  // Any fetch handler at all puts the worker in that path, so there is no
-  // version of the cache that keeps sync working.
+  // The real cause was that iOS Safari aborts requests issued in the instant
+  // the OAuth popup closes and focus returns to the page, which is exactly
+  // when this app fires its first cloud call. That surfaces as a TypeError
+  // worded "Load failed" with no HTTP status -- identical to a blocked
+  // domain, which is what made it read as a network or service-worker
+  // problem. fetchRetry() in utils.js is the actual fix. diag.html settled it
+  // by running the same requests from the same phone, in the same normal
+  // Safari tab, with no popup involved: every layer passed.
   //
-  // Sync is the entire point of this app; offline access is a convenience that
-  // never actually shipped (the worker failed to install on every attempt
-  // before 2026-07-31, so nothing was ever cached). Dropping the registration
-  // is not sufficient on its own -- an already-installed worker keeps running
-  // and keeps breaking sync -- so any existing one is actively removed here.
-  // service-worker.js is left in the repo, unregistered, with its own note.
+  // What misled the earlier A/B test (works in Private Browsing, fails in a
+  // normal tab) was almost certainly the timing of the sign-in rather than
+  // the absence of service workers in private mode.
+  //
+  // It stays off for now only because offline access never actually worked --
+  // the worker failed to install on every attempt before 2026-07-31, so
+  // nothing was ever cached or served. Re-enabling it is a real option, but
+  // it needs its own test on a real iPhone rather than being switched back on
+  // alongside other changes. Note that dropping the registration alone would
+  // not remove it: an already-installed worker keeps running, which is why
+  // existing registrations and caches are actively deleted here.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations()
       .then(regs => regs.forEach(r => r.unregister()))

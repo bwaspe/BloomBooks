@@ -1,23 +1,22 @@
-// BloomBooks service worker — NOT REGISTERED. Do not re-enable without
-// reading this first.
+// BloomBooks service worker — NOT REGISTERED, and not guilty.
 //
-// index.html deliberately does not register this file, and actively
-// unregisters any previously installed copy. On iOS Safari, a service worker
-// controlling the page made every authenticated Google Sheets call fail
-// before it left the device: the app synced correctly in a Private Browsing
-// tab (where iOS disables service workers) and failed in a normal tab with
-// one registered.
+// This file was suspected of breaking Google Sheets sync on iPhone and was
+// unregistered during the investigation. It was subsequently cleared: the
+// real cause was iOS Safari aborting requests fired in the instant the OAuth
+// popup closes, and the fix is fetchRetry() in utils.js. Sync works with this
+// worker absent, and there is no evidence it ever misbehaved.
 //
-// The Authorization header on our Sheets requests forces a CORS preflight,
-// and preflights are specified to bypass service workers entirely. Safari
-// mishandles that, so the request dies in the preflight with no HTTP status,
-// surfacing as a bare network error. Registering a fetch handler at all puts
-// the worker in that path, so narrowing what it caches does not help — this
-// file cannot be re-enabled as-is without breaking sync on iPhone.
+// index.html does not register it and actively removes any installed copy, so
+// this code does not currently run. That is a leftover of the diagnosis, not
+// a verdict. The only real argument for leaving it off is that offline access
+// never worked anyway -- the worker failed to install on every attempt before
+// 2026-07-31 (its APP_SHELL listed two icon PNGs that did not exist, and
+// cache.addAll is all-or-nothing), so nothing was ever cached or served.
 //
-// If offline access is wanted later, it needs a different approach that keeps
-// the worker out of the request path for api calls, and it must be tested on
-// a real iPhone in a normal (non-private) tab before shipping.
+// Re-enabling it is reasonable. What it needs is its own change, tested on a
+// real iPhone in a normal (non-private) tab, rather than being switched back
+// on alongside anything else -- sync is what the app is for, and it has only
+// just started working there.
 //
 // Bump this on every deploy so clients pick up fresh app-shell files.
 const CACHE_VERSION = 'bloombooks-v3';
