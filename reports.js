@@ -164,7 +164,9 @@ function renderHolidayPanel() {
   });
 
   el.innerHTML = `
-    <p style="color:var(--mist);font-size:0.8rem;margin-bottom:16px">Enter the revenue you earned specifically from each holiday. This helps you understand how dependent your business is on key dates.</p>
+    <p style="color:var(--mist);font-size:0.8rem;margin-bottom:16px">Enter the revenue you earned specifically from each holiday, or pull it straight from the Sales sheets below. This helps you understand how dependent your business is on key dates.</p>
+    ${holidaySetupHtml()}
+    ${holidayRefreshHtml()}
     <div class="ledger-wrap">
       <table>
         <thead>

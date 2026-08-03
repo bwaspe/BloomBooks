@@ -292,6 +292,10 @@ async function pushToSheet() {
       notes: appData.notes || {},
       reconciled: appData.reconciled || {},
       holidays: appData.holidays || {},
+      // Year -> Sales workbook id, for the Holiday Revenue refresh. This list
+      // is an allowlist, not a spread: anything missing from it is silently
+      // dropped on every sync, so a new top-level key must be added here too.
+      salesSheets: appData.salesSheets || {},
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()
     };
