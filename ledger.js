@@ -157,17 +157,38 @@ function calcMonth(year, month) {
   // If real transactions exist, exclude vault entries from totals to avoid double-counting
   const hasReal = allTxs.some(t => !t._vault);
   const txs = hasReal ? allTxs.filter(t => !t._vault) : allTxs;
-  const revenue = txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
-  const cogs = txs.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
-  const expenses = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+
+  // From the switch-over month onwards, revenue comes from the daily sales
+  // book rather than from bank deposits. Deposits are net of Stripe's fees and
+  // include collected sales tax, so they understate and overstate the same
+  // number at once; the day book records what was actually earned, excluding
+  // tax, which is owed to New York State and was never income.
+  //
+  // Bank credits then stop counting entirely. They are settlements of sales the
+  // day book has already recorded, so counting them again would double the
+  // revenue. They stay in the ledger as the record of money arriving -- nothing
+  // is deleted or rewritten, and clearing the setting restores the old
+  // behaviour exactly.
+  const fromDayBook = typeof dsRevenueMonth === 'function' && dsRevenueMonth(year, month);
+  const counted = fromDayBook
+    ? txs.filter(t => !(t.category === 'Revenue' && t.type === 'in'))
+    : txs;
+
+  const revenue = fromDayBook
+    ? dsMonthTotals(year, month).sales
+    : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+
+  const cogs = counted.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
+  const expenses = counted.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
   const net = revenue - expenses;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
   const byCategory = {};
   CATEGORIES.forEach(c => { byCategory[c] = 0; });
-  txs.forEach(t => {
+  counted.forEach(t => {
     if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
   });
+  if (fromDayBook) byCategory['Revenue'] = revenue;
   return { revenue, cogs, expenses, net, cogsRatio, byCategory };
 }
 

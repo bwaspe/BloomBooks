@@ -138,6 +138,110 @@ function dsAddChannel() {
 }
 
 // ============================================================
+// USING THE DAY BOOK AS REVENUE
+// ============================================================
+// A single switch-over month, stored as 'YYYY-MM'. From it onwards calcMonth()
+// takes revenue from here and stops counting bank credits, which are
+// settlements of sales already recorded. Expressed as a start month rather
+// than a list, so months that do not exist yet are covered without anyone
+// remembering to switch them on.
+//
+// Deliberately kept as one setting and nothing else: no transaction is
+// rewritten, marked or deleted, so clearing it restores the previous
+// behaviour exactly. That matters for a change to somebody's books.
+
+function dsRevenueMonth(year, month) {
+  const from = appData.dailyRevenueFrom;
+  if (!from) return false;
+  const m = String(from).match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return false;
+  const fy = +m[1], fm = +m[2] - 1;
+  return year > fy || (year === fy && month >= fm);
+}
+
+// What each month of a year looks like before and after the switch.
+function dsRevenueComparison(year) {
+  // getTransactions lives in ledger.js. Both load in the browser, but a render
+  // path that throws when one script is missing takes the whole panel with it,
+  // so the comparison degrades to "no deposits known" instead.
+  const readTxs = (y, m) => (typeof getTransactions === 'function' ? getTransactions(y, m) : []) || [];
+  const rows = [];
+  for (let m = 0; m < 12; m++) {
+    const txs = readTxs(year, m).filter(t => !t._vault);
+    const deposits = txs.filter(t => t.category === 'Revenue' && t.type === 'in');
+    const fromBank = deposits.reduce((s, t) => s + t.amount, 0);
+    const fromDayBook = dsMonthTotals(year, m).sales;
+    rows.push({
+      month: m, label: MONTHS_SHORT[m],
+      fromBank, fromDayBook, deposits: deposits.length,
+      diff: Math.round((fromDayBook - fromBank) * 100) / 100,
+      active: dsRevenueMonth(year, m),
+    });
+  }
+  return rows;
+}
+
+function dsSetRevenueFrom(value) {
+  appData.dailyRevenueFrom = value || null;
+  saveData();
+  renderDailySalesPanel();
+  notify(value ? `Revenue now comes from the day book from ${value} onwards`
+               : 'Revenue is back to being counted from bank deposits');
+}
+
+function dsRevenueHtml() {
+  const year = dsViewYear == null ? appData.activeYear : dsViewYear;
+  const rows = dsRevenueComparison(year);
+  const anyData = rows.some(r => r.fromDayBook || r.fromBank);
+  if (!anyData) return '';
+  const from = appData.dailyRevenueFrom || '';
+  const totalBank = rows.reduce((s, r) => s + r.fromBank, 0);
+  const totalBook = rows.reduce((s, r) => s + r.fromDayBook, 0);
+
+  return `
+    <div class="staging-area" style="margin-top:16px">
+      <h3>Revenue source — ${year}</h3>
+      <p style="color:var(--mist);font-size:0.75rem;margin-bottom:10px">
+        Bank deposits are net of Stripe's fees and include collected sales tax, so they understate and
+        overstate revenue at the same time. The day book records what was earned, excluding tax.
+        Switching over also stops bank credits counting, since they settle sales already recorded here.
+        Nothing is rewritten — clearing this puts everything back.
+      </p>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Month</th><th style="text-align:right">From deposits</th>
+            <th style="text-align:right">From day book</th><th style="text-align:right">Difference</th><th></th></tr></thead>
+          <tbody>
+            ${rows.filter(r => r.fromBank || r.fromDayBook).map(r => `
+              <tr>
+                <td><strong>${r.label}</strong></td>
+                <td style="text-align:right;color:var(--mist)">${r.fromBank ? fmt(r.fromBank) : '—'}</td>
+                <td style="text-align:right" class="${r.fromDayBook ? 'amount-in' : ''}">${r.fromDayBook ? fmt(r.fromDayBook) : '—'}</td>
+                <td style="text-align:right;font-size:0.78rem;color:${r.diff > 0 ? 'var(--green)' : r.diff < 0 ? 'var(--red)' : 'var(--mist)'}">
+                  ${r.fromBank && r.fromDayBook ? (r.diff > 0 ? '+' : '') + fmt(r.diff) : ''}</td>
+                <td style="font-size:0.7rem;color:var(--mist)">${r.active ? 'day book' : (r.deposits ? r.deposits + ' deposits' : '')}</td>
+              </tr>`).join('')}
+            <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
+              <td>Year</td>
+              <td style="text-align:right;color:var(--mist)">${fmt(totalBank)}</td>
+              <td style="text-align:right" class="amount-in">${fmt(totalBook)}</td>
+              <td style="text-align:right">${totalBank && totalBook ? (totalBook - totalBank > 0 ? '+' : '') + fmt(totalBook - totalBank) : ''}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${from
+          ? `<span style="font-size:0.8rem">Day book is the revenue source from <strong>${escHtml(from)}</strong> onwards.</span>
+             <button class="btn btn-outline btn-sm" onclick="dsSetRevenueFrom('')">Undo — go back to deposits</button>`
+          : `<button class="btn btn-primary" onclick="dsSetRevenueFrom('${year}-01')">Use the day book for ${year} onwards</button>
+             <span style="font-size:0.72rem;color:var(--mist)">Earlier years are left exactly as they are.</span>`}
+      </div>
+    </div>`;
+}
+
+// ============================================================
 // IMPORT FROM THE OLD SALES SHEETS
 // ============================================================
 // One-time migration of 2023-2026. Reuses the workbook reader the Holiday
@@ -465,6 +569,7 @@ function renderDailySalesPanel() {
       </div>
     </div>
 
+    ${dsRevenueHtml()}
     ${dsImportHtml()}
   `;
 }

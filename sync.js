@@ -308,6 +308,7 @@ async function pushToSheet() {
       // (four years is roughly 90KB against a 50k character limit) and go in
       // column C of the per-month rows below, alongside the transactions.
       channels: appData.channels || [],
+      dailyRevenueFrom: appData.dailyRevenueFrom || null,
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()
     };
