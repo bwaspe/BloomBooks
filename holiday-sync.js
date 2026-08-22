@@ -111,7 +111,15 @@ async function readSalesWorkbook(sheetId, year, problems) {
   if (!valRes.ok) throw new Error(valRes.status + ' ' + (await valRes.text()).slice(0, 200));
   const valueRanges = (await valRes.json()).valueRanges || [];
 
+  // daily     : { 'YYYY-MM-DD': totalForTheDay }
+  // byChannel : { 'YYYY-MM-DD': { '<row label>': amount } } — the payment rows
+  //             above the Total, keyed by their label exactly as written. The
+  //             labels drift (December 2025 says "fsn" where every other month
+  //             says "FN") and the row ORDER drifts too, so callers must map by
+  //             label and report anything they don't recognise rather than
+  //             quietly dropping a channel's takings.
   const daily = {};
+  const byChannel = {};
   monthTabs.forEach((tab, idx) => {
     const rows = (valueRanges[idx] || {}).values || [];
     const monthLen = new Date(Date.UTC(year, tab.month + 1, 0)).getUTCDate();
@@ -175,8 +183,19 @@ async function readSalesWorkbook(sheetId, year, problems) {
           }
         }
       }
+      const iso = `${year}-${String(tab.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+      // Per-channel figures, recorded whether or not the day has a Total.
+      componentRows.forEach(r => {
+        const label = String((r || [])[0] || '').trim();
+        const cv = hsNum((r || [])[d]);
+        if (!label || cv === null || cv === 0) return;
+        if (!byChannel[iso]) byChannel[iso] = {};
+        byChannel[iso][label] = (byChannel[iso][label] || 0) + cv;
+      });
+
       if (v === null) continue;
-      daily[`${year}-${String(tab.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`] = v;
+      daily[iso] = v;
       daySum += v;
     }
 
@@ -187,7 +206,7 @@ async function readSalesWorkbook(sheetId, year, problems) {
     }
   });
 
-  return daily;
+  return { daily, byChannel };
 }
 
 // ---- the refresh ------------------------------------------
@@ -205,7 +224,7 @@ async function refreshHolidaysFromSheets(year) {
   const problems = [];
   let daily;
   try {
-    daily = await readSalesWorkbook(sheetId, year, problems);
+    ({ daily } = await readSalesWorkbook(sheetId, year, problems));
   } catch (e) {
     holidayRefresh = null;
     renderHolidayPanel();

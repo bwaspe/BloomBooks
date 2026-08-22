@@ -137,6 +137,221 @@ function dsAddChannel() {
   renderDailySalesPanel();
 }
 
+// ============================================================
+// IMPORT FROM THE OLD SALES SHEETS
+// ============================================================
+// One-time migration of 2023-2026. Reuses the workbook reader the Holiday
+// Revenue refresh uses, so the calendar validation that catches a tab holding
+// another year's figures applies here too.
+//
+// Row labels are matched case-insensitively and drift between months --
+// December 2025 writes "fsn" where every other month writes "FN" -- so
+// anything unrecognised is REPORTED rather than dropped. An unmapped label is
+// a whole channel of takings going missing, which would look like a quiet,
+// plausible shortfall rather than an error.
+//
+// Sales only. Historical tax is deliberately not imported: it is already paid,
+// so there is nothing left to track, and the recorded figures are patchy.
+const DS_LABEL_MAP = {
+  fn: 'fn', fsn: 'fn',          // pre-split combined channel
+  cc: 'epx',                    // "CC" is the EPX card machine
+  web: 'web',
+  c: 'cash',
+  tf: 'tf',
+  venmo: 'venmo',
+};
+
+let dsImport = null;   // { year, days, months, byChannel, unknown, problems, existing }
+
+async function dsRunImport(year) {
+  year = parseInt(year, 10);
+  if (!accessToken) { notify('Sign in to sync first', true); return; }
+  const sheetId = getSalesSheetId(year);
+  if (!sheetId) { notify(`No Sales workbook set for ${year} — add it on the Holiday Revenue page`, true); return; }
+
+  dsImport = { year, loading: true };
+  renderDailySalesPanel();
+
+  const problems = [];
+  let byChannel, dailyTotals;
+  try {
+    ({ byChannel, daily: dailyTotals } = await readSalesWorkbook(sheetId, year, problems));
+  } catch (e) {
+    dsImport = null;
+    renderDailySalesPanel();
+    notify('Could not read that workbook: ' + describeSheetError(e), true);
+    return;
+  }
+
+  const days = {};          // 'YYYY-MM-DD' -> { channelId: sales }
+  const totals = {};        // channelId -> sales
+  const unknown = {};       // raw label -> total amount that would be lost
+  const months = new Set();
+
+  Object.keys(byChannel).forEach(iso => {
+    const row = byChannel[iso];
+    Object.keys(row).forEach(label => {
+      const id = DS_LABEL_MAP[label.trim().toLowerCase()];
+      const amt = row[label];
+      if (!id) { unknown[label] = (unknown[label] || 0) + amt; return; }
+      if (!days[iso]) days[iso] = {};
+      days[iso][id] = (days[iso][id] || 0) + amt;
+      totals[id] = (totals[id] || 0) + amt;
+      months.add(iso.slice(0, 7));
+    });
+  });
+
+  // Does each day's Total row agree with the channel rows beneath it? The
+  // import takes the channels, because that is the breakdown being migrated,
+  // but the Total is what the sheet has always shown and what the Holiday
+  // Revenue figures were read from. Where they disagree, money exists in one
+  // view and not the other, and the difference would vanish without a word.
+  // Real case: 24 Dec 2025 totals $1,285.00 while its channels add to
+  // $1,245.00, leaving $40 attributed to nothing.
+  const mismatches = [];
+  Object.keys(dailyTotals || {}).forEach(iso => {
+    const total = dailyTotals[iso];
+    const summed = Object.keys(byChannel[iso] || {}).reduce((s, k) => s + byChannel[iso][k], 0);
+    if (Math.abs(total - summed) > 0.005) {
+      mismatches.push({ iso, total, summed, diff: Math.round((total - summed) * 100) / 100 });
+    }
+  });
+
+  // Which months already hold figures? Importing must not silently overwrite
+  // anything entered by hand since the migration began.
+  const existing = [];
+  months.forEach(ym => {
+    const [y, m] = ym.split('-');
+    const key = dsKey(+y, +m - 1);
+    const have = (appData.dailySales || {})[key];
+    if (have && Object.keys(have).length) existing.push(ym);
+  });
+
+  dsImport = { year, days, totals, unknown, problems, mismatches, months: [...months].sort(), existing, loading: false };
+  renderDailySalesPanel();
+}
+
+function dsApplyImport() {
+  if (!dsImport || dsImport.loading) return;
+  if (!appData.dailySales) appData.dailySales = {};
+  let n = 0;
+  Object.keys(dsImport.days).forEach(iso => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const day = dsDay(y, m - 1, d);
+    Object.keys(dsImport.days[iso]).forEach(id => {
+      if (!day[id]) day[id] = {};
+      day[id].s = Math.round(dsImport.days[iso][id] * 100) / 100;
+    });
+    n++;
+  });
+  // Any legacy channel that arrived with figures must exist, or its takings
+  // would be stored but never displayed.
+  const known = new Set(dsChannels().map(c => c.id));
+  Object.keys(dsImport.totals).forEach(id => {
+    if (known.has(id)) return;
+    dsChannels().push({ id, label: id.toUpperCase(), active: false });
+  });
+  const year = dsImport.year;
+  dsImport = null;
+  saveData();
+  dsViewYear = year;
+  renderDailySalesPanel();
+  notify(`Imported ${n} days from Sales ${year}`);
+}
+
+function dsDismissImport() { dsImport = null; renderDailySalesPanel(); }
+
+function dsImportHtml() {
+  if (!dsImport) {
+    return `
+      <div class="staging-area" style="margin-top:16px">
+        <h3>Import from the old Sales sheets</h3>
+        <p style="color:var(--mist);font-size:0.75rem;margin-bottom:10px">
+          Brings the daily figures across from the “Sales &lt;year&gt;” workbooks. Sales only —
+          historical tax is not imported, since it has already been paid. Nothing is written until you approve it.
+        </p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${(appData.years || []).slice().sort((a, b) => a - b).map(y =>
+            `<button class="btn btn-outline btn-sm" onclick="dsRunImport(${y})">Read Sales ${y}</button>`).join('')}
+        </div>
+      </div>`;
+  }
+  if (dsImport.loading) {
+    return `<div class="staging-area" style="margin-top:16px"><h3>Reading Sales ${dsImport.year}…</h3></div>`;
+  }
+
+  const { year, totals, unknown, problems, months, existing, mismatches } = dsImport;
+  const chanLabel = id => (dsChannels().find(c => c.id === id) || {}).label || id.toUpperCase();
+  const unknownKeys = Object.keys(unknown);
+  const dayCount = Object.keys(dsImport.days).length;
+
+  return `
+    <div class="staging-area" style="margin-top:16px">
+      <h3>Sales ${year} — what this would bring in</h3>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Channel</th><th style="text-align:right">Sales</th></tr></thead>
+          <tbody>
+            ${Object.keys(totals).sort((a, b) => totals[b] - totals[a]).map(id => `
+              <tr><td><strong>${escHtml(chanLabel(id))}</strong></td>
+                  <td class="amount-in" style="text-align:right">${fmt(totals[id])}</td></tr>`).join('')}
+            <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
+              <td>${dayCount} days across ${months.length} month${months.length === 1 ? '' : 's'}</td>
+              <td class="amount-in" style="text-align:right">${fmt(Object.values(totals).reduce((a, b) => a + b, 0))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      ${unknownKeys.length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:var(--red-light);border:1px solid var(--red)">
+          <strong style="font-size:0.8rem;color:var(--red)">Unrecognised rows — these would NOT be imported</strong>
+          <ul style="margin:6px 0 0 18px;font-size:0.75rem;color:var(--ink-soft)">
+            ${unknownKeys.map(k => `<li>“${escHtml(k)}” — ${fmt(unknown[k])}</li>`).join('')}
+          </ul>
+          <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:6px">
+            Tell Claude about these rather than importing without them.
+          </div>
+        </div>` : ''}
+
+      ${mismatches && mismatches.length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:#fff3cd;border:1px solid #ffc107">
+          <strong style="font-size:0.8rem">The day's Total disagrees with its channels (${mismatches.length})</strong>
+          <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:4px">
+            Only the channel figures are imported, so the difference is not carried across.
+            Add it to whichever channel it belongs to after importing.
+          </div>
+          <ul style="margin:6px 0 0 18px;font-size:0.75rem;color:var(--ink-soft)">
+            ${mismatches.slice(0, 10).map(m =>
+              `<li>${escHtml(m.iso)} — total ${fmt(m.total)}, channels ${fmt(m.summed)}, ${m.diff > 0 ? 'missing' : 'over by'} ${fmt(Math.abs(m.diff))}</li>`).join('')}
+            ${mismatches.length > 10 ? `<li>…and ${mismatches.length - 10} more</li>` : ''}
+          </ul>
+        </div>` : ''}
+
+      ${existing.length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:#fff3cd;border:1px solid #ffc107">
+          <strong style="font-size:0.8rem">Already has figures — importing overwrites these months</strong>
+          <div style="font-size:0.75rem;margin-top:4px">${existing.map(escHtml).join(', ')}</div>
+        </div>` : ''}
+
+      ${problems.length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:var(--paper);border:1px solid var(--border)">
+          <strong style="font-size:0.8rem">Notes from the workbook (${problems.length})</strong>
+          <ul style="margin:6px 0 0 18px;font-size:0.72rem;color:var(--ink-soft)">
+            ${problems.slice(0, 12).map(p => `<li>${escHtml(p)}</li>`).join('')}
+            ${problems.length > 12 ? `<li>…and ${problems.length - 12} more</li>` : ''}
+          </ul>
+        </div>` : ''}
+
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="dsApplyImport()" ${dayCount ? '' : 'disabled'}>
+          ${dayCount ? `Import ${dayCount} days` : 'Nothing to import'}
+        </button>
+        <button class="btn btn-outline" onclick="dsDismissImport()">Cancel</button>
+      </div>
+    </div>`;
+}
+
 // ---- rendering --------------------------------------------
 let dsViewYear = null, dsViewMonth = null;
 
@@ -249,5 +464,7 @@ function renderDailySalesPanel() {
         <button class="btn btn-outline btn-sm" onclick="dsAddChannel()">+ Add channel</button>
       </div>
     </div>
+
+    ${dsImportHtml()}
   `;
 }
