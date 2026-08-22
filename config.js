@@ -4,10 +4,20 @@
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// 'Payment Processing' is for Stripe's and Venmo's cut. Both net their fees out
+// of what they deposit, so unlike EPX -- whose reader fee arrives as its own
+// debit, and whose processing is surcharged to the customer -- the cost appears
+// nowhere in the bank. Once revenue is counted gross from the day book, that
+// cost has to be entered as an expense or it is simply missing from the books.
+// One figure per processor per month, from their own reports.
+//
+// Note a category is stored on each transaction as a plain string, so renaming
+// one later leaves historical entries pointing at the old name. Worth settling
+// on the wording before entries exist rather than after.
 const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Utilities','Transpo','Vehicles','Office','Insurance',
-  'FSN','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
+  'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
 ];
 
 const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue');

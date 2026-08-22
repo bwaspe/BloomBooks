@@ -364,6 +364,11 @@ async function loadData() {
 }
 
 function finalizeInit() {
+  // Again here, not only at startup: loading from the sheet replaces appData
+  // wholesale, so a year added locally a moment ago would be overwritten by
+  // whatever the sheet's list happens to hold.
+  if (typeof ensureCurrentYear === 'function') ensureCurrentYear();
+
   const editCatSel = document.getElementById('edit-category');
   if (editCatSel) editCatSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
   updateYearSelects();

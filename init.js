@@ -26,6 +26,10 @@ function initApp() {
   const editCatSel = document.getElementById('edit-category');
   if (editCatSel) editCatSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
 
+  // Before any year selector is built, so a new calendar year is present the
+  // first time the app is opened in it rather than the day someone notices.
+  ensureCurrentYear();
+
   updateYearSelects();
   renderMonthTabs();
   switchPanel('month-0');

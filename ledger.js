@@ -8,6 +8,24 @@ function setActiveYear(yr) {
   renderCurrentPanel();
 }
 
+// The year list was only ever added to by hand, so on 1 January the new year
+// simply would not exist. The inconvenience is minor; the risk is not. The
+// Daily Sales year selector would still be sitting on the old year, and a
+// day's takings typed in without noticing would land in a year that has
+// already been filed and reconciled.
+//
+// Sorts numerically. Array.sort() is lexicographic by default, which is
+// harmless for four-digit years but wrong the moment anything else is added.
+function ensureCurrentYear() {
+  if (!Array.isArray(appData.years)) appData.years = [];
+  const y = new Date().getFullYear();
+  if (appData.years.includes(y)) return false;
+  appData.years.push(y);
+  appData.years.sort((a, b) => a - b);
+  saveData();
+  return true;
+}
+
 function promptAddYear() {
   const yr = prompt('Enter year to add (e.g. 2027):');
   if (!yr || isNaN(yr)) return;
