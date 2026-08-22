@@ -17,21 +17,44 @@
 // the farmer's market goes through the POS, and FN has just split into Web and
 // POS. Hardcoding the list guarantees this same migration again in a year.
 
+// FloraNext is ONE channel, not a Web/POS split. Its daily report gives the
+// tax-exclusive breakdown (products, delivery, tax) for the whole day, but
+// splits by payment method only on figures that INCLUDE tax. The two cannot be
+// reconciled: tax cannot be apportioned across payment methods when a large and
+// varying share of sales is exempt, so splitting would mean inventing the
+// division. The web-versus-counter breakdown lives in FloraNext's own report,
+// and returns properly at POS cutover, where channel and tax are per order.
+//
+// Keeping FN combined also matches the history, which recorded it that way, so
+// there is no change of shape partway through.
 const DEFAULT_CHANNELS = [
-  { id: 'web',   label: 'Web',   active: true  },
-  { id: 'pos',   label: 'POS',   active: true  },
-  { id: 'cash',  label: 'Cash',  active: true  },
-  { id: 'epx',   label: 'EPX',   active: true  },
-  { id: 'venmo', label: 'Venmo', active: true  },
+  { id: 'fn',    label: 'FloraNext', active: true  },
+  { id: 'cash',  label: 'Cash',      active: true  },
+  { id: 'epx',   label: 'EPX',       active: true  },
+  { id: 'venmo', label: 'Venmo',     active: true  },
   // Retired: kept so historical months still display, hidden from entry.
-  // FN predates the Web/POS split and cannot be divided retrospectively.
-  { id: 'fn',    label: 'FN',    active: false },
-  { id: 'tf',    label: 'TF',    active: false },
+  { id: 'web',   label: 'Web',       active: false },
+  { id: 'tf',    label: 'TF',        active: false },
 ];
+
+const DS_CHANNELS_VERSION = 2;
 
 function dsChannels() {
   if (!Array.isArray(appData.channels) || !appData.channels.length) {
     appData.channels = DEFAULT_CHANNELS.map(c => ({ ...c }));
+    appData.channelsVersion = DS_CHANNELS_VERSION;
+    return appData.channels;
+  }
+  // v1 seeded Web and POS as separate active channels, before it was clear
+  // FloraNext cannot report them tax-exclusively. Correct that once, without
+  // disturbing any channel added by hand.
+  if ((appData.channelsVersion || 1) < 2) {
+    const find = id => appData.channels.find(c => c.id === id);
+    const fn = find('fn'); if (fn) { fn.active = true; fn.label = 'FloraNext'; }
+    else appData.channels.unshift({ id: 'fn', label: 'FloraNext', active: true });
+    const web = find('web'); if (web) web.active = false;
+    appData.channels = appData.channels.filter(c => c.id !== 'pos');
+    appData.channelsVersion = DS_CHANNELS_VERSION;
   }
   return appData.channels;
 }
@@ -85,6 +108,25 @@ function dsSet(year, month, day, chId, field, value) {
   renderDailySalesPanel();
 }
 
+// Delivery tips are kept by the business, so they ARE revenue -- unlike
+// collected sales tax, which is owed to New York State and merely passes
+// through. They are recorded on their own line rather than folded into the
+// channel figure for two reasons: "how much did we take in tips" is a question
+// worth being able to answer, and if delivery tips ever start going to a driver
+// instead, the treatment flips by excluding this one line rather than by
+// unpicking it from a year of combined totals.
+//
+// Designers are usually tipped in cash, direct. That money never reaches the
+// bank or the FloraNext report, and correctly appears nowhere in the books.
+function dsSetTips(year, month, day, value) {
+  const d = dsDay(year, month, day);
+  const raw = String(value).trim();
+  if (raw === '') delete d._tips; else d._tips = dsNum(raw);
+  if (!Object.keys(d).length) delete dsMonth(year, month)[day];
+  saveData();
+  renderDailySalesPanel();
+}
+
 function dsSetNote(year, month, day, value) {
   const d = dsDay(year, month, day);
   const v = String(value).trim();
@@ -93,19 +135,22 @@ function dsSetNote(year, month, day, value) {
   saveData();
 }
 
+// The day's revenue: channel sales plus tips. Tax is never included.
 function dsDayTotal(year, month, day, field) {
   const d = dsMonth(year, month)[day] || {};
-  return Object.keys(d).reduce((s, k) => k.startsWith('_') ? s : s + dsNum((d[k] || {})[field || 's']), 0);
+  const channels = Object.keys(d).reduce((s, k) => k.startsWith('_') ? s : s + dsNum((d[k] || {})[field || 's']), 0);
+  return (field && field !== 's') ? channels : channels + dsNum(d._tips);
 }
 
 // Month totals, and the figure the books should treat as revenue: sales only,
 // never tax.
 function dsMonthTotals(year, month) {
   const days = dsMonth(year, month);
-  let sales = 0, tax = 0;
+  let sales = 0, tax = 0, tips = 0;
   const byChannel = {};
   Object.keys(days).forEach(day => {
     const d = days[day] || {};
+    tips += dsNum(d._tips);
     Object.keys(d).forEach(k => {
       if (k.startsWith('_')) return;
       const s = dsNum((d[k] || {}).s), t = dsNum((d[k] || {}).t);
@@ -114,7 +159,10 @@ function dsMonthTotals(year, month) {
       byChannel[k].s += s; byChannel[k].t += t;
     });
   });
-  return { sales, tax, byChannel };
+  // sales   = channel figures only
+  // tips    = kept by the business, so revenue, but shown separately
+  // revenue = what the books should count. Tax is in neither.
+  return { sales, tax, tips, revenue: sales + tips, byChannel };
 }
 
 // ---- channel admin ----------------------------------------
@@ -170,7 +218,7 @@ function dsRevenueComparison(year) {
     const txs = readTxs(year, m).filter(t => !t._vault);
     const deposits = txs.filter(t => t.category === 'Revenue' && t.type === 'in');
     const fromBank = deposits.reduce((s, t) => s + t.amount, 0);
-    const fromDayBook = dsMonthTotals(year, m).sales;
+    const fromDayBook = dsMonthTotals(year, m).revenue;
     rows.push({
       month: m, label: MONTHS_SHORT[m],
       fromBank, fromDayBook, deposits: deposits.length,
@@ -500,9 +548,11 @@ function renderDailySalesPanel() {
         </select>
       </div>
       <div style="align-self:flex-end;margin-left:auto;text-align:right">
-        <div style="font-size:0.7rem;color:var(--mist);text-transform:uppercase;letter-spacing:0.08em">Month sales (ex tax)</div>
-        <div class="kpi-value" style="font-size:1.3rem">${fmt(totals.sales)}</div>
-        <div style="font-size:0.72rem;color:var(--mist)">tax collected ${fmt(totals.tax)}</div>
+        <div style="font-size:0.7rem;color:var(--mist);text-transform:uppercase;letter-spacing:0.08em">Month revenue (ex tax)</div>
+        <div class="kpi-value" style="font-size:1.3rem">${fmt(totals.revenue)}</div>
+        <div style="font-size:0.72rem;color:var(--mist)">
+          ${totals.tips ? `incl. ${fmt(totals.tips)} tips · ` : ''}tax collected ${fmt(totals.tax)} (not revenue)
+        </div>
       </div>
     </div>
 
@@ -513,6 +563,7 @@ function renderDailySalesPanel() {
             <tr>
               <th rowspan="2" style="text-align:left">Day</th>
               ${chans.map(c => `<th colspan="2" style="text-align:center${c.active ? '' : ';opacity:0.6'}">${escHtml(c.label)}${c.active ? '' : ' <span style="font-size:0.6rem">(retired)</span>'}</th>`).join('')}
+              <th rowspan="2" title="Delivery tips, which you keep — counted as revenue">Tips</th>
               <th rowspan="2">Total</th>
               <th rowspan="2" style="text-align:left">Note</th>
             </tr>
@@ -529,6 +580,9 @@ function renderDailySalesPanel() {
               return `<tr${weekend ? ' style="background:var(--paper)"' : ''}>
                 <td style="white-space:nowrap"><strong>${day}</strong> <span style="color:var(--mist);font-size:0.72rem">${dow}</span></td>
                 ${chans.map(c => `<td>${cell(day, c, 's')}</td><td>${cell(day, c, 't')}</td>`).join('')}
+                <td><input type="number" step="0.01" class="ds-cell" inputmode="decimal"
+                     value="${(dsMonth(year, month)[day] || {})._tips == null ? '' : (dsMonth(year, month)[day] || {})._tips}"
+                     onchange="dsSetTips(${year},${month},${day},this.value)"></td>
                 <td class="${tot ? 'amount-in' : ''}" style="text-align:right;white-space:nowrap">${tot ? fmt(tot) : ''}</td>
                 <td><input type="text" value="${escHtml(note)}" placeholder="—"
                      onchange="dsSetNote(${year},${month},${day},this.value)"
@@ -544,7 +598,8 @@ function renderDailySalesPanel() {
                 return `<td style="text-align:right;white-space:nowrap">${b.s ? fmt(b.s) : ''}</td>
                         <td style="text-align:right;white-space:nowrap;color:var(--mist)">${b.t ? fmt(b.t) : ''}</td>`;
               }).join('')}
-              <td class="amount-in" style="text-align:right;white-space:nowrap">${fmt(totals.sales)}</td>
+              <td style="text-align:right;white-space:nowrap">${totals.tips ? fmt(totals.tips) : ''}</td>
+              <td class="amount-in" style="text-align:right;white-space:nowrap">${fmt(totals.revenue)}</td>
               <td></td>
             </tr>
           </tfoot>

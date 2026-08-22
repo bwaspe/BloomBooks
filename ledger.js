@@ -175,7 +175,7 @@ function calcMonth(year, month) {
     : txs;
 
   const revenue = fromDayBook
-    ? dsMonthTotals(year, month).sales
+    ? dsMonthTotals(year, month).revenue
     : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
 
   const cogs = counted.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
