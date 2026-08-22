@@ -47,7 +47,11 @@ const BUILTIN_RULES = [
   { keyword: 'YOUR CASH REWARD',         ignore: true },
   { keyword: 'TRADER JOE',               sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Trader Joes' },
   { keyword: 'ALEXANDER HAY',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Alexander Hay' },
-  { keyword: 'DELAWARE VALLEY FLOR',     sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Delaware Valley Florist' },
+  // 'DELAWARE VALLEY', not 'DELAWARE VALLEY FLOR': Amex writes the long name
+  // but Chase's ACH records shorten it to "ORIG CO NAME:DELAWARE VALLEY", so
+  // the longer keyword silently missed every bank-paid purchase. The only
+  // other payee starting DEL is DELUXE BUS SYS., so there is no collision.
+  { keyword: 'DELAWARE VALLEY',          sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Delaware Valley Florist' },
   { keyword: 'A PERRI FARMS',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'A. Perri Farms' },
   { keyword: 'FISCH FLORAL',             sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Fisch Floral Supply' },
   { keyword: 'CLIFTON WHOLESALE',        sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Clifton Wholesale Florist' },

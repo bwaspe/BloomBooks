@@ -248,7 +248,22 @@ function parseImport() {
     const desc    = (cols[1] || '').trim();
     const rawAmt  = (cols[2] || '').trim();
     const txType  = (cols[3] || '').trim().toUpperCase();
-    const upper   = (desc + ' ' + txType).toUpperCase();
+
+    // On an ACH row the description ends "... IND NAME:<account holder> TRN:…".
+    // IND NAME is always us — BARAMI WASPE, or MOSHOLU FLOWERS LLC — never the
+    // counterparty, so matching rules against it can only ever produce false
+    // positives. Measured against a real statement: five of nine keyword
+    // matches fired solely on IND NAME, and two of those were genuine Delaware
+    // Valley purchases being silently discarded. The other three were Amex
+    // payments already matched by their real payee, so nothing is lost by
+    // excluding this tail. A personal transfer where BARAMI WASPE is genuinely
+    // the counterparty carries the name outside IND NAME and still matches.
+    //
+    // txType is appended AFTER stripping, not before: rules like CHECK_PAID
+    // match on the transaction type, and stripping to end-of-string would take
+    // it with them.
+    const descForRules = desc.replace(/IND NAME:.*$/i, '');
+    const upper   = (descForRules + ' ' + txType).toUpperCase();
 
     // Ignore is decided further down, once the row is fully parsed, so that an
     // ignored row can be restored without re-parsing it.
@@ -294,9 +309,16 @@ function parseImport() {
     const category = (hit && !hit.ignore && hit.category) || (signGuess === 'in' ? 'Revenue' : 'Office');
     const vendor = (hit && !hit.ignore && hit.vendor) || '';
 
-    // Clean description: prefer IND NAME field
+    // Clean description: prefer ORIG CO NAME — the party actually paid. This
+    // used to prefer IND NAME, which is the account holder, so every ACH row
+    // landed in the ledger as "BARAMI WASPE" or "MOSHOLU FLOWERS LLC" instead
+    // of the vendor. IND NAME stays as the fallback for rows without a company
+    // name, where it is the only party named.
+    const origCo = desc.match(/ORIG CO NAME:\s*(.+?)(?:\s{2,}|\s+ORIG ID:)/i);
     const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
-    const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
+    const cleanDesc = (origCo && origCo[1].trim())
+                   || (indName && indName[1].trim())
+                   || desc.slice(0, 60);
 
     const row = {
       _id: 'stage-' + idx,
