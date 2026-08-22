@@ -106,14 +106,42 @@ function normalizeStatement(rows, source) {
   }).join('\n');
 }
 
+// Which statement is this? Worth deciding from the file rather than trusting
+// the dropdown, because the two parsers disagree about what a positive number
+// means. Amex writes purchases as positive; Chase writes money leaving the
+// account as negative. Feed an Amex export to the bank parser and every
+// purchase is booked as revenue — which is exactly what happened once the
+// upload button made importing a single click and the dropdown easy to miss.
+//
+// Chase carries Details / Posting Date / Type / Balance columns. The current
+// Amex export is only Date, Description, Amount.
+function detectStatementSource(rows) {
+  if (!rows.length) return null;
+  const head = rows[0].map(h => String(h).trim().toLowerCase());
+  const has = re => head.some(h => re.test(h));
+  if (!has(/description/) || !has(/amount/)) return null;   // no header to read
+  if (has(/posting date/) || has(/^balance$/) || has(/^details$/) || has(/^type$/)) return 'bank';
+  if (has(/^date$/) && head.length <= 4) return 'amex';
+  return null;
+}
+
 function loadStatementFile(evt) {
   const file = evt.target.files && evt.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const source = document.getElementById('import-source-sel').value;
+      const sel = document.getElementById('import-source-sel');
       const rows = parseDelimited(String(e.target.result));
+
+      const detected = detectStatementSource(rows);
+      if (detected && detected !== sel.value) {
+        sel.value = detected;
+        if (typeof updateImportPlaceholder === 'function') updateImportPlaceholder();
+        notify(detected === 'amex' ? 'Looks like an Amex export — switched the source to Amex'
+                                   : 'Looks like a Chase export — switched the source to Bank');
+      }
+      const source = sel.value;
       const tsv = normalizeStatement(rows, source);
       if (!tsv.trim()) { notify('That file had no rows I could read', true); return; }
       document.getElementById('import-text').value = tsv;
@@ -325,6 +353,7 @@ function parseImport() {
       line: line.slice(0, 120),
       desc: cleanDesc,
       date, txYear, txMonth, amount, type: signGuess, category, vendor,
+      _txType: txType || '',    // kept so the parser can tell a typeless file
       status: 'review'
     };
 
@@ -333,6 +362,17 @@ function parseImport() {
   });
 
   renderStagingTable();
+
+  // A bank statement with no Type column anywhere is a warning sign, not just
+  // a limitation: it is what an Amex export looks like when the source is left
+  // on Bank, and the direction then comes from the sign alone. Amex writes
+  // purchases as positive, so every one of them books as revenue. Uploading
+  // detects the source from the file's own headers; this catches the paste.
+  const sawType = stagingRows.concat(ignoredRows).some(r => r._txType);
+  if (!sawType && stagingRows.some(r => r.type === 'in')) {
+    notify('No Type column found — direction was guessed from the sign. If this is an Amex export, switch the source to Amex and re-parse.', true);
+  }
+
   if (stagingRows.length === 0 && ignoredRows.length === 0) notify('No parseable transactions found', true);
   else if (stagingRows.length === 0) notify(`Every row matched an ignore rule — see below`, true);
   else notify(`${stagingRows.length} transactions staged for review`);
