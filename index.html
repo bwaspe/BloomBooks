@@ -157,10 +157,17 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <option value="10">November</option><option value="11">December</option>
 </select>
 </div>
-<div style="align-self:flex-end">
+<div style="align-self:flex-end;display:flex;gap:6px">
+<!-- NOT id="import-file" — that id already belongs to the JSON-restore input in
+     the header, and a duplicate would make both buttons open the same picker. -->
+<button class="btn btn-outline" onclick="document.getElementById('statement-file').click()">📂 Upload file</button>
+<input type="file" id="statement-file" accept=".csv,.tsv,.txt" style="display:none" onchange="loadStatementFile(event)">
 <button class="btn btn-gold" onclick="parseImport()">🔍 Parse & Stage</button>
 </div>
 </div>
+<p style="font-size:0.72rem;color:var(--mist);margin:-4px 0 8px">
+Upload the CSV straight from Chase or Amex — columns are matched by their header names, so their order doesn't matter. Or paste below.
+</p>
 <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
 </div>
 <div id="staging-table-area"></div>

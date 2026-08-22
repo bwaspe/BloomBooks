@@ -4,6 +4,129 @@
 let stagingRows = [];
 let ignoredRows = [];
 
+// ============================================================
+// RULE RESOLUTION
+// ============================================================
+// YOUR rules are checked before the built-in ones. It used to be the other
+// way round, with the built-ins returning immediately on a match -- so a
+// built-in ignore silently won every time and a rule added in the Logic
+// Trainer for the same vendor was never even consulted. That made the
+// trainer useless for precisely the case you would reach for it: correcting
+// a built-in that is wrong for you.
+//
+// Returns { ignore, reason, source } or { category, vendor, reason, source }
+// or null when nothing matched. `source` is carried so the UI can say which
+// list a decision came from.
+function resolveRules(upper, sign) {
+  const lists = [
+    { rules: appData.rules || [], source: 'your rule' },
+    { rules: BUILTIN_RULES,       source: 'built-in' },
+  ];
+  for (const { rules, source } of lists) {
+    for (const rule of rules) {
+      if (!rule || !rule.keyword) continue;
+      if (!upper.includes(String(rule.keyword).toUpperCase())) continue;
+      if (rule.ignore) return { ignore: true, reason: rule.keyword, source };
+      if (rule.sign === 'any' || rule.sign === sign) {
+        return { category: rule.category, vendor: rule.vendor || '', reason: rule.keyword, source };
+      }
+      // Matched the keyword but not the direction — keep looking.
+    }
+  }
+  return null;
+}
+
+// ============================================================
+// FILE UPLOAD
+// ============================================================
+// Splits delimited text into rows, honouring quoted fields. Bank exports are
+// commonly CSV with commas and quotes inside descriptions, which a naive
+// split() tears apart mid-field.
+function parseDelimited(text) {
+  const delim = (text.split('\n')[0].match(/\t/g) || []).length >= 2 ? '\t' : ',';
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"') { inQuotes = true; continue; }
+    if (c === delim) { row.push(field); field = ''; continue; }
+    if (c === '\r') continue;
+    if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }
+    field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim() !== ''));
+}
+
+// Bank and card downloads don't come in the column order the parsers expect,
+// and they carry a header row. Where a header is present the columns are
+// matched by name and re-emitted in the expected order; without one the rows
+// are passed through untouched, which is what a paste from a spreadsheet
+// already is.
+function normalizeStatement(rows, source) {
+  if (!rows.length) return '';
+  const head = rows[0].map(h => String(h).trim().toLowerCase());
+  // Try each pattern against EVERY header before moving to the next pattern.
+  // Testing each header against all patterns instead lets a weak early match
+  // beat a strong later one: Chase's first column is "Details", which a loose
+  // /^detail/ grabs before /description/ ever reaches the real Description
+  // column — and the import then reads "DEBIT" as the payee.
+  const find = (...pats) => {
+    for (const p of pats) {
+      const i = head.findIndex(h => p.test(h));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const iDesc = find(/description/, /^detail/);
+  const iAmt = find(/^amount$/, /amount/);
+  const looksLikeHeader = iDesc >= 0 && iAmt >= 0;
+  if (!looksLikeHeader) return rows.map(r => r.join('\t')).join('\n');
+
+  const iDate = find(/post.*date/, /transaction date/, /^date$/, /date/);
+  const iType = find(/^type$/, /^details$/, /transaction type/);
+  const body = rows.slice(1);
+
+  return body.map(r => {
+    const g = i => (i >= 0 && r[i] != null ? String(r[i]).trim() : '');
+    if (source === 'amex') {
+      // parseAmex reads cols 0, 2 and 5.
+      return [g(iDate), '', g(iDesc), '', '', g(iAmt)].join('\t');
+    }
+    // The Chase parser reads Date, Description, Amount, TxType.
+    return [g(iDate), g(iDesc), g(iAmt), g(iType)].join('\t');
+  }).join('\n');
+}
+
+function loadStatementFile(evt) {
+  const file = evt.target.files && evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const source = document.getElementById('import-source-sel').value;
+      const rows = parseDelimited(String(e.target.result));
+      const tsv = normalizeStatement(rows, source);
+      if (!tsv.trim()) { notify('That file had no rows I could read', true); return; }
+      document.getElementById('import-text').value = tsv;
+      parseImport();
+    } catch (err) {
+      notify('Could not read that file: ' + (err && err.message || err), true);
+    }
+  };
+  reader.onerror = () => notify('Could not read that file', true);
+  reader.readAsText(file);
+  evt.target.value = '';   // let the same file be picked again
+}
+
 function renderImportPanel() {
   updateYearSelects();
   document.getElementById('import-year-sel').value = appData.activeYear;
@@ -28,17 +151,19 @@ function parseAmex() {
 
   lines.forEach((line, idx) => {
     const cols = line.split('\t');
-    if (cols.length < 6) return;
+    if (cols.length < 3) return;
 
+    // Amex has shipped two shapes. The older six-column export is
+    // Date | Receipt | Description | Card Member | Account # | Amount; the
+    // current download is just Date | Description | Amount. Requiring six
+    // columns silently produced zero rows from a current export.
+    const wide = cols.length >= 6;
     const rawDate = cols[0].trim();
-    // col1 = Receipt (skip)
-    const desc    = cols[2].trim();
-    // col3 = Card Member, col4 = Account # (skip)
-    const rawAmt  = cols[5].trim();
+    const desc    = (wide ? cols[2] : cols[1]).trim();
+    const rawAmt  = (wide ? cols[5] : cols[2]).trim();
 
-    // Parse amount — negative = Amex payment, ignore
-    const amt = parseFloat(rawAmt.replace(/,/g,''));
-    if (isNaN(amt) || amt <= 0) return; // ignore payments and zero
+    const amt = parseFloat(rawAmt.replace(/,/g, ''));
+    if (isNaN(amt)) return;
 
     // Parse date MM/DD/YYYY
     let date;
@@ -55,44 +180,44 @@ function parseAmex() {
     const txMonth = dm ? parseInt(dm[1]) - 1 : parseInt(document.getElementById('import-month-sel').value);
 
     const upper = desc.toUpperCase();
+    const hit = resolveRules(upper, 'out');   // all Amex charges are 'out'
 
-    // Apply built-in ignore rules
-    for (const rule of BUILTIN_RULES) {
-      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: amt, reason: rule.keyword });
-        return;
-      }
-    }
-
-    // Apply category rules (all Amex charges are 'out')
-    let category = 'Office';
-    let vendor = desc.slice(0, 40);
-    for (const rule of BUILTIN_RULES) {
-      if (rule.ignore) continue;
-      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === 'out')) {
-        category = rule.category; vendor = rule.vendor || vendor; break;
-      }
-    }
-    for (const rule of appData.rules) {
-      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === 'out')) {
-        category = rule.category; vendor = rule.vendor || vendor; break;
-      }
+    // A negative amount is a payment to the card, not a purchase — counting it
+    // would double-count against the bank statement, where the same money
+    // already appears leaving the account. Listed as ignored rather than
+    // dropped, so nothing disappears without saying why.
+    if (amt <= 0) {
+      ignoredRows.push({
+        _id: 'stage-' + idx, line: line.slice(0, 120), desc: desc.slice(0, 60),
+        date, txYear, txMonth, amount: Math.abs(amt), type: 'out',
+        category: 'Office', vendor: desc.slice(0, 40), status: 'review',
+        reason: 'negative amount', source: 'a payment to the card, not a purchase'
+      });
+      return;
     }
 
     // Clean description
     const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
     const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
 
-    stagingRows.push({
+    // Built whole either way. An ignored row keeps every field a staged one
+    // has, so "don't ignore this" is a move between two lists rather than a
+    // re-parse -- and the row it restores is identical to the one that would
+    // have been staged.
+    const row = {
       _id: 'stage-' + idx,
       line: line.slice(0, 120),
       desc: cleanDesc,
       date, txYear, txMonth,
       amount: amt,
       type: 'out',
-      category, vendor,
+      category: (hit && !hit.ignore && hit.category) || 'Office',
+      vendor: (hit && !hit.ignore && hit.vendor) || desc.slice(0, 40),
       status: 'review'
-    });
+    };
+
+    if (hit && hit.ignore) ignoredRows.push({ ...row, reason: hit.reason, source: hit.source });
+    else stagingRows.push(row);
   });
 }
 
@@ -125,19 +250,8 @@ function parseImport() {
     const txType  = (cols[3] || '').trim().toUpperCase();
     const upper   = (desc + ' ' + txType).toUpperCase();
 
-    // --- IGNORE ---
-    for (const rule of BUILTIN_RULES) {
-      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
-        return;
-      }
-    }
-    for (const rule of appData.rules) {
-      if (rule.ignore && upper.includes(rule.keyword.toUpperCase())) {
-        ignoredRows.push({ desc: desc.slice(0,80), amount: rawAmt, reason: rule.keyword });
-        return;
-      }
-    }
+    // Ignore is decided further down, once the row is fully parsed, so that an
+    // ignored row can be restored without re-parsing it.
 
     // --- DATE from col0 MM/DD/YYYY, fallback to selectors ---
     let date, txYear, txMonth;
@@ -175,49 +289,45 @@ function parseImport() {
     else if (/ACH_DEBIT|DEBIT_CARD|MISC_DEBIT|QUICKPAY_DEBIT|CHASE_TO_PARTNERFI|CHECK_PAID/.test(txType)) signGuess = 'out';
     else signGuess = isNegative ? 'out' : 'in';
 
-    // --- CATEGORY via rules ---
-    let category = signGuess === 'in' ? 'Revenue' : 'Office';
-    let vendor = '';
-    let matched = false;
-    for (const rule of BUILTIN_RULES) {
-      if (rule.ignore) continue;
-      if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === signGuess)) {
-        category = rule.category; vendor = rule.vendor || ''; matched = true; break;
-      }
-    }
-    if (!matched) {
-      for (const rule of appData.rules) {
-        if (upper.includes(rule.keyword.toUpperCase()) && (rule.sign === 'any' || rule.sign === signGuess)) {
-          category = rule.category; vendor = rule.vendor || ''; break;
-        }
-      }
-    }
+    // --- CATEGORY / IGNORE via rules (yours first, then built-in) ---
+    const hit = resolveRules(upper, signGuess);
+    const category = (hit && !hit.ignore && hit.category) || (signGuess === 'in' ? 'Revenue' : 'Office');
+    const vendor = (hit && !hit.ignore && hit.vendor) || '';
 
     // Clean description: prefer IND NAME field
     const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
     const cleanDesc = indName ? indName[1].trim() : desc.slice(0, 60);
 
-    stagingRows.push({
+    const row = {
       _id: 'stage-' + idx,
       line: line.slice(0, 120),
       desc: cleanDesc,
       date, txYear, txMonth, amount, type: signGuess, category, vendor,
       status: 'review'
-    });
+    };
+
+    if (hit && hit.ignore) ignoredRows.push({ ...row, reason: hit.reason, source: hit.source });
+    else stagingRows.push(row);
   });
 
   renderStagingTable();
-  if (stagingRows.length === 0) notify('No parseable transactions found', true);
+  if (stagingRows.length === 0 && ignoredRows.length === 0) notify('No parseable transactions found', true);
+  else if (stagingRows.length === 0) notify(`Every row matched an ignore rule — see below`, true);
   else notify(`${stagingRows.length} transactions staged for review`);
 }
 
 function renderStagingTable() {
   const area = document.getElementById('staging-table-area');
-  if (stagingRows.length === 0) { area.innerHTML = ''; return; }
+  // Render whenever there is anything to show. This used to bail out when
+  // nothing had staged, which hid the ignored list at exactly the moment it
+  // mattered most -- every row ignored, and an import that looked like it had
+  // simply done nothing at all.
+  if (stagingRows.length === 0 && ignoredRows.length === 0) { area.innerHTML = ''; return; }
 
   const rows = stagingRows.filter(r => r.status !== 'saved');
 
   area.innerHTML = `
+    ${rows.length === 0 ? '' : `
     <div class="ledger-wrap">
       <div class="ledger-header">
         <h3>🟡 Staged Transactions (${rows.length} pending)</h3>
@@ -267,26 +377,61 @@ function renderStagingTable() {
           </tbody>
         </table>
       </div>
-    </div>
+    </div>`}
 
     ${ignoredRows.length > 0 ? `
-    <div class="ledger-wrap" style="margin-top:16px;opacity:0.75">
+    <div class="ledger-wrap" style="margin-top:16px">
       <div class="ledger-header">
-        <h3>⛔ Ignored (${ignoredRows.length}) — matched ignore rules</h3>
+        <h3>⛔ Ignored (${ignoredRows.length}) — matched an ignore rule</h3>
+        <button class="btn btn-outline btn-sm" onclick="restoreAllIgnored()">Use all of these</button>
       </div>
+      <div class="staging-table-wrap">
       <table>
-        <thead><tr><th>Description</th><th>Amount</th><th>Ignored Because</th></tr></thead>
+        <thead><tr><th>Description</th><th>Date</th><th>Amount</th><th>Ignored because</th><th></th></tr></thead>
         <tbody>
-          ${ignoredRows.map(r => `
+          ${ignoredRows.map((r, i) => `
             <tr style="background:#ffeaea">
               <td style="font-size:0.8rem">${escHtml(r.desc)}</td>
+              <td style="font-size:0.78rem;color:var(--mist)">${escHtml(r.date || '')}</td>
               <td class="amount-out">${fmt(r.amount)}</td>
-              <td><span class="badge">${escHtml(r.reason)}</span></td>
+              <td>
+                <span class="badge">${escHtml(r.reason)}</span>
+                <div style="font-size:0.68rem;color:var(--mist);margin-top:2px">${escHtml(r.source || '')}</div>
+              </td>
+              <td><button class="btn btn-primary btn-xs" onclick="restoreIgnoredRow(${i})">Don't ignore</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
+      </div>
+      <div style="padding:10px 18px;font-size:0.72rem;color:var(--mist)">
+        The badge is the keyword that matched. If it is a built-in you disagree with,
+        add a rule for the same vendor in the Logic Trainer — your rules are checked first.
+      </div>
     </div>` : ''}
   `;
+}
+
+// Moves one ignored row into the staging list. The row was parsed in full, so
+// this is a move rather than a re-parse and what lands is exactly what would
+// have staged had no ignore rule matched.
+function restoreIgnoredRow(idx) {
+  const r = ignoredRows[idx];
+  if (!r) return;
+  ignoredRows.splice(idx, 1);
+  delete r.reason;
+  delete r.source;
+  stagingRows.push(r);
+  renderStagingTable();
+  notify('Moved into the staging list for review');
+}
+
+function restoreAllIgnored() {
+  if (!ignoredRows.length) return;
+  const n = ignoredRows.length;
+  ignoredRows.forEach(r => { delete r.reason; delete r.source; stagingRows.push(r); });
+  ignoredRows = [];
+  renderStagingTable();
+  notify(`Moved ${n} row${n === 1 ? '' : 's'} into the staging list`);
 }
 
 function updateStageRow(id, field, val) {
