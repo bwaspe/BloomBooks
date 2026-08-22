@@ -93,6 +93,7 @@ function switchPanel(panelId) {
       if (panelId === 'holidays')     renderHolidayPanel();
       if (panelId === 'import')       renderImportPanel();
       if (panelId === 'trainer')      renderTrainerPanel();
+      if (panelId === 'daily-sales')  renderDailySalesPanel();
       if (panelId === 'ct-dashboard') renderCtDashboard();
       if (panelId === 'ct-prices')    renderCtPrices();
       if (panelId === 'ct-gmail')     renderCtGmailPanel();

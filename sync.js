@@ -168,8 +168,11 @@ async function loadFromSheet() {
       } else {
         // New format — meta in A1, month rows after
         meta.transactions = {};
-        // Need to fetch col B too for new format
-        const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:B200')}`;
+        meta.dailySales = {};
+        // Need cols B and C too: B holds the month's transactions, C its daily
+        // sales. Older sheets have no column C, which reads back as undefined
+        // and simply leaves dailySales empty.
+        const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:C200')}`;
         const resB = await fetchRetry(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
         // Unchecked before: a failed second fetch left dataB.values undefined,
         // so rowsB became [] and the app loaded with every transaction missing
@@ -179,9 +182,14 @@ async function loadFromSheet() {
         const rowsB = dataB.values || [];
         rowsB.slice(1).forEach(row => {
           const key = row[0];
+          if (!key) return;
           const txJson = row[1];
-          if (key && txJson) {
+          const dailyJson = row[2];
+          if (txJson) {
             try { meta.transactions[key] = JSON.parse(txJson); } catch(e) {}
+          }
+          if (dailyJson) {
+            try { meta.dailySales[key] = JSON.parse(dailyJson); } catch(e) {}
           }
         });
         sheetData = meta;
@@ -296,6 +304,10 @@ async function pushToSheet() {
       // is an allowlist, not a spread: anything missing from it is silently
       // dropped on every sync, so a new top-level key must be added here too.
       salesSheets: appData.salesSheets || {},
+      // The channel list only. Daily figures are far too big for this cell
+      // (four years is roughly 90KB against a 50k character limit) and go in
+      // column C of the per-month rows below, alongside the transactions.
+      channels: appData.channels || [],
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()
     };
@@ -304,8 +316,12 @@ async function pushToSheet() {
       for (let mi = 0; mi < 12; mi++) {
         const key = `${yr}-${mi}`;
         const txs = (appData.transactions[key] || []).filter(t => !t._vault).map(compactTx);
-        // Store key in col A, transactions JSON in col B
-        monthRows.push([key, JSON.stringify(txs)]);
+        const daily = (appData.dailySales || {})[key] || {};
+        // Col A = key, col B = transactions JSON, col C = daily sales JSON.
+        // Daily sales ride alongside the transactions rather than in the
+        // metadata cell for the same reason transactions do: the cell caps at
+        // 50k characters and four years of daily figures is well past it.
+        monthRows.push([key, JSON.stringify(txs), Object.keys(daily).length ? JSON.stringify(daily) : '']);
       }
     });
     const values = [[JSON.stringify(meta), ''], ...monthRows];

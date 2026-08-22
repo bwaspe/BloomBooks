@@ -51,6 +51,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">📋 Yearly Summary</div>
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Tools</div>
+<div class="sidebar-tab" data-panel="daily-sales" onclick="switchPanel('daily-sales')">🧾 Daily Sales</div>
 <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
 <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
 <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
@@ -126,6 +127,13 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div id="yearlySupplierLegend" style="flex:1;font-size:0.75rem;line-height:2"></div>
 </div>
 </div>
+</div>
+
+<!-- DAILY SALES PANEL -->
+<div id="panel-daily-sales" class="panel">
+<div class="page-title">Daily Sales</div>
+<div class="page-subtitle">The day book — sales excluding tax, with tax recorded alongside. This is what revenue is counted from.</div>
+<div id="daily-sales-content"></div>
 </div>
 
 <!-- BULK IMPORT PANEL -->
@@ -466,6 +474,7 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <script src="ledger.js"></script>
 <script src="reports.js"></script>
 <script src="holiday-sync.js"></script>
+<script src="daily-sales.js"></script>
 <script src="import-trainer.js"></script>
 <script src="cost-tracker.js"></script>
 <script src="init.js"></script>

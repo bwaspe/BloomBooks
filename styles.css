@@ -467,6 +467,28 @@ th.sortable:hover { background: var(--border); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ct-invoice-history { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 22px; }
 
+/* DAILY SALES GRID */
+/* Compact numeric cells: 31 rows x a pair of inputs per channel is a lot of
+   chrome, so the inputs are borderless until focused. */
+.ds-table td, .ds-table th { padding: 4px 6px; }
+.ds-cell {
+  width: 74px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  text-align: right;
+  background: var(--paper);
+  color: var(--ink);
+}
+.ds-cell:hover { border-color: var(--border); }
+.ds-cell:focus { border-color: var(--accent2); background: var(--surface); outline: none; }
+/* Chrome's number spinners steal most of a 74px cell. */
+.ds-cell::-webkit-outer-spin-button,
+.ds-cell::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ds-cell { -moz-appearance: textfield; }
+
 /* SCROLLBAR */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
