@@ -263,6 +263,7 @@ function dsTaxReport(year, quarter) {
 
         const b = byChannel[k] || (byChannel[k] = { sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0, mode });
         b.sales += s; b.tax += t;
+        if (Math.abs(t) > 0.005) b.hasTax = true;
         mt.sales += s; mt.tax += t;
         if (taxable === null) { b.unknown += s; mt.unknown += s; }
         else {
@@ -273,10 +274,22 @@ function dsTaxReport(year, quarter) {
     });
   });
 
-  const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0 };
+  // The cross-check can only compare channels whose tax was actually recorded.
+  // Cash, EPX and Venmo are typed by hand and carry sales but no tax figure, so
+  // including their taxable sales in "expected" produces a permanent shortfall
+  // of exactly the tax on them -- a warning that fires every quarter and means
+  // nothing. Their taxable sales are reported separately as unchecked instead.
+  const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0,
+                checkedTaxable: 0, uncheckedTaxable: 0, uncheckedChannels: [] };
   Object.values(byChannel).forEach(b => {
     tot.sales += b.sales; tot.taxable += b.taxable;
     tot.exempt += b.exempt; tot.tax += b.tax; tot.unknown += b.unknown;
+  });
+  Object.keys(byChannel).forEach(k => {
+    const b = byChannel[k];
+    if (!b.taxable) return;
+    if (b.hasTax) tot.checkedTaxable += b.taxable;
+    else { tot.uncheckedTaxable += b.taxable; tot.uncheckedChannels.push(k); }
   });
   return { months, byChannel, byMonth, tips, tot };
 }
@@ -295,8 +308,9 @@ function renderSalesTaxPanel() {
 
   const r = dsTaxReport(stYear, stQuarter);
   const r2 = n => Math.round(n * 100) / 100;
-  const expected = r2(r.tot.taxable * DS_TAX_RATE);
+  const expected = r2(r.tot.checkedTaxable * DS_TAX_RATE);
   const gap = r2(r.tot.tax - expected);
+  const label0 = id => (dsChannels().find(c => c.id === id) || {}).label || id;
   const qRange = (y, i) => {
     const ms = DS_QUARTERS[i].months;
     const a = ms[0], b = ms[ms.length - 1];
@@ -337,8 +351,19 @@ function renderSalesTaxPanel() {
         <div class="kpi-sub">${r.tips ? 'incl. ' + fmt(r.tips) + ' tips' : 'house accounts, wire, tips'}</div></div>
       <div class="kpi-card profit"><div class="kpi-label">Tax collected</div>
         <div class="kpi-value">${fmt(r.tot.tax)}</div>
-        <div class="kpi-sub">expected ${fmt(expected)} at ${(DS_TAX_RATE * 100).toFixed(3)}%</div></div>
+        <div class="kpi-sub">expected ${fmt(expected)} on ${fmt(r.tot.checkedTaxable)} of checkable sales</div></div>
     </div>
+
+    ${r.tot.uncheckedTaxable ? `
+      <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:var(--paper);border:1px solid var(--border)">
+        <strong style="font-size:0.8rem">${fmt(r.tot.uncheckedTaxable)} of taxable sales cannot be cross-checked</strong>
+        <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
+          ${r.tot.uncheckedChannels.map(id => escHtml(label0(id))).join(', ')} —
+          these are typed by hand and carry no tax figure, so there is nothing to compare against.
+          They still count towards taxable sales for the filing; only the check below excludes them.
+          At ${(DS_TAX_RATE * 100).toFixed(3)}% they would account for about ${fmt(r.tot.uncheckedTaxable * DS_TAX_RATE)} of tax.
+        </div>
+      </div>` : ''}
 
     ${r.tot.unknown ? `
       <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:#fff3cd;border:1px solid #ffc107">
