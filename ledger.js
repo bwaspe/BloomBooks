@@ -189,9 +189,10 @@ function calcMonth(year, month) {
   // is deleted or rewritten, and clearing the setting restores the old
   // behaviour exactly.
   const fromDayBook = typeof dsRevenueMonth === 'function' && dsRevenueMonth(year, month);
-  const counted = fromDayBook
-    ? txs.filter(t => !(t.category === 'Revenue' && t.type === 'in'))
-    : txs;
+  const passthrough = t => PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0;
+  const counted = txs.filter(t =>
+    !passthrough(t) &&
+    !(fromDayBook && t.category === 'Revenue' && t.type === 'in'));
 
   const revenue = fromDayBook
     ? dsMonthTotals(year, month).revenue

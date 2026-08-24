@@ -16,11 +16,25 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 // on the wording before entries exist rather than after.
 const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
-  'Taxes','Utilities','Transpo','Vehicles','Office','Insurance',
+  'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
   'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
 ];
 
-const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue');
+// Money that passes through the business without ever being earned or spent.
+// Sales tax is collected on New York State's behalf and handed over; it is not
+// revenue when it arrives and not an expense when it leaves.
+//
+// Both halves have to be excluded or neither. Revenue already excludes it --
+// the day book records sales tax-exclusive -- so counting the remittance as an
+// expense would drop net income by the entire tax bill for money that was never
+// the shop's. Categorised separately from 'Taxes', which holds real expenses
+// like payroll tax.
+//
+// These transactions stay in the ledger. The money genuinely left the bank and
+// the record of that matters; it simply is not an expense.
+const PASSTHROUGH_CATEGORIES = ['Sales Tax Remitted'];
+
+const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c));
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [

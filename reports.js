@@ -53,6 +53,9 @@ function renderTaxPanel() {
     if (totals[t.category] === undefined) return;
     if (t.category === 'Payroll1') return;          // excluded from accountant view
     if (isCashRevenue(t)) return;                    // cash revenue excluded
+    // Sales tax remitted is money held for the state, not an expense. Excluded
+    // here too, so the accountant's view and the monthly P&L agree.
+    if (PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0) return;
     totals[t.category] += t.amount;
   });
 
