@@ -471,6 +471,24 @@ th.sortable:hover { background: var(--border); }
 /* Compact numeric cells: 31 rows x a pair of inputs per channel is a lot of
    chrome, so the inputs are borderless until focused. */
 .ds-table td, .ds-table th { padding: 4px 6px; }
+
+/* The month table scrolls inside its own box so the channel headings can stick.
+   They cannot stick to the page instead: .ledger-wrap is overflow:hidden and
+   .staging-table-wrap is overflow-x:auto, and either one is a scroll container
+   that a sticky header is confined to — it would simply never engage. */
+.ds-table-wrap {
+  overflow: auto;
+  margin-top: 12px;
+  max-height: calc(100vh - 250px);
+  min-height: 280px;
+}
+.ds-table thead { position: sticky; top: 0; z-index: 3; }
+/* Opaque, or the rows scroll through it. The underline is a shadow because a
+   border on a sticky header is dropped under border-collapse. */
+.ds-table thead th {
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
 .ds-cell {
   width: 74px;
   border: 1px solid transparent;

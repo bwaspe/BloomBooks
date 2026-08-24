@@ -695,6 +695,12 @@ function fnBuildImport(text) {
     if (!maxD || iso > maxD) maxD = iso;
   }
 
+  fnFinishImport(days, { skipped, methods, counted, minD, maxD, mode: 'export' });
+}
+
+// Rounding, the change list and the channel totals are the same whichever
+// FloraNext report the days were read from, so both importers finish here.
+function fnFinishImport(days, meta) {
   // Round once, at the end, so a month of additions cannot drift.
   const round2 = n => Math.round(n * 100) / 100;
   Object.values(days).forEach(month => Object.values(month).forEach(day => {
@@ -706,10 +712,9 @@ function fnBuildImport(text) {
   }));
 
   // What would change? Compare against the FloraNext-side channels already held.
-  const fnChannels = new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
+  const fnChannels = dsFnIds();
   const changes = [];
   Object.keys(days).forEach(key => {
-    const [y, m] = key.split('-').map(Number);
     Object.keys(days[key]).forEach(d => {
       const now = ((appData.dailySales || {})[key] || {})[d] || {};
       const had = Object.keys(now).filter(k => fnChannels.has(k))
@@ -717,6 +722,12 @@ function fnBuildImport(text) {
       const will = Object.keys(days[key][d]).filter(k => k !== '_tips')
         .reduce((s, k) => s + days[key][d][k].s, 0) + (days[key][d]._tips || 0);
       if (Math.abs(had - will) > 0.02) changes.push({ key, d, had: round2(had), will: round2(will) });
+      // A pasted daily report carries no order method. Applying one over a day
+      // already split six ways would collapse detail that cannot be rebuilt --
+      // splitting a combined figure back out is impossible, which is exactly
+      // why 2023-2025 is stuck as one column. Worth saying before, not after.
+      if (meta.mode === 'daily' && Object.keys(now).some(k => k !== 'fn' && fnChannels.has(k)))
+        (meta.collapses || (meta.collapses = [])).push({ key, d });
     });
   });
 
@@ -727,7 +738,7 @@ function fnBuildImport(text) {
       totals[k] = (totals[k] || 0) + day[k].s;
     })));
 
-  fnImport = { days, totals, skipped, methods, counted, minD, maxD, changes };
+  fnImport = Object.assign({ days, totals, changes }, meta);
   renderDailySalesPanel();
 }
 
@@ -757,7 +768,7 @@ function fnApplyImport() {
   // matters as much as adding: 'web' already exists as a retired channel from
   // the days when FloraNext could not be split, so only adding the missing ones
   // would file every website sale under a channel still marked retired.
-  const LABEL = { phone: 'Phone', counter: 'Walk-in', web: 'Website',
+  const LABEL = { fn: 'FloraNext', phone: 'Phone', counter: 'Walk-in', web: 'Website',
                   standing: 'Standing', wire: 'Wire out', events: 'Events' };
   Object.keys(fnImport.totals).forEach(id => {
     if (id === '_tips') return;
@@ -765,17 +776,142 @@ function fnApplyImport() {
     if (existing) existing.active = true;
     else dsChannels().push({ id, label: LABEL[id] || id, active: true });
   });
-  // The combined pre-split channel has no place in the years now split out.
+  // The combined pre-split channel has no place in the years now split out --
+  // unless the import IS the combined figure, which a pasted daily report is.
+  const daily = fnImport.mode === 'daily';
   const fn = dsChannels().find(c => c.id === 'fn');
-  if (fn) fn.active = false;
+  if (fn && !daily) fn.active = false;
 
   fnImport = null;
   saveData();
   renderDailySalesPanel();
-  notify(`Imported ${n} days from the FloraNext export`);
+  notify(`Imported ${n} days from the ${daily ? 'pasted report' : 'FloraNext export'}`);
 }
 
 function fnDismissImport() { fnImport = null; renderDailySalesPanel(); }
+
+// ============================================================
+// PASTE THE DAILY SALES REPORT
+// ============================================================
+// A different document from the Sales Report export above, copied straight off
+// the FloraNext page. It has no Order Method and no Transaction Type, is grouped
+// by payment type instead, and splits products and delivery each into taxable
+// and nontaxable. Without an order method the six-way split cannot be rebuilt,
+// so a pasted day fills the combined 'fn' channel.
+//
+// It states its own Total Amount, Taxes, Tips and Total Transactions. Those are
+// checked against the rows actually parsed and shown before anything is written:
+// a copy can lose lines to a scroll region or a half-made selection, and a
+// silently short day is indistinguishable from a quiet one.
+
+// parseDelimited picks its delimiter from the first line, which here holds a
+// single tab -- so it would choose commas and swallow the whole table into one
+// column. This report is tab separated, full stop.
+function fnDailyCells(text) {
+  return String(text).split(/\r?\n/)
+    .map(l => l.split('\t').map(c => c.trim()))
+    .filter(r => r.some(c => c !== ''));
+}
+
+// The table repeats its headings once per payment type, so the mapping is
+// rebuilt every time a heading row comes past rather than found once.
+function fnDailyHeaderMap(row) {
+  const h = row.map(c => String(c).replace(/^﻿/, '').trim().toLowerCase());
+  const at = n => h.indexOf(n);
+  if (at('order date') < 0 || at('grand total') < 0) return null;
+  return { date: at('order date'), grand: at('grand total'), tax: at('tax'),
+           tips: at('tips'), prodT: at('taxable products'),
+           delivT: at('taxable delivery'), wire: at('wire fee'),
+           markup: at('product markup'), disc: at('discounts'), id: at('order id') };
+}
+
+function fnBuildDaily(text) {
+  const rows = fnDailyCells(text);
+  if (!rows.length) { notify('Nothing to read in that paste', true); return; }
+
+  const summary = {};
+  const noteSummary = (label, val) => {
+    label = String(label).replace(/:\s*$/, '').trim().toLowerCase();
+    val = String(val).trim();
+    if (label && /^-?\$?[\d,]+(\.\d+)?$/.test(val)) summary[label] = fnMoney(val);
+  };
+
+  let map = null;
+  const days = {}, skipped = {};
+  let counted = 0, minD = null, maxD = null;
+  let sumGrand = 0, sumTax = 0, sumTips = 0, worstTax = null;
+
+  rows.forEach(r => {
+    const hdr = fnDailyHeaderMap(r);
+    if (hdr) { map = hdr; return; }
+
+    // 'Taxable Products:\t$100.00' and 'Total Amount\t$121.38' are two cells;
+    // 'Subtotal: $121.38' is one. Take both shapes.
+    if (r.length >= 2) noteSummary(r[0], r[1]);
+    else if (r[0].indexOf(':') > 0) {
+      const i = r[0].indexOf(':');
+      noteSummary(r[0].slice(0, i), r[0].slice(i + 1));
+    }
+
+    if (!map) return;
+    const dt = fnParseDate(r[map.date]);
+    if (!dt) return;
+
+    const pick  = i => (i >= 0 ? fnMoney(r[i]) : 0);
+    const grand = pick(map.grand), tax = pick(map.tax), tips = pick(map.tips);
+    // Discounts come through already negative, as in the Sales Report export.
+    // If this report ever differs, the per-order tax check below is what shows
+    // it: a flipped sign moves the taxable base off the tax that was charged.
+    const taxable = pick(map.prodT) + pick(map.delivT) + pick(map.wire)
+                  + pick(map.markup) + pick(map.disc);
+    const taxed = Math.abs(tax) > 0.005;
+    if (taxed) {
+      const diff = Math.abs(taxable * DS_TAX_RATE - tax);
+      if (!worstTax || diff > worstTax.diff)
+        worstTax = { diff, id: map.id >= 0 ? r[map.id] : '', taxable, tax };
+    }
+
+    const key = `${dt.y}-${dt.m}`;
+    if (!days[key]) days[key] = {};
+    if (!days[key][dt.d]) days[key][dt.d] = {};
+    const day = days[key][dt.d];
+    if (!day.fn) day.fn = { s: 0, t: 0, x: 0 };
+    day.fn.s += grand - tax - tips;
+    day.fn.t += tax;
+    day.fn.x += taxed ? taxable : 0;
+    day._tips = (day._tips || 0) + tips;
+
+    sumGrand += grand; sumTax += tax; sumTips += tips;
+    counted++;
+    const iso = `${dt.y}-${String(dt.m + 1).padStart(2, '0')}-${String(dt.d).padStart(2, '0')}`;
+    if (!minD || iso < minD) minD = iso;
+    if (!maxD || iso > maxD) maxD = iso;
+  });
+
+  if (!counted) {
+    notify('No order rows found. Copy the report including the column headings — '
+         + 'Order ID, Order Date, … Grand Total.', true);
+    return;
+  }
+
+  const r2 = n => Math.round(n * 100) / 100;
+  const check = {
+    orders:  { ours: counted,       theirs: summary['total transactions'] },
+    amount:  { ours: r2(sumGrand),  theirs: summary['total amount'] },
+    tax:     { ours: r2(sumTax),    theirs: summary['taxes'] },
+    tips:    { ours: r2(sumTips),   theirs: summary['tips'] },
+    worstTax,
+  };
+  fnFinishImport(days, { skipped, methods: {}, counted, minD, maxD, mode: 'daily', check });
+}
+
+function fnLoadPaste() {
+  const el = document.getElementById('fn-paste');
+  const text = el ? el.value : '';
+  if (!String(text).trim()) { notify('Nothing pasted yet', true); return; }
+  try { fnBuildDaily(text); }
+  catch (err) { notify('Could not read that paste: ' + (err && err.message || err), true); }
+}
 
 function fnImportHtml() {
   if (!fnImport) {
@@ -789,14 +925,71 @@ function fnImportHtml() {
         </p>
         <button class="btn btn-outline" onclick="document.getElementById('fn-export-file').click()">📂 Choose export</button>
         <input type="file" id="fn-export-file" accept=".csv,.txt" style="display:none" onchange="fnLoadExport(event)">
+
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <strong style="font-size:0.82rem">Or paste the Daily Sales Report</strong>
+          <p style="color:var(--mist);font-size:0.75rem;margin:4px 0 8px">
+            Select the report on screen in FloraNext, copy it, and paste it here — headings
+            included. Its totals are checked against the rows read before anything is written.
+            The screen report carries no order method, so a pasted day fills the combined
+            <em>FloraNext</em> line; only the export can split phone, website and walk-in.
+          </p>
+          <textarea id="fn-paste" placeholder="Paste the report here…"></textarea>
+          <button class="btn btn-outline" style="margin-top:6px" onclick="fnLoadPaste()">Read pasted report</button>
+        </div>
       </div>`;
   }
-  const { totals, skipped, counted, minD, maxD, changes } = fnImport;
+  const { totals, skipped, counted, minD, maxD, changes, mode, check, collapses } = fnImport;
   const dayCount = Object.values(fnImport.days).reduce((s, m) => s + Object.keys(m).length, 0);
   const chanLabel = id => (dsChannels().find(c => c.id === id) || {}).label
     || ({ phone: 'Phone', counter: 'Walk-in', web: 'Website', standing: 'Standing',
           wire: 'Wire out', events: 'Events' })[id] || id;
   const grand = Object.keys(totals).filter(k => k !== '_tips').reduce((s, k) => s + totals[k], 0);
+
+  // A paste is the one import that can silently arrive short — a scroll region,
+  // a half-made selection — so it is reconciled against the figures the report
+  // states about itself, and the answer is shown whether it agrees or not.
+  const checkRows = !check ? [] : [
+    ['Orders',       check.orders.ours, check.orders.theirs, false],
+    ['Total amount', check.amount.ours, check.amount.theirs, true],
+    ['Tax',          check.tax.ours,    check.tax.theirs,    true],
+    ['Tips',         check.tips.ours,   check.tips.theirs,   true],
+  ].filter(x => x[2] !== undefined);
+  const checkOff = checkRows.filter(x => Math.abs(x[1] - x[2]) > 0.02);
+  const checkHtml = !checkRows.length ? '' : `
+    <div style="margin-top:12px;padding:10px;border-radius:6px;
+                background:${checkOff.length ? '#fff3cd' : 'var(--paper)'};
+                border:1px solid ${checkOff.length ? '#ffc107' : 'var(--border)'}">
+      <strong style="font-size:0.8rem">${checkOff.length
+        ? 'The report&rsquo;s own totals do not match what was read'
+        : 'Agrees with the report&rsquo;s own totals'}</strong>
+      <table style="width:100%;font-size:0.75rem;margin-top:6px">
+        <tr style="color:var(--mist)"><td></td><td style="text-align:right">read</td>
+            <td style="text-align:right">report</td><td></td></tr>
+        ${checkRows.map(([label, ours, theirs, money]) => `
+          <tr><td>${label}</td>
+              <td style="text-align:right">${money ? fmt(ours) : ours}</td>
+              <td style="text-align:right;color:var(--ink-soft)">${money ? fmt(theirs) : theirs}</td>
+              <td style="text-align:right;width:1%">${Math.abs(ours - theirs) > 0.02 ? '⚠️' : '✓'}</td></tr>`).join('')}
+      </table>
+      ${check.worstTax && check.worstTax.diff > 0.05 ? `
+        <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:6px">
+          Largest gap between taxable base and tax charged on one order: ${fmt(check.worstTax.diff)}
+          (order ${escHtml(String(check.worstTax.id || '—'))} — ${fmt(check.worstTax.taxable)} taxable
+          against ${fmt(check.worstTax.tax)} charged).
+        </div>` : ''}
+    </div>`;
+
+  const collapseHtml = !(collapses && collapses.length) ? '' : `
+    <div style="margin-top:12px;padding:10px;border-radius:6px;background:#f8d7da;border:1px solid #dc3545">
+      <strong style="font-size:0.8rem">${collapses.length} day${collapses.length === 1 ? '' : 's'}
+        would lose the channel split</strong>
+      <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:4px">
+        These days are split by order method from an export. The screen report has no order
+        method, so importing it replaces that with one combined figure — and a combined
+        figure cannot be split back out. Use the export for these days.
+      </div>
+    </div>`;
 
   // The reassurance that nothing has been written belongs HERE, on the preview,
   // not only on the screen before a file is chosen -- this is the moment it
@@ -804,7 +997,7 @@ function fnImportHtml() {
   // believing the import happened.
   return `
     <div class="staging-area" style="margin-top:16px;border:2px solid var(--accent2)">
-      <h3>FloraNext export — ${counted} orders, ${minD} to ${maxD}</h3>
+      <h3>${mode === 'daily' ? 'Pasted daily report' : 'FloraNext export'} — ${counted} orders, ${minD} to ${maxD}</h3>
       <div style="margin:-4px 0 12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);
                   font-size:0.78rem;color:var(--ink)">
         <strong>Nothing has been saved yet.</strong> This is what the import would do —
@@ -826,6 +1019,9 @@ function fnImportHtml() {
           </tbody>
         </table>
       </div>
+
+      ${checkHtml}
+      ${collapseHtml}
 
       ${Object.keys(skipped).length ? `
         <div style="margin-top:12px;padding:10px;border-radius:6px;background:var(--paper);border:1px solid var(--border)">
@@ -1169,7 +1365,7 @@ function renderDailySalesPanel() {
     </div>
 
     <div class="ledger-wrap">
-      <div class="staging-table-wrap">
+      <div class="ds-table-wrap">
         <table class="ds-table">
           <thead>
             <tr>
