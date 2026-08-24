@@ -308,6 +308,12 @@ async function pushToSheet() {
       // (four years is roughly 90KB against a 50k character limit) and go in
       // column C of the per-month rows below, alongside the transactions.
       channels: appData.channels || [],
+      // The version stamp must ride along with the channels it describes.
+      // Without it the sheet always reads back as v1, so the migration re-runs
+      // on every single load -- harmless today, since it only reactivates
+      // FloraNext and retires Web, but it would silently undo those choices
+      // for anyone who later decided otherwise.
+      channelsVersion: appData.channelsVersion || null,
       dailyRevenueFrom: appData.dailyRevenueFrom || null,
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()
