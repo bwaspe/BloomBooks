@@ -317,8 +317,12 @@ function holidayRefreshHtml() {
   const changes = rows.filter(r => !r.skip && r.total !== r.current).length;
 
   return `
-    <div class="staging-area" style="margin-bottom:16px">
+    <div class="staging-area" style="margin-bottom:16px;border:2px solid var(--accent2)">
       <h3>Sales ${year} — what this would write</h3>
+      <div style="margin:-4px 0 12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);
+                  font-size:0.78rem;color:var(--ink)">
+        <strong>Nothing has been saved yet.</strong> Press <em>Apply</em> at the bottom to write these figures.
+      </div>
       <div class="staging-table-wrap">
       <table>
         <thead><tr><th>Holiday</th><th>Window</th><th>Days</th><th>Now</th><th>Would become</th></tr></thead>

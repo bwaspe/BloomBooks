@@ -798,9 +798,18 @@ function fnImportHtml() {
           wire: 'Wire out', events: 'Events' })[id] || id;
   const grand = Object.keys(totals).filter(k => k !== '_tips').reduce((s, k) => s + totals[k], 0);
 
+  // The reassurance that nothing has been written belongs HERE, on the preview,
+  // not only on the screen before a file is chosen -- this is the moment it
+  // matters, and a preview that looks finished is easy to walk away from
+  // believing the import happened.
   return `
-    <div class="staging-area" style="margin-top:16px">
+    <div class="staging-area" style="margin-top:16px;border:2px solid var(--accent2)">
       <h3>FloraNext export — ${counted} orders, ${minD} to ${maxD}</h3>
+      <div style="margin:-4px 0 12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);
+                  font-size:0.78rem;color:var(--ink)">
+        <strong>Nothing has been saved yet.</strong> This is what the import would do —
+        press <em>Import ${Object.values(fnImport.days).reduce((s, m) => s + Object.keys(m).length, 0)} days</em> at the bottom to apply it.
+      </div>
       <div class="staging-table-wrap">
         <table>
           <thead><tr><th>Channel</th><th style="text-align:right">Sales</th></tr></thead>
@@ -999,8 +1008,12 @@ function dsImportHtml() {
   const dayCount = Object.keys(dsImport.days).length;
 
   return `
-    <div class="staging-area" style="margin-top:16px">
+    <div class="staging-area" style="margin-top:16px;border:2px solid var(--accent2)">
       <h3>Sales ${year} — what this would bring in</h3>
+      <div style="margin:-4px 0 12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);
+                  font-size:0.78rem;color:var(--ink)">
+        <strong>Nothing has been saved yet.</strong> Press <em>Import ${dayCount} days</em> at the bottom to apply it.
+      </div>
       <div class="staging-table-wrap">
         <table>
           <thead><tr><th>Channel</th><th style="text-align:right">Sales</th></tr></thead>
