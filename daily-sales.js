@@ -290,6 +290,289 @@ function dsRevenueHtml() {
 }
 
 // ============================================================
+// IMPORT A FLORANEXT EXPORT
+// ============================================================
+// FloraNext's Sales Report exports one row per order, with the figures needed
+// to fill the day book exactly. Verified against 2 Jan 2026: the eleven orders
+// that day give 1,110.49, matching the figure already in the book to the penny.
+//
+//   sales   = Grand Total - Tax - Tips      (what the owner has always recorded)
+//   tips    = Tips                          (kept by the business, so revenue,
+//                                            but entered on its own line)
+//   taxable = Product + Delivery + Wire Out Fee + Markup - Discount
+//
+// Delivery and wire fees are taxable; tips are not. Every order in the 2026
+// export reconciles on both counts.
+//
+// WHICH ROWS COUNT
+//
+// "House Account Payment" rows ARE orders, not payments against orders. Their
+// order numbers appear nowhere else -- 210 of them, none overlapping a Sale --
+// so excluding them on the strength of the label would silently lose $29,684
+// across 2026, and the shop's largest accounts with it. This is the same trap
+// the original FloraNext history import fell into.
+//
+// Refunds and Adjustments do share order numbers with Sales, which is correct:
+// they are reversals carried as negatives, and both rows belong.
+//
+// Proposals are included because the owner's own records include them: matching
+// the day book day by day, all-types-including-proposals fits 179 of 216 days,
+// against 135 for sales alone.
+const FN_TYPES = new Set(['Sale', 'House Account Payment', 'Refund', 'Adjustment', 'proposal']);
+
+// Order Method -> channel. Kept granular deliberately: collapsing columns later
+// is arithmetic, splitting a combined one is impossible -- which is exactly why
+// 2023-2025 is stuck as a single combined figure.
+const FN_METHOD_CHANNEL = {
+  'phone': 'phone',
+  'walk-in': 'counter',
+  'website': 'web',
+  'subscription / standing order': 'standing',
+  'florist-to-florist': 'wire',
+  '': 'events',                       // proposals carry no order method
+};
+
+const FN_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+function fnParseDate(s) {
+  const m = String(s || '').trim().match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*(\d{4})$/);
+  if (!m) return null;
+  const mo = FN_MONTHS[m[1].toLowerCase()];
+  if (mo === undefined) return null;
+  return { y: +m[3], m: mo, d: +m[2] };
+}
+
+const fnMoney = v => {
+  const n = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+};
+
+let fnImport = null;
+
+function fnLoadExport(evt) {
+  const file = evt.target.files && evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try { fnBuildImport(String(e.target.result)); }
+    catch (err) { notify('Could not read that export: ' + (err && err.message || err), true); }
+  };
+  reader.onerror = () => notify('Could not read that file', true);
+  reader.readAsText(file);
+  evt.target.value = '';
+}
+
+function fnBuildImport(text) {
+  const rows = parseDelimited(text);          // shared with the statement importer
+  if (rows.length < 2) { notify('That file had no rows', true); return; }
+  const head = rows[0].map(h => String(h).replace(/^﻿/, '').trim().toLowerCase());
+  const col = name => head.indexOf(name);
+  const need = ['order date', 'grand total', 'tax', 'tips', 'order method', 'transaction type'];
+  const missing = need.filter(n => col(n) < 0);
+  if (missing.length) {
+    notify('That does not look like a FloraNext export — missing: ' + missing.join(', '), true);
+    return;
+  }
+  const iDate = col('order date'), iGrand = col('grand total'), iTax = col('tax'),
+        iTips = col('tips'), iMethod = col('order method'), iType = col('transaction type'),
+        iProd = col('product total'), iDeliv = col('delivery'), iWire = col('wire out fee'),
+        iMark = col('product markup'), iDisc = col('discount');
+
+  const days = {};            // 'y-m' -> { day -> { ch -> {s,t,x}, _tips } }
+  const skipped = {};
+  const methods = {};
+  let counted = 0, minD = null, maxD = null;
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !(r[iDate] || '').trim()) continue;
+    const type = String(r[iType] || '').trim();
+    if (!FN_TYPES.has(type)) { skipped[type || '(blank)'] = (skipped[type || '(blank)'] || 0) + 1; continue; }
+    const dt = fnParseDate(r[iDate]);
+    if (!dt) { skipped['unreadable date'] = (skipped['unreadable date'] || 0) + 1; continue; }
+
+    const method = String(r[iMethod] || '').trim().toLowerCase();
+    const ch = FN_METHOD_CHANNEL[method];
+    if (!ch) { skipped['order method "' + (r[iMethod] || '') + '"'] = (skipped['order method "' + (r[iMethod] || '') + '"'] || 0) + 1; continue; }
+    methods[method] = (methods[method] || 0) + 1;
+
+    const grand = fnMoney(r[iGrand]), tax = fnMoney(r[iTax]), tips = fnMoney(r[iTips]);
+    const taxable = fnMoney(r[iProd]) + fnMoney(r[iDeliv]) + fnMoney(r[iWire])
+                  + fnMoney(r[iMark]) - fnMoney(r[iDisc]);
+
+    const key = `${dt.y}-${dt.m}`;
+    if (!days[key]) days[key] = {};
+    if (!days[key][dt.d]) days[key][dt.d] = {};
+    const day = days[key][dt.d];
+    if (!day[ch]) day[ch] = { s: 0, t: 0, x: 0 };
+    day[ch].s += grand - tax - tips;
+    day[ch].t += tax;
+    day[ch].x += taxable;
+    day._tips = (day._tips || 0) + tips;
+
+    counted++;
+    const iso = `${dt.y}-${String(dt.m + 1).padStart(2, '0')}-${String(dt.d).padStart(2, '0')}`;
+    if (!minD || iso < minD) minD = iso;
+    if (!maxD || iso > maxD) maxD = iso;
+  }
+
+  // Round once, at the end, so a month of additions cannot drift.
+  const round2 = n => Math.round(n * 100) / 100;
+  Object.values(days).forEach(month => Object.values(month).forEach(day => {
+    Object.keys(day).forEach(k => {
+      if (k === '_tips') { day._tips = round2(day._tips); return; }
+      day[k].s = round2(day[k].s); day[k].t = round2(day[k].t); day[k].x = round2(day[k].x);
+    });
+    if (!day._tips) delete day._tips;
+  }));
+
+  // What would change? Compare against the FloraNext-side channels already held.
+  const fnChannels = new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
+  const changes = [];
+  Object.keys(days).forEach(key => {
+    const [y, m] = key.split('-').map(Number);
+    Object.keys(days[key]).forEach(d => {
+      const now = ((appData.dailySales || {})[key] || {})[d] || {};
+      const had = Object.keys(now).filter(k => fnChannels.has(k))
+        .reduce((s, k) => s + dsNum((now[k] || {}).s), 0) + dsNum(now._tips);
+      const will = Object.keys(days[key][d]).filter(k => k !== '_tips')
+        .reduce((s, k) => s + days[key][d][k].s, 0) + (days[key][d]._tips || 0);
+      if (Math.abs(had - will) > 0.02) changes.push({ key, d, had: round2(had), will: round2(will) });
+    });
+  });
+
+  const totals = {};
+  Object.values(days).forEach(month => Object.values(month).forEach(day =>
+    Object.keys(day).forEach(k => {
+      if (k === '_tips') { totals._tips = (totals._tips || 0) + day._tips; return; }
+      totals[k] = (totals[k] || 0) + day[k].s;
+    })));
+
+  fnImport = { days, totals, skipped, methods, counted, minD, maxD, changes };
+  renderDailySalesPanel();
+}
+
+function fnApplyImport() {
+  if (!fnImport) return;
+  if (!appData.dailySales) appData.dailySales = {};
+  const fnChannels = new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
+  let n = 0;
+  Object.keys(fnImport.days).forEach(key => {
+    if (!appData.dailySales[key]) appData.dailySales[key] = {};
+    Object.keys(fnImport.days[key]).forEach(d => {
+      const src = fnImport.days[key][d];
+      const day = appData.dailySales[key][d] || (appData.dailySales[key][d] = {});
+      // Replace every FloraNext-side channel for that day, so a re-import is a
+      // correction rather than an addition. Cash, EPX and Venmo are typed by
+      // hand and are never touched.
+      Object.keys(day).forEach(k => { if (fnChannels.has(k)) delete day[k]; });
+      Object.keys(src).forEach(k => {
+        if (k === '_tips') { day._tips = src._tips; return; }
+        day[k] = { s: src[k].s, t: src[k].t, x: src[k].x };
+      });
+      if (!src._tips) delete day._tips;
+      n++;
+    });
+  });
+  // Any channel the export produced must exist AND be active. Reactivating
+  // matters as much as adding: 'web' already exists as a retired channel from
+  // the days when FloraNext could not be split, so only adding the missing ones
+  // would file every website sale under a channel still marked retired.
+  const LABEL = { phone: 'Phone', counter: 'Walk-in', web: 'Website',
+                  standing: 'Standing', wire: 'Wire out', events: 'Events' };
+  Object.keys(fnImport.totals).forEach(id => {
+    if (id === '_tips') return;
+    const existing = dsChannels().find(c => c.id === id);
+    if (existing) existing.active = true;
+    else dsChannels().push({ id, label: LABEL[id] || id, active: true });
+  });
+  // The combined pre-split channel has no place in the years now split out.
+  const fn = dsChannels().find(c => c.id === 'fn');
+  if (fn) fn.active = false;
+
+  fnImport = null;
+  saveData();
+  renderDailySalesPanel();
+  notify(`Imported ${n} days from the FloraNext export`);
+}
+
+function fnDismissImport() { fnImport = null; renderDailySalesPanel(); }
+
+function fnImportHtml() {
+  if (!fnImport) {
+    return `
+      <div class="staging-area" style="margin-top:16px">
+        <h3>Import a FloraNext export</h3>
+        <p style="color:var(--mist);font-size:0.75rem;margin-bottom:10px">
+          Takes the Sales Report CSV straight from FloraNext, for a single day or any date range.
+          Sales, tax and tips are read per order and split by how the order was taken.
+          Cash, EPX and Venmo are never touched. Nothing is written until you approve it.
+        </p>
+        <button class="btn btn-outline" onclick="document.getElementById('fn-export-file').click()">📂 Choose export</button>
+        <input type="file" id="fn-export-file" accept=".csv,.txt" style="display:none" onchange="fnLoadExport(event)">
+      </div>`;
+  }
+  const { totals, skipped, counted, minD, maxD, changes } = fnImport;
+  const dayCount = Object.values(fnImport.days).reduce((s, m) => s + Object.keys(m).length, 0);
+  const chanLabel = id => (dsChannels().find(c => c.id === id) || {}).label
+    || ({ phone: 'Phone', counter: 'Walk-in', web: 'Website', standing: 'Standing',
+          wire: 'Wire out', events: 'Events' })[id] || id;
+  const grand = Object.keys(totals).filter(k => k !== '_tips').reduce((s, k) => s + totals[k], 0);
+
+  return `
+    <div class="staging-area" style="margin-top:16px">
+      <h3>FloraNext export — ${counted} orders, ${minD} to ${maxD}</h3>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Channel</th><th style="text-align:right">Sales</th></tr></thead>
+          <tbody>
+            ${Object.keys(totals).filter(k => k !== '_tips')
+              .sort((a, b) => totals[b] - totals[a]).map(id => `
+              <tr><td><strong>${escHtml(chanLabel(id))}</strong></td>
+                  <td class="amount-in" style="text-align:right">${fmt(totals[id])}</td></tr>`).join('')}
+            ${totals._tips ? `<tr><td>Tips</td><td style="text-align:right">${fmt(totals._tips)}</td></tr>` : ''}
+            <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
+              <td>${dayCount} days</td>
+              <td class="amount-in" style="text-align:right">${fmt(grand + (totals._tips || 0))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      ${Object.keys(skipped).length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:var(--paper);border:1px solid var(--border)">
+          <strong style="font-size:0.8rem">Rows not counted</strong>
+          <ul style="margin:6px 0 0 18px;font-size:0.75rem;color:var(--ink-soft)">
+            ${Object.keys(skipped).map(k => `<li>${escHtml(k)} — ${skipped[k]}</li>`).join('')}
+          </ul>
+        </div>` : ''}
+
+      ${changes.length ? `
+        <div style="margin-top:12px;padding:10px;border-radius:6px;background:#fff3cd;border:1px solid #ffc107">
+          <strong style="font-size:0.8rem">${changes.length} day${changes.length === 1 ? '' : 's'} will change</strong>
+          <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:4px">
+            FloraNext-side figures are replaced for every day in the export. Cash, EPX and Venmo are untouched.
+          </div>
+          <ul style="margin:6px 0 0 18px;font-size:0.75rem;color:var(--ink-soft);max-height:160px;overflow:auto">
+            ${changes.slice(0, 60).map(c => {
+              const [y, m] = c.key.split('-');
+              return `<li>${y}-${String(+m + 1).padStart(2, '0')}-${String(c.d).padStart(2, '0')}:
+                      ${fmt(c.had)} → ${fmt(c.will)} <span style="color:${c.will > c.had ? 'var(--green)' : 'var(--red)'}">
+                      (${c.will > c.had ? '+' : ''}${fmt(c.will - c.had)})</span></li>`;
+            }).join('')}
+            ${changes.length > 60 ? `<li>…and ${changes.length - 60} more</li>` : ''}
+          </ul>
+        </div>` : ''}
+
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="fnApplyImport()">Import ${dayCount} days</button>
+        <button class="btn btn-outline" onclick="fnDismissImport()">Cancel</button>
+      </div>
+    </div>`;
+}
+
+// ============================================================
 // IMPORT FROM THE OLD SALES SHEETS
 // ============================================================
 // One-time migration of 2023-2026. Reuses the workbook reader the Holiday
@@ -625,6 +908,7 @@ function renderDailySalesPanel() {
     </div>
 
     ${dsRevenueHtml()}
+    ${fnImportHtml()}
     ${dsImportHtml()}
   `;
 }
