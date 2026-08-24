@@ -52,6 +52,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Tools</div>
 <div class="sidebar-tab" data-panel="daily-sales" onclick="switchPanel('daily-sales')">🧾 Daily Sales</div>
+<div class="sidebar-tab" data-panel="sales-tax" onclick="switchPanel('sales-tax')">🧮 Sales Tax</div>
 <div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
 <div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
 <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
@@ -134,6 +135,13 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="page-title">Daily Sales</div>
 <div class="page-subtitle">The day book — sales excluding tax, with tax recorded alongside. This is what revenue is counted from.</div>
 <div id="daily-sales-content"></div>
+</div>
+
+<!-- SALES TAX PANEL -->
+<div id="panel-sales-tax" class="panel">
+<div class="page-title">Sales Tax</div>
+<div class="page-subtitle">Taxable and exempt sales for the quarter, with what was collected as a cross-check. Not income tax — see Tax Summary for that.</div>
+<div id="sales-tax-content"></div>
 </div>
 
 <!-- BULK IMPORT PANEL -->

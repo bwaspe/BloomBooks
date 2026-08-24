@@ -186,6 +186,247 @@ function dsAddChannel() {
 }
 
 // ============================================================
+// SALES TAX — QUARTERLY
+// ============================================================
+// The New York filing asks for SALES, split taxable and exempt -- not for what
+// was collected. The tax figure is therefore a cross-check rather than the
+// answer: taxable x rate should land on what the registers actually took, and a
+// gap means something is miscoded.
+//
+// Where the taxable split comes from, per channel:
+//   'detail' — the taxable base recorded per order by the FloraNext import
+//              (Product + Delivery + Wire Out Fee + Markup - Discount). This is
+//              the only source that knows about exempt sales, which for this
+//              shop are mostly house accounts.
+//   'all'    — every sale taxable. The sensible default for figures typed by
+//              hand: cash and card takings over the counter.
+//   'exempt' — none taxable.
+//
+// A channel with mode 'detail' but no recorded base -- a FloraNext month
+// entered by hand before the importer existed -- is reported as UNCLASSIFIED
+// rather than guessed at. A filing built on a guess is worse than one with a
+// visible hole in it.
+const DS_TAX_RATE = 0.08375;          // NY state + Westchester
+
+const dsFnIds = () => new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
+
+function dsTaxMode(ch) {
+  if (ch && (ch.taxMode === 'all' || ch.taxMode === 'detail' || ch.taxMode === 'exempt')) return ch.taxMode;
+  return dsFnIds().has((ch || {}).id) ? 'detail' : 'all';
+}
+
+function dsSetTaxMode(id, mode) {
+  const c = dsChannels().find(x => x.id === id);
+  if (!c) return;
+  c.taxMode = mode;
+  saveData();
+  renderSalesTaxPanel();
+}
+
+// New York's sales tax quarters are offset from calendar quarters: they run
+// Dec-Feb, Mar-May, Jun-Aug, Sep-Nov. The first therefore spans a year
+// boundary, so each month carries a year offset -- selecting 2026 Q1 means
+// December 2025 through February 2026. Using calendar quarters would put
+// December in the wrong return.
+const DS_QUARTERS = [
+  { label: 'Dec – Feb', months: [[-1, 11], [0, 0], [0, 1]] },
+  { label: 'Mar – May', months: [[0, 2], [0, 3], [0, 4]] },
+  { label: 'Jun – Aug', months: [[0, 5], [0, 6], [0, 7]] },
+  { label: 'Sep – Nov', months: [[0, 8], [0, 9], [0, 10]] },
+];
+
+// Tips are revenue but never a taxable receipt, so they sit in exempt.
+function dsTaxReport(year, quarter) {
+  const spec = DS_QUARTERS[quarter] || DS_QUARTERS[0];
+  const months = spec.months.map(([off, m]) => ({ y: year + off, m }));
+  const byChannel = {};
+  const byMonth = {};
+  let tips = 0;
+
+  months.forEach(({ y, m }) => {
+    const mt = byMonth[`${y}-${m}`] = { y, m, sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0 };
+    const days = dsMonth(y, m);
+    Object.keys(days).forEach(dk => {
+      const d = days[dk] || {};
+      const dayTips = dsNum(d._tips);
+      tips += dayTips;
+      mt.sales += dayTips; mt.exempt += dayTips;
+      Object.keys(d).forEach(k => {
+        if (k.startsWith('_')) return;
+        const rec = d[k] || {};
+        const s = dsNum(rec.s), t = dsNum(rec.t);
+        const mode = dsTaxMode(dsChannels().find(c => c.id === k) || { id: k });
+        let taxable = null;
+        if (mode === 'exempt') taxable = 0;
+        else if (mode === 'all') taxable = s;
+        else if (rec.x != null) taxable = dsNum(rec.x);
+
+        const b = byChannel[k] || (byChannel[k] = { sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0, mode });
+        b.sales += s; b.tax += t;
+        mt.sales += s; mt.tax += t;
+        if (taxable === null) { b.unknown += s; mt.unknown += s; }
+        else {
+          b.taxable += taxable; b.exempt += s - taxable;
+          mt.taxable += taxable; mt.exempt += s - taxable;
+        }
+      });
+    });
+  });
+
+  const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0 };
+  Object.values(byChannel).forEach(b => {
+    tot.sales += b.sales; tot.taxable += b.taxable;
+    tot.exempt += b.exempt; tot.tax += b.tax; tot.unknown += b.unknown;
+  });
+  return { months, byChannel, byMonth, tips, tot };
+}
+
+let stYear = null, stQuarter = null;
+function stSetView(y, q) {
+  stYear = parseInt(y, 10); stQuarter = parseInt(q, 10);
+  renderSalesTaxPanel();
+}
+
+function renderSalesTaxPanel() {
+  const el = document.getElementById('sales-tax-content');
+  if (!el) return;
+  if (stYear == null) stYear = appData.activeYear;
+  if (stQuarter == null) stQuarter = Math.floor(new Date().getMonth() / 3);
+
+  const r = dsTaxReport(stYear, stQuarter);
+  const r2 = n => Math.round(n * 100) / 100;
+  const expected = r2(r.tot.taxable * DS_TAX_RATE);
+  const gap = r2(r.tot.tax - expected);
+  const qRange = (y, i) => {
+    const ms = DS_QUARTERS[i].months;
+    const a = ms[0], b = ms[ms.length - 1];
+    return `${MONTHS_SHORT[a[1]]} ${y + a[0]} – ${MONTHS_SHORT[b[1]]} ${y + b[0]}`;
+  };
+  const label = id => (dsChannels().find(c => c.id === id) || {}).label || id;
+  const modeSel = id => {
+    const m = dsTaxMode(dsChannels().find(c => c.id === id) || { id });
+    return `<select onchange="dsSetTaxMode('${id}', this.value)"
+              style="font-size:0.68rem;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--surface);font-family:Inter,sans-serif">
+      <option value="detail" ${m === 'detail' ? 'selected' : ''}>per order</option>
+      <option value="all" ${m === 'all' ? 'selected' : ''}>all taxable</option>
+      <option value="exempt" ${m === 'exempt' ? 'selected' : ''}>all exempt</option>
+    </select>`;
+  };
+
+  el.innerHTML = `
+    <div class="staging-controls">
+      <div class="form-group" style="min-width:110px"><label>Year</label>
+        <select onchange="stSetView(this.value, ${stQuarter})">
+          ${(appData.years || []).map(y => `<option value="${y}" ${y === stYear ? 'selected' : ''}>${y}</option>`).join('')}
+        </select></div>
+      <div class="form-group" style="min-width:210px"><label>Quarter</label>
+        <select onchange="stSetView(${stYear}, this.value)">
+          ${DS_QUARTERS.map((q, i) => `<option value="${i}" ${i === stQuarter ? 'selected' : ''}>Q${i + 1} — ${qRange(stYear, i)}</option>`).join('')}
+        </select></div>
+      <div style="align-self:flex-end;font-size:0.72rem;color:var(--mist)">
+        New York's quarters, not calendar ones
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card revenue"><div class="kpi-label">Taxable sales</div>
+        <div class="kpi-value">${fmt(r.tot.taxable)}</div>
+        <div class="kpi-sub">what the filing asks for</div></div>
+      <div class="kpi-card cogs"><div class="kpi-label">Exempt sales</div>
+        <div class="kpi-value">${fmt(r.tot.exempt)}</div>
+        <div class="kpi-sub">${r.tips ? 'incl. ' + fmt(r.tips) + ' tips' : 'house accounts, wire, tips'}</div></div>
+      <div class="kpi-card profit"><div class="kpi-label">Tax collected</div>
+        <div class="kpi-value">${fmt(r.tot.tax)}</div>
+        <div class="kpi-sub">expected ${fmt(expected)} at ${(DS_TAX_RATE * 100).toFixed(3)}%</div></div>
+    </div>
+
+    ${r.tot.unknown ? `
+      <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:#fff3cd;border:1px solid #ffc107">
+        <strong style="font-size:0.8rem">${fmt(r.tot.unknown)} of sales are unclassified</strong>
+        <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
+          These channels are set to read the taxable split from each order, but no split was recorded —
+          months entered by hand before the FloraNext import. They are left out of both columns rather than
+          guessed at. Either import that period, or set the channel below to “all taxable”.
+        </div>
+      </div>` : ''}
+
+    ${Math.abs(gap) > 1 ? `
+      <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:${Math.abs(gap) > 25 ? 'var(--red-light);border:1px solid var(--red)' : 'var(--paper);border:1px solid var(--border)'}">
+        <strong style="font-size:0.8rem">Collected is ${gap > 0 ? 'over' : 'under'} expected by ${fmt(Math.abs(gap))}</strong>
+        <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
+          Expected is taxable sales at ${(DS_TAX_RATE * 100).toFixed(3)}%. Small differences are rounding on each
+          order; a large one means something is on the wrong side of the taxable line.
+        </div>
+      </div>` : ''}
+
+    <div class="ledger-wrap">
+      <div class="ledger-header"><h3>By channel</h3></div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Channel</th><th>Taxable split</th><th style="text-align:right">Sales</th>
+            <th style="text-align:right">Taxable</th><th style="text-align:right">Exempt</th>
+            <th style="text-align:right">Unclassified</th><th style="text-align:right">Tax collected</th></tr></thead>
+          <tbody>
+            ${Object.keys(r.byChannel).sort((a, b) => r.byChannel[b].sales - r.byChannel[a].sales).map(id => {
+              const b = r.byChannel[id];
+              return `<tr>
+                <td><strong>${escHtml(label(id))}</strong></td>
+                <td>${modeSel(id)}</td>
+                <td style="text-align:right">${fmt(b.sales)}</td>
+                <td style="text-align:right" class="${b.taxable ? 'amount-in' : ''}">${b.taxable ? fmt(b.taxable) : '—'}</td>
+                <td style="text-align:right;color:var(--mist)">${b.exempt ? fmt(b.exempt) : '—'}</td>
+                <td style="text-align:right;color:${b.unknown ? 'var(--red)' : 'var(--mist)'}">${b.unknown ? fmt(b.unknown) : '—'}</td>
+                <td style="text-align:right">${b.tax ? fmt(b.tax) : '—'}</td>
+              </tr>`;
+            }).join('')}
+            ${r.tips ? `<tr><td><strong>Tips</strong></td><td style="font-size:0.7rem;color:var(--mist)">never taxable</td>
+              <td style="text-align:right">${fmt(r.tips)}</td><td style="text-align:right">—</td>
+              <td style="text-align:right;color:var(--mist)">${fmt(r.tips)}</td>
+              <td style="text-align:right">—</td><td style="text-align:right">—</td></tr>` : ''}
+            <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
+              <td>Total</td><td></td>
+              <td style="text-align:right">${fmt(r.tot.sales)}</td>
+              <td style="text-align:right" class="amount-in">${fmt(r.tot.taxable)}</td>
+              <td style="text-align:right">${fmt(r.tot.exempt)}</td>
+              <td style="text-align:right;color:${r.tot.unknown ? 'var(--red)' : 'var(--mist)'}">${r.tot.unknown ? fmt(r.tot.unknown) : '—'}</td>
+              <td style="text-align:right">${fmt(r.tot.tax)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ledger-wrap" style="margin-top:16px">
+      <div class="ledger-header"><h3>By month</h3></div>
+      <table>
+        <thead><tr><th>Month</th><th style="text-align:right">Sales</th><th style="text-align:right">Taxable</th>
+          <th style="text-align:right">Exempt</th><th style="text-align:right">Tax collected</th>
+          <th style="text-align:right">Expected</th></tr></thead>
+        <tbody>
+          ${r.months.map(({ y, m }) => {
+            const b = r.byMonth[`${y}-${m}`];
+            const exp = r2(b.taxable * DS_TAX_RATE);
+            return `<tr>
+              <td><strong>${MONTHS_SHORT[m]} ${y}</strong></td>
+              <td style="text-align:right">${fmt(b.sales)}</td>
+              <td style="text-align:right">${fmt(b.taxable)}</td>
+              <td style="text-align:right;color:var(--mist)">${fmt(b.exempt)}</td>
+              <td style="text-align:right">${fmt(b.tax)}</td>
+              <td style="text-align:right;color:var(--mist)">${fmt(exp)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:0.72rem;color:var(--mist);margin-top:12px">
+      Figures come from the Daily Sales book. Sales are tax-exclusive throughout; collected tax is
+      recorded but never counted as revenue, since it is owed to New York State.
+    </p>
+  `;
+}
+
+// ============================================================
 // USING THE DAY BOOK AS REVENUE
 // ============================================================
 // A single switch-over month, stored as 'YYYY-MM'. From it onwards calcMonth()
@@ -398,17 +639,29 @@ function fnBuildImport(text) {
     methods[method] = (methods[method] || 0) + 1;
 
     const grand = fnMoney(r[iGrand]), tax = fnMoney(r[iTax]), tips = fnMoney(r[iTips]);
+    // Discount is exported ALREADY NEGATIVE, so it is added, not subtracted.
+    // Subtracting it added discounts to the taxable base instead of removing
+    // them, which made taxable exceed sales and produced negative exempt totals.
+    // With the right sign the identity closes to the cent across the year:
+    // taxable + nontaxable delivery = grand - tax - tips.
     const taxable = fnMoney(r[iProd]) + fnMoney(r[iDeliv]) + fnMoney(r[iWire])
-                  + fnMoney(r[iMark]) - fnMoney(r[iDisc]);
+                  + fnMoney(r[iMark]) + fnMoney(r[iDisc]);
 
     const key = `${dt.y}-${dt.m}`;
     if (!days[key]) days[key] = {};
     if (!days[key][dt.d]) days[key][dt.d] = {};
     const day = days[key][dt.d];
     if (!day[ch]) day[ch] = { s: 0, t: 0, x: 0 };
+    // An order that was charged no tax is exempt, however taxable its contents
+    // look: house accounts are the bulk of it here, and they carry a full
+    // product total against zero tax. Counting their base as taxable inflates
+    // the figure the filing asks for -- by $29.5k across 2026, which is the
+    // house account total almost exactly. Refunds carry negative tax, so the
+    // test is on magnitude.
+    const taxed = Math.abs(tax) > 0.005;
     day[ch].s += grand - tax - tips;
     day[ch].t += tax;
-    day[ch].x += taxable;
+    day[ch].x += taxed ? taxable : 0;
     day._tips = (day._tips || 0) + tips;
 
     counted++;

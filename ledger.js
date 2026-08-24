@@ -112,6 +112,7 @@ function switchPanel(panelId) {
       if (panelId === 'import')       renderImportPanel();
       if (panelId === 'trainer')      renderTrainerPanel();
       if (panelId === 'daily-sales')  renderDailySalesPanel();
+      if (panelId === 'sales-tax')    renderSalesTaxPanel();
       if (panelId === 'ct-dashboard') renderCtDashboard();
       if (panelId === 'ct-prices')    renderCtPrices();
       if (panelId === 'ct-gmail')     renderCtGmailPanel();
