@@ -489,6 +489,21 @@ th.sortable:hover { background: var(--border); }
 .ds-cell::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .ds-cell { -moz-appearance: textfield; }
 
+/* The collapsed FloraNext column header doubles as its expand control. */
+.ds-group-toggle {
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 0;
+}
+.ds-group-toggle:hover { color: var(--accent2); }
+
 /* SCROLLBAR */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

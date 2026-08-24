@@ -790,6 +790,16 @@ function dsImportHtml() {
 // ---- rendering --------------------------------------------
 let dsViewYear = null, dsViewMonth = null;
 
+// How the grid is laid out is a view preference, not business data, so it lives
+// in localStorage rather than appData -- no sync, no allowlist, nothing to lose.
+function dsPref(name) {
+  try { return localStorage.getItem('bb_ds_' + name) === '1'; } catch (e) { return false; }
+}
+function dsTogglePref(name) {
+  try { localStorage.setItem('bb_ds_' + name, dsPref(name) ? '0' : '1'); } catch (e) {}
+  renderDailySalesPanel();
+}
+
 function dsSetView(year, month) {
   dsViewYear = parseInt(year, 10);
   dsViewMonth = parseInt(month, 10);
@@ -804,10 +814,29 @@ function renderDailySalesPanel() {
   if (dsViewMonth == null) dsViewMonth = new Date().getMonth();
 
   const year = dsViewYear, month = dsViewMonth;
-  const chans = dsChannelsFor(year, month);
+  const allChans = dsChannelsFor(year, month);
   const len = new Date(year, month + 1, 0).getDate();
   const totals = dsMonthTotals(year, month);
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // The FloraNext split is six channels wide, and with a tax cell each that is
+  // eighteen inputs a row -- enough to push the day's total off the screen,
+  // which is the one number worth seeing at a glance. So the FloraNext side
+  // collapses to a single computed column by default, and tax is hidden
+  // entirely unless asked for: it is imported rather than typed, and is never
+  // part of revenue.
+  const fnExpanded = dsPref('fnExpanded');
+  const showTax = dsPref('showTax');
+  const fnIds = new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
+  const fnChans = allChans.filter(c => fnIds.has(c.id));
+  const manualChans = allChans.filter(c => !fnIds.has(c.id));
+  const shownChans = fnExpanded ? fnChans.concat(manualChans) : manualChans;
+
+  const fnDayTotal = day => {
+    const d = dsMonth(year, month)[day] || {};
+    return fnChans.reduce((s, c) => s + dsNum((d[c.id] || {}).s), 0);
+  };
+  const fnMonthTotal = fnChans.reduce((s, c) => s + ((totals.byChannel[c.id] || {}).s || 0), 0);
 
   const cell = (day, ch, field) => {
     const v = ((dsMonth(year, month)[day] || {})[ch.id] || {})[field];
@@ -830,6 +859,15 @@ function renderDailySalesPanel() {
           ${MONTHS.map((m, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${m}</option>`).join('')}
         </select>
       </div>
+      <div style="align-self:flex-end;display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" onclick="dsTogglePref('fnExpanded')">
+          ${fnExpanded ? '▾ Collapse FloraNext' : '▸ Expand FloraNext'}
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="dsTogglePref('showTax')"
+                title="Tax is recorded but never counted as revenue">
+          ${showTax ? '✓ Tax' : 'Show tax'}
+        </button>
+      </div>
       <div style="align-self:flex-end;margin-left:auto;text-align:right">
         <div style="font-size:0.7rem;color:var(--mist);text-transform:uppercase;letter-spacing:0.08em">Month revenue (ex tax)</div>
         <div class="kpi-value" style="font-size:1.3rem">${fmt(totals.revenue)}</div>
@@ -845,13 +883,18 @@ function renderDailySalesPanel() {
           <thead>
             <tr>
               <th rowspan="2" style="text-align:left">Day</th>
-              ${chans.map(c => `<th colspan="2" style="text-align:center${c.active ? '' : ';opacity:0.6'}">${escHtml(c.label)}${c.active ? '' : ' <span style="font-size:0.6rem">(retired)</span>'}</th>`).join('')}
+              ${fnExpanded ? '' : `<th rowspan="2" style="text-align:right">
+                <button class="ds-group-toggle" onclick="dsTogglePref('fnExpanded')"
+                        title="Show the FloraNext channels separately">▸ FloraNext</button></th>`}
+              ${shownChans.map(c => `<th colspan="${showTax ? 2 : 1}" style="text-align:center${c.active ? '' : ';opacity:0.6'}">${escHtml(c.label)}${c.active ? '' : ' <span style="font-size:0.6rem">(retired)</span>'}</th>`).join('')}
               <th rowspan="2" title="Delivery tips, which you keep — counted as revenue">Tips</th>
               <th rowspan="2">Total</th>
               <th rowspan="2" style="text-align:left">Note</th>
             </tr>
             <tr>
-              ${chans.map(() => `<th style="font-size:0.6rem">sales</th><th style="font-size:0.6rem">tax</th>`).join('')}
+              ${shownChans.map(() => showTax
+                  ? `<th style="font-size:0.6rem">sales</th><th style="font-size:0.6rem">tax</th>`
+                  : `<th style="font-size:0.6rem">sales</th>`).join('')}
             </tr>
           </thead>
           <tbody>
@@ -860,9 +903,13 @@ function renderDailySalesPanel() {
               const tot = dsDayTotal(year, month, day, 's');
               const note = (dsMonth(year, month)[day] || {})._note || '';
               const weekend = dow === 'Sun';
+              const fnT = fnDayTotal(day);
               return `<tr${weekend ? ' style="background:var(--paper)"' : ''}>
                 <td style="white-space:nowrap"><strong>${day}</strong> <span style="color:var(--mist);font-size:0.72rem">${dow}</span></td>
-                ${chans.map(c => `<td>${cell(day, c, 's')}</td><td>${cell(day, c, 't')}</td>`).join('')}
+                ${fnExpanded ? '' : `<td style="text-align:right;white-space:nowrap;color:var(--ink-soft)">${fnT ? fmt(fnT) : ''}</td>`}
+                ${shownChans.map(c => showTax
+                    ? `<td>${cell(day, c, 's')}</td><td>${cell(day, c, 't')}</td>`
+                    : `<td>${cell(day, c, 's')}</td>`).join('')}
                 <td><input type="number" step="0.01" class="ds-cell" inputmode="decimal"
                      value="${(dsMonth(year, month)[day] || {})._tips == null ? '' : (dsMonth(year, month)[day] || {})._tips}"
                      onchange="dsSetTips(${year},${month},${day},this.value)"></td>
@@ -876,10 +923,11 @@ function renderDailySalesPanel() {
           <tfoot>
             <tr style="font-weight:600;border-top:2px solid var(--blue-light)">
               <td>Total</td>
-              ${chans.map(c => {
+              ${fnExpanded ? '' : `<td style="text-align:right;white-space:nowrap">${fnMonthTotal ? fmt(fnMonthTotal) : ''}</td>`}
+              ${shownChans.map(c => {
                 const b = totals.byChannel[c.id] || { s: 0, t: 0 };
-                return `<td style="text-align:right;white-space:nowrap">${b.s ? fmt(b.s) : ''}</td>
-                        <td style="text-align:right;white-space:nowrap;color:var(--mist)">${b.t ? fmt(b.t) : ''}</td>`;
+                return `<td style="text-align:right;white-space:nowrap">${b.s ? fmt(b.s) : ''}</td>`
+                     + (showTax ? `<td style="text-align:right;white-space:nowrap;color:var(--mist)">${b.t ? fmt(b.t) : ''}</td>` : '');
               }).join('')}
               <td style="text-align:right;white-space:nowrap">${totals.tips ? fmt(totals.tips) : ''}</td>
               <td class="amount-in" style="text-align:right;white-space:nowrap">${fmt(totals.revenue)}</td>
