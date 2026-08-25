@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ðŸŒ¸ Bloom Books</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ðŸŒ¸</text></svg>">
+<title>🌸 Bloom Books</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
 <link rel="manifest" href="manifest.json">
 <!-- iOS ignores SVG manifest icons, so Add to Home Screen needs its own
-     raster icon. Opaque square on purpose â€” iOS applies its own rounded
+     raster icon. Opaque square on purpose — iOS applies its own rounded
      mask and composites any transparency against black. -->
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="theme-color" content="#e883a3">
@@ -22,21 +22,21 @@
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
 align-items:center;gap:6px;padding:10px 18px;border-radius:24px;border:none;
 background:var(--ink);color:var(--surface);font-size:0.85rem;font-weight:600;cursor:pointer;
-box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† Back</button>
+box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back</button>
 <div id="app-header">
-<button id="nav-toggle" onclick="toggleSidebar()" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">â˜°</button>
-<div>ðŸŒ¸</div>
+<button id="nav-toggle" onclick="toggleSidebar()" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+<div>🌸</div>
 <h1>Bloom <span>Books</span></h1>
 <div class="header-year-selector">
 <span>Active Year:</span>
 <select id="active-year-select" onchange="setActiveYear(this.value)"></select>
 <button onclick="promptAddYear()">+ Year</button>
 </div>
-<div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">â˜ï¸ Connecting...</div>
-<button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">ðŸ”‘ Sign in to Sync</button>
+<div id="sync-status" style="font-size:0.75rem;color:var(--blue-light);margin-right:8px">☁️ Connecting...</div>
+<button id="signin-btn" onclick="signIn()" style="background:var(--accent2);color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;font-size:0.75rem;cursor:pointer;display:none">🔑 Sign in to Sync</button>
 <div class="header-btns">
-<button onclick="exportData()">â¬‡ Export JSON</button>
-<button onclick="document.getElementById('import-file').click()">â¬† Import JSON</button>
+<button onclick="exportData()">⬇ Export JSON</button>
+<button onclick="document.getElementById('import-file').click()">⬆ Import JSON</button>
 <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
 </div>
 </div>
@@ -47,22 +47,22 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 <div id="month-tabs"></div>
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Analytics</div>
-<div class="sidebar-tab" data-panel="trends" onclick="switchPanel('trends')">ðŸ“ˆ Unified Trends</div>
-<div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">ðŸ“‹ Yearly Summary</div>
+<div class="sidebar-tab" data-panel="trends" onclick="switchPanel('trends')">📈 Unified Trends</div>
+<div class="sidebar-tab" data-panel="yearly" onclick="switchPanel('yearly')">📋 Yearly Summary</div>
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Tools</div>
-<div class="sidebar-tab" data-panel="daily-sales" onclick="switchPanel('daily-sales')">ðŸ§¾ Daily Sales</div>
-<div class="sidebar-tab" data-panel="sales-tax" onclick="switchPanel('sales-tax')">ðŸ§® Sales Tax</div>
-<div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">ðŸ§¾ Tax Summary</div>
-<div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">ðŸŒ¹ Holiday Revenue</div>
-<div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">ðŸ“¥ Bulk Import</div>
-<div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">ðŸ§  Logic Trainer</div>
+<div class="sidebar-tab" data-panel="daily-sales" onclick="switchPanel('daily-sales')">🧾 Daily Sales</div>
+<div class="sidebar-tab" data-panel="sales-tax" onclick="switchPanel('sales-tax')">🧮 Sales Tax</div>
+<div class="sidebar-tab" data-panel="tax" onclick="switchPanel('tax')">🧾 Tax Summary</div>
+<div class="sidebar-tab" data-panel="holidays" onclick="switchPanel('holidays')">🌹 Holiday Revenue</div>
+<div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
+<div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Cost Tracker</div>
-<div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">ðŸ“¦ Cost Dashboard</div>
-<div class="sidebar-tab" data-panel="ct-upload" onclick="switchPanel('ct-upload')">ðŸ“„ Invoice Upload</div>
-<div class="sidebar-tab" data-panel="ct-gmail" onclick="switchPanel('ct-gmail')">ðŸ“§ Gmail Scan</div>
-<div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">ðŸ’° Price History</div>
+<div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">📦 Cost Dashboard</div>
+<div class="sidebar-tab" data-panel="ct-upload" onclick="switchPanel('ct-upload')">📄 Invoice Upload</div>
+<div class="sidebar-tab" data-panel="ct-gmail" onclick="switchPanel('ct-gmail')">📧 Gmail Scan</div>
+<div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">💰 Price History</div>
 </nav>
 <main id="main-content">
 <!-- MONTHLY PANELS (generated) -->
@@ -73,7 +73,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 <div class="page-title">Unified Trends</div>
 <div class="page-subtitle">Year-over-year revenue comparison with growth indicators</div>
 <div class="chart-wrap">
-<h3>Monthly Revenue â€” Multi-Year Comparison</h3>
+<h3>Monthly Revenue — Multi-Year Comparison</h3>
 <div class="trend-controls">
 <span>Show years:</span>
 <label><input type="checkbox" value="2023" checked onchange="renderTrendsChart()"> 2023</label>
@@ -89,7 +89,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 <div class="chart-container"><canvas id="growthChart"></canvas></div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ“‰ COGS % of Revenue â€” Margin Trend</h3>
+<h3>📉 COGS % of Revenue — Margin Trend</h3>
 <div class="chart-container"><canvas id="cogsChart"></canvas></div>
 </div>
 </div>
@@ -103,7 +103,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 
 <!-- HOLIDAY REVENUE PANEL -->
 <div id="panel-holidays" class="panel">
-<div class="page-title">ðŸŒ¹ Holiday Revenue</div>
+<div class="page-title">🌹 Holiday Revenue</div>
 <div class="page-subtitle">Track how much revenue comes from key holidays</div>
 <div id="holiday-content"></div>
 </div>
@@ -122,7 +122,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 <div class="chart-container" style="height:380px;"><canvas id="yearlyCatChart"></canvas></div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸŒ¿ Supplies Spend by Vendor</h3>
+<h3>🌿 Supplies Spend by Vendor</h3>
 <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
 <div style="position:relative;width:280px;height:280px;flex-shrink:0"><canvas id="yearlySupplierPie"></canvas></div>
 <div id="yearlySupplierLegend" style="flex:1;font-size:0.75rem;line-height:2"></div>
@@ -133,29 +133,29 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 <!-- DAILY SALES PANEL -->
 <div id="panel-daily-sales" class="panel">
 <div class="page-title">Daily Sales</div>
-<div class="page-subtitle">The day book â€” sales excluding tax, with tax recorded alongside. This is what revenue is counted from.</div>
+<div class="page-subtitle">The day book — sales excluding tax, with tax recorded alongside. This is what revenue is counted from.</div>
 <div id="daily-sales-content"></div>
 </div>
 
 <!-- SALES TAX PANEL -->
 <div id="panel-sales-tax" class="panel">
 <div class="page-title">Sales Tax</div>
-<div class="page-subtitle">Taxable and exempt sales for the quarter, with what was collected as a cross-check. Not income tax â€” see Tax Summary for that.</div>
+<div class="page-subtitle">Taxable and exempt sales for the quarter, with what was collected as a cross-check. Not income tax — see Tax Summary for that.</div>
 <div id="sales-tax-content"></div>
 </div>
 
 <!-- BULK IMPORT PANEL -->
 <div id="panel-import" class="panel">
 <div class="page-title">Bulk Import</div>
-<div class="page-subtitle">Paste bank or Amex statement â€” the engine will parse and stage transactions for review</div>
+<div class="page-subtitle">Paste bank or Amex statement — the engine will parse and stage transactions for review</div>
 <div class="staging-area">
-<h3>ðŸ“‹ Paste Statement</h3>
+<h3>📋 Paste Statement</h3>
 <div class="staging-controls">
 <div class="form-group" style="min-width:140px">
 <label>Source</label>
 <select id="import-source-sel" onchange="updateImportPlaceholder()">
-<option value="bank">ðŸ¦ Bank (Chase)</option>
-<option value="amex">ðŸ’³ Amex</option>
+<option value="bank">🏦 Bank (Chase)</option>
+<option value="amex">💳 Amex</option>
 </select>
 </div>
 <div class="form-group" style="min-width:120px">
@@ -174,15 +174,15 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">â† B
 </select>
 </div>
 <div style="align-self:flex-end;display:flex;gap:6px">
-<!-- NOT id="import-file" â€” that id already belongs to the JSON-restore input in
+<!-- NOT id="import-file" — that id already belongs to the JSON-restore input in
      the header, and a duplicate would make both buttons open the same picker. -->
-<button class="btn btn-outline" onclick="document.getElementById('statement-file').click()">ðŸ“‚ Upload file</button>
+<button class="btn btn-outline" onclick="document.getElementById('statement-file').click()">📂 Upload file</button>
 <input type="file" id="statement-file" accept=".csv,.tsv,.txt" style="display:none" onchange="loadStatementFile(event)">
-<button class="btn btn-gold" onclick="parseImport()">ðŸ” Parse & Stage</button>
+<button class="btn btn-gold" onclick="parseImport()">🔍 Parse & Stage</button>
 </div>
 </div>
 <p style="font-size:0.72rem;color:var(--mist);margin:-4px 0 8px">
-Upload the CSV straight from Chase or Amex â€” columns are matched by their header names, so their order doesn't matter. Or paste below.
+Upload the CSV straight from Chase or Amex — columns are matched by their header names, so their order doesn't matter. Or paste below.
 </p>
 <textarea id="import-text" placeholder="Paste bank statement TSV here..."></textarea>
 </div>
@@ -194,7 +194,7 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 <div class="page-title">Logic Trainer</div>
 <div class="page-subtitle">Create keyword rules to auto-categorize imported transactions</div>
 <div class="entry-form">
-<h3>âž• Add New Rule</h3>
+<h3>➕ Add New Rule</h3>
 <div class="form-row">
 <div class="form-group">
 <label>Keyword (contains)</label>
@@ -205,7 +205,7 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 <select id="rule-sign">
 <option value="any">Any</option>
 <option value="in">Money In (+)</option>
-<option value="out">Money Out (âˆ’)</option>
+<option value="out">Money Out (−)</option>
 </select>
 </div>
 <div class="form-group">
@@ -222,11 +222,11 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 </div>
 </div>
 <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:16px;">
-<h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">ðŸ“š Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
+<h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
 <div id="rules-list"></div>
 </div>
 <div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
-<strong>ðŸ”’ Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
+<strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
 </div>
 </div>
 
@@ -286,21 +286,21 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 <span style="font-size:0.72rem;color:var(--mist)">Items with price movement vs prior purchase</span>
 </div>
 <div id="ct-alerts-body">
-<div class="empty-state"><div class="empty-icon">ðŸŒ±</div>No invoices processed yet â€” upload one to get started</div>
+<div class="empty-state"><div class="empty-icon">🌱</div>No invoices processed yet — upload one to get started</div>
 </div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ’° Potential Margin</h3>
-<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Cost vs. your set retail price for the current period â€” not actual sales data, since BloomBooks doesn't have POS integration. This shows what margin you'd realize <em>if</em> everything sold at the retail price you've set.</p>
+<h3>💰 Potential Margin</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Cost vs. your set retail price for the current period — not actual sales data, since BloomBooks doesn't have POS integration. This shows what margin you'd realize <em>if</em> everything sold at the retail price you've set.</p>
 <div id="ct-margin-body"></div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ“Š Budget Baseline</h3>
-<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Compares the selected period's spend against the historical average for that same calendar month in prior years â€” accounts for seasonality automatically as more history builds up.</p>
+<h3>📊 Budget Baseline</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Compares the selected period's spend against the historical average for that same calendar month in prior years — accounts for seasonality automatically as more history builds up.</p>
 <div id="ct-budget-body"></div>
 </div>
 <div class="chart-wrap">
-<h3>âš ï¸ Stale Margins</h3>
+<h3>⚠️ Stale Margins</h3>
 <p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Items where cost has moved since you last set a retail price, but the retail price hasn't been updated to match.</p>
 <div id="ct-stale-margin-body"></div>
 </div>
@@ -318,7 +318,7 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 <input type="date" id="ct-inv-date-end" onchange="ctInvoiceFiltersChanged()" title="To date" style="font-size:0.78rem;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)">
 </div>
 <div id="ct-invoice-list">
-<div class="empty-state"><div class="empty-icon">ðŸ“„</div>No invoices yet</div>
+<div class="empty-state"><div class="empty-icon">📄</div>No invoices yet</div>
 </div>
 <div id="ct-invoice-pagination" style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:12px;font-size:0.78rem"></div>
 </div>
@@ -327,15 +327,15 @@ Upload the CSV straight from Chase or Amex â€” columns are matched by their
 <!-- COST TRACKER: UPLOAD -->
 <div id="panel-ct-upload" class="panel">
 <div class="page-title">Invoice Upload</div>
-<div class="page-subtitle">Upload a PDF or photo â€” Claude will extract line items automatically</div>
+<div class="page-subtitle">Upload a PDF or photo — Claude will extract line items automatically</div>
 <div class="ct-upload-zone" id="ct-drop-zone" onclick="document.getElementById('ct-file-input').click()"
 ondragover="event.preventDefault();this.classList.add('drag')"
 ondragleave="this.classList.remove('drag')"
 ondrop="ctHandleDrop(event)">
-<div class="upload-icon">ðŸ“„</div>
+<div class="upload-icon">📄</div>
 <strong>Click to upload or drag and drop</strong>
-<p>PDF invoices or photos (JPG, PNG) â€” select multiple at once from any supplier</p>
-<p style="font-size:0.72rem;margin-top:6px">Juliet Â· DVFlora Â· Main Â· Perri Â· Accent Decor Â· and more</p>
+<p>PDF invoices or photos (JPG, PNG) — select multiple at once from any supplier</p>
+<p style="font-size:0.72rem;margin-top:6px">Juliet · DVFlora · Main · Perri · Accent Decor · and more</p>
 </div>
 <input type="file" id="ct-file-input" accept=".pdf,.jpg,.jpeg,.png" multiple style="display:none" onchange="ctHandleFile(event)">
 <div id="ct-parse-area"></div>
@@ -346,30 +346,30 @@ ondrop="ctHandleDrop(event)">
 <div class="page-title">Gmail Scan</div>
 <div class="page-subtitle">Invoices scanned from wecare@ by Apps Script, reviewed here before they hit your cost data</div>
 <div class="chart-wrap">
-<h3>âš™ï¸ Setup</h3>
+<h3>⚙️ Setup</h3>
 <div class="form-group" style="margin-bottom:10px;">
 <label style="font-size:0.75rem;color:var(--mist)">Google Sheet ID (from the sheet's URL, between /d/ and /edit)</label>
 <input type="text" id="ct-gmail-sheetid" placeholder="e.g. 1AbCdEfGhIjKlMnOpQrStUvWxYz" style="width:100%">
 </div>
 <div class="form-group" style="margin-bottom:10px;">
-<label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec â€” used for manual invoice uploads)</label>
+<label style="font-size:0.75rem;color:var(--mist)">Apps Script Web App URL (ends in /exec — used for manual invoice uploads)</label>
 <input type="text" id="ct-appsscript-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
 </div>
 <button class="btn btn-outline btn-sm" onclick="ctSaveGmailSettings()">Save Connection Settings</button>
 <div id="ct-gmail-sheet-status" style="font-size:0.72rem;color:var(--mist);margin-top:8px"></div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ—„ï¸ Cost Tracker Data</h3>
+<h3>🗄️ Cost Tracker Data</h3>
 <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
-Manually uploaded invoices exist only here â€” there's no other copy. Gmail-scanned invoices can always be re-pulled from the Sheet, so resetting is lower-risk for those.
+Manually uploaded invoices exist only here — there's no other copy. Gmail-scanned invoices can always be re-pulled from the Sheet, so resetting is lower-risk for those.
 </p>
 <button class="btn btn-outline btn-sm" onclick="ctExportBackup()">Download Backup (JSON)</button>
 <button class="btn btn-outline btn-sm" onclick="ctResetCostData()" style="color:var(--red);border-color:var(--red)">Reset Cost Data</button>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ”€ Merge Duplicate Suppliers</h3>
+<h3>🔀 Merge Duplicate Suppliers</h3>
 <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
-Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). Pick the duplicate and the name it should become â€” this permanently rewrites every existing invoice, all at once.
+Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). Pick the duplicate and the name it should become — this permanently rewrites every existing invoice, all at once.
 </p>
 <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
 <div class="form-group" style="margin:0;min-width:200px">
@@ -384,14 +384,14 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 </div>
 </div>
 <div class="chart-wrap">
-<h3>ðŸ’² Retail Markup by Category</h3>
-<p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost Ã— markup. Only used to flag items whose stored retail price no longer matches.</p>
+<h3>💲 Retail Markup by Category</h3>
+<p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">Suggested retail = cost × markup. Only used to flag items whose stored retail price no longer matches.</p>
 <div id="ct-markup-inputs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px"></div>
 <button class="btn btn-outline btn-sm" onclick="ctSaveMarkup()">Save Markup</button>
 </div>
 <div class="chart-wrap">
 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-<h3 style="margin-bottom:0">ðŸ“¬ Scan Results</h3>
+<h3 style="margin-bottom:0">📬 Scan Results</h3>
 <button class="btn btn-primary btn-sm" onclick="ctFetchGmailInvoices()">Check Now</button>
 </div>
 <div id="ct-gmail-last-checked" style="font-size:0.72rem;color:var(--mist);margin-top:6px"></div>
@@ -404,7 +404,7 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <div class="page-title">Price History</div>
 <div class="page-subtitle">Track unit prices per item across suppliers and time</div>
 <div style="margin-bottom:14px">
-<input type="text" id="ct-price-search" placeholder="ðŸ” Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
+<input type="text" id="ct-price-search" placeholder="🔍 Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
 </div>
 <div id="ct-price-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
 <select id="ct-price-cat" style="display:none"><option value="all">All Categories</option></select>
@@ -428,7 +428,7 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <input type="date" id="ct-price-end" onchange="renderCtPrices()" style="display:none" placeholder="To">
 </div>
 <div id="ct-prices-body">
-<div class="empty-state"><div class="empty-icon">ðŸ’</div>No price data yet â€” upload an invoice to populate</div>
+<div class="empty-state"><div class="empty-icon">💐</div>No price data yet — upload an invoice to populate</div>
 </div>
 </div>
 
