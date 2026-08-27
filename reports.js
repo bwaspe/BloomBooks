@@ -153,6 +153,226 @@ const HOLIDAYS = [
   { key: 'other',      label: "Other Holiday",      month: -1 },
 ];
 
+
+// ============================================================
+// WHAT A HOLIDAY COST
+// ============================================================
+// The revenue side of a holiday has been tracked for a while. The cost side
+// needs two different sources, and showing both is the point rather than a
+// hedge: invoices say WHAT was bought, bank payments say how much actually
+// went out. Where they disagree, the invoices are incomplete -- which is the
+// normal state for a holiday whose paperwork went astray, and worth seeing
+// plainly instead of reading a low cost as a good margin.
+//
+// The buying window is adjustable rather than fixed. Pre-books are placed well
+// before a holiday and are not always invoiced then, so no single number is
+// right; the payments show the buy ramping from roughly three weeks out.
+
+// The Sunday-based rules already used by the revenue side.
+function hcHolidayDate(year, month) {
+  if (month === 1) return new Date(Date.UTC(year, 1, 14));
+  if (month === 4) {                                  // second Sunday in May
+    const d = new Date(Date.UTC(year, 4, 1));
+    let n = 0;
+    while (true) {
+      if (d.getUTCDay() === 0 && ++n === 2) return new Date(d);
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+  }
+  if (month === 10) {                                 // fourth Thursday in Nov
+    const d = new Date(Date.UTC(year, 10, 1));
+    let n = 0;
+    while (true) {
+      if (d.getUTCDay() === 4 && ++n === 4) return new Date(d);
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+  }
+  if (month === 11) return new Date(Date.UTC(year, 11, 25));
+  if (month === 3 && typeof easterSunday === 'function') return easterSunday(year);
+  return null;
+}
+
+function hcWindowDays() {
+  const n = parseInt(localStorage.getItem('bb_hc_days') || '', 10);
+  return [7, 14, 21, 28].indexOf(n) >= 0 ? n : 21;
+}
+
+function hcSetWindow(n) {
+  try { localStorage.setItem('bb_hc_days', String(n)); } catch (e) {}
+  renderHolidayPanel();
+}
+
+function hcWindow(year, month) {
+  const day = hcHolidayDate(year, month);
+  if (!day) return null;
+  const iso = d => d.toISOString().slice(0, 10);
+  const from = new Date(day.getTime() - hcWindowDays() * 864e5);
+  return { from: iso(from), to: iso(day) };
+}
+
+// Invoices dated into the window, and what they were for.
+function hcInvoiceCost(year, month) {
+  const w = hcWindow(year, month);
+  if (!w || typeof ctData === 'undefined' || !ctData.invoices) return null;
+  const eff = i => (i.deliveryDate || i.date || '');
+  const hit = ctData.invoices.filter(i => eff(i) >= w.from && eff(i) <= w.to);
+  const byCat = {}, items = [];
+  let total = 0;
+  hit.forEach(inv => {
+    total += inv.total || 0;
+    (inv.items || []).forEach(it => {
+      const line = typeof ctLineTotal === 'function' ? ctLineTotal(it)
+                 : (it.total != null ? it.total : (it.qty || 0) * (it.unitPrice || 0));
+      byCat[it.category || 'Other'] = (byCat[it.category || 'Other'] || 0) + line;
+      items.push({ name: it.name, qty: it.qty, uom: it.uom,
+                   unit: typeof ctEffectiveUnit === 'function' ? ctEffectiveUnit(it) : it.unitPrice,
+                   total: line, supplier: inv.supplier, date: eff(inv) });
+    });
+  });
+  items.sort((a, b) => b.total - a.total);
+  return { total, byCat, items, invoices: hit.length, window: w };
+}
+
+// What actually left the bank in the same window. Independent of any invoice,
+// so it still answers for a holiday whose paperwork was never captured.
+function hcPaidInWindow(year, month) {
+  const w = hcWindow(year, month);
+  if (!w) return null;
+  let total = 0, n = 0;
+  const by = {};
+  Object.keys((appData.transactions) || {}).forEach(k => {
+    (appData.transactions[k] || []).forEach(t => {
+      if (t._vault || t.type !== 'out' || !t.date) return;
+      if (t.category !== 'Supplies & Materials - COGS') return;
+      if (t.date < w.from || t.date > w.to) return;
+      total += t.amount; n++;
+      const v = (t.vendor || t.desc || '?').slice(0, 30);
+      by[v] = (by[v] || 0) + t.amount;
+    });
+  });
+  return { total, count: n, by, window: w };
+}
+
+let hcOpen = null;
+function hcToggle(key) { hcOpen = (hcOpen === key ? null : key); renderHolidayPanel(); }
+
+function hcCostHtml() {
+  const years = appData.years.slice().sort((a, b) => b - a);
+  const days = hcWindowDays();
+  const rows = [];
+  years.forEach(yr => {
+    HOLIDAYS.forEach(h => {
+      if (h.month === -1) return;
+      const w = hcWindow(yr, h.month);
+      if (!w) return;
+      const paid = hcPaidInWindow(yr, h.month);
+      const inv = hcInvoiceCost(yr, h.month);
+      if (!paid.count && (!inv || !inv.invoices)) return;
+      const key = `${yr}-${h.month}`;
+      const rev = (appData.holidays || {})[key] || 0;
+      rows.push({ yr, h, key, w, paid, inv, rev });
+    });
+  });
+  if (!rows.length) return '';
+
+  return `
+    <div class="ledger-wrap" style="margin-top:18px">
+      <div class="ledger-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0">What the holiday cost</h3>
+        <span style="font-size:0.75rem;color:var(--mist)">buying window:</span>
+        ${[7, 14, 21, 28].map(n => `
+          <button class="btn btn-sm ${n === days ? 'btn-primary' : 'btn-outline'}"
+                  style="font-size:0.7rem;padding:2px 8px" onclick="hcSetWindow(${n})">${n}d</button>`).join('')}
+        <span style="font-size:0.7rem;color:var(--mist)">
+          Invoices say what was bought; payments say what left the bank. A gap between
+          them means the invoices for that holiday are incomplete, not that it was cheap.
+        </span>
+      </div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr>
+            <th>Holiday</th><th style="text-align:right">Revenue</th>
+            <th style="text-align:right">Invoiced</th><th style="text-align:right">Paid out</th>
+            <th style="text-align:right">Cost of revenue</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const invTot = r.inv ? r.inv.total : 0;
+              const pct = r.rev ? (r.paid.total / r.rev * 100) : 0;
+              const gap = r.paid.total - invTot;
+              return `
+              <tr class="clickable-row" onclick="hcToggle('${r.key}')" style="cursor:pointer">
+                <td><strong>${escHtml(r.h.label)} ${r.yr}</strong>
+                  <div style="font-size:0.68rem;color:var(--mist)">${r.w.from} to ${r.w.to}</div></td>
+                <td style="text-align:right">${r.rev ? fmt(r.rev) : '—'}</td>
+                <td style="text-align:right">${invTot ? fmt(invTot) : '—'}
+                  <div style="font-size:0.68rem;color:${gap > 1 ? 'var(--red)' : 'var(--mist)'}">
+                    ${gap > 1
+                      ? fmt(gap) + ' not invoiced'
+                      : (r.inv ? r.inv.invoices : 0) + ' invoice' + (r.inv && r.inv.invoices === 1 ? '' : 's')}
+                  </div></td>
+                <td style="text-align:right" class="amount-out">${fmt(r.paid.total)}
+                  <div style="font-size:0.68rem;color:var(--mist)">${r.paid.count} payments</div></td>
+                <td style="text-align:right">${r.rev ? pct.toFixed(0) + '%' : '—'}</td>
+                <td style="text-align:right;font-size:0.75rem;color:var(--blue-light)">
+                  ${hcOpen === r.key ? 'hide' : 'detail'}</td>
+              </tr>
+              ${hcOpen === r.key ? `
+                <tr><td colspan="6" style="background:var(--paper);padding:12px 16px">
+                  ${gap > 1 ? `<div style="font-size:0.75rem;color:var(--red);margin-bottom:8px">
+                    ${fmt(gap)} was paid out with no invoice behind it in this window —
+                    the detail below is only the part that was captured.</div>` : ''}
+                  <div style="display:flex;gap:24px;flex-wrap:wrap">
+                    <div style="min-width:230px">
+                      <strong style="font-size:0.75rem">Paid, by supplier</strong>
+                      <table style="width:100%;font-size:0.74rem;margin-top:4px">
+                        ${Object.keys(r.paid.by).sort((a,b)=>r.paid.by[b]-r.paid.by[a]).map(v => `
+                          <tr><td>${escHtml(v)}</td>
+                              <td style="text-align:right">${fmt(r.paid.by[v])}</td></tr>`).join('')}
+                      </table>
+                    </div>
+                    ${r.inv && r.inv.items.length ? `
+                    <div style="min-width:200px">
+                      <strong style="font-size:0.75rem">Invoiced, by category</strong>
+                      <table style="width:100%;font-size:0.74rem;margin-top:4px">
+                        ${Object.keys(r.inv.byCat).sort((a,b)=>r.inv.byCat[b]-r.inv.byCat[a]).map(c => `
+                          <tr><td>${escHtml(c)}</td>
+                              <td style="text-align:right">${fmt(r.inv.byCat[c])}</td></tr>`).join('')}
+                      </table>
+                    </div>` : ''}
+                  </div>
+                  ${r.inv && r.inv.items.length ? `
+                    <strong style="font-size:0.75rem;display:block;margin-top:12px">
+                      What was bought — ${r.inv.items.length} lines</strong>
+                    <div style="max-height:280px;overflow:auto;margin-top:4px">
+                      <table style="width:100%;font-size:0.74rem">
+                        <thead><tr style="color:var(--mist)">
+                          <th style="text-align:left">Item</th><th style="text-align:right">Qty</th>
+                          <th style="text-align:right">Unit</th><th style="text-align:right">Total</th>
+                          <th style="text-align:left">Supplier</th><th style="text-align:left">Date</th>
+                        </tr></thead>
+                        <tbody>
+                          ${r.inv.items.map(it => `
+                            <tr><td>${escHtml(String(it.name).slice(0, 38))}</td>
+                                <td style="text-align:right">${it.qty} ${escHtml(it.uom || '')}</td>
+                                <td style="text-align:right">${fmt(it.unit || 0)}</td>
+                                <td style="text-align:right">${fmt(it.total)}</td>
+                                <td>${escHtml(String(it.supplier || '').slice(0, 20))}</td>
+                                <td>${escHtml(it.date)}</td></tr>`).join('')}
+                        </tbody>
+                      </table>
+                    </div>`
+                  : `<div style="font-size:0.75rem;color:var(--mist);margin-top:10px">
+                       No invoices captured in this window, so there is no line-item detail —
+                       only what left the bank.</div>`}
+                </td></tr>` : ''}`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderHolidayPanel() {
   const el = document.getElementById('holiday-content');
   if (!appData.holidays) appData.holidays = {};
@@ -204,7 +424,8 @@ function renderHolidayPanel() {
           </tr>
         </tbody>
       </table>
-    </div>`;
+    </div>
+    ${hcCostHtml()}`;
 }
 
 function saveHoliday(key, val) {
