@@ -272,9 +272,8 @@ function ctBuildUploadCardHtml(p, idx) {
     const priceFlag = ctPriceFlag(ctEffectiveUnit(item), item.priorPrice);
     const disc = ctLineDiscount(item);
     const pack = ctPackMultiplier(item);
-    const stemsInput = item.uom === 'Bunch'
-      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
-      : '';
+    const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
+      `ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)`);
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}${pack ? `
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
@@ -356,6 +355,7 @@ function ctUpdateUploadStemsPerBu(idx, itemIdx, val) {
   if (!item) return;
   const num = parseInt(val);
   item.stemsPerBu = (num && num > 0) ? num : null;
+  ctRenderUploadArea();
 }
 
 function ctUpdateUploadDeliveryDate(idx, dateVal) {
@@ -428,6 +428,25 @@ function ctPackMultiplier(item) {
 // per unit, derived from the line total rather than read off the price column.
 // Nothing is rewritten -- it comes from fields already stored, so invoices
 // saved under either convention line up, past ones included.
+// The units-per-line box was shown ONLY on a Bunch line, so a box of 16 bunches
+// had nowhere to record the 16 -- which is precisely the line that needs it, and
+// why the alstroemeria box kept coming back wrong however often it was
+// re-uploaded. On a pack unit the number means units per pack and the line is
+// worth that many times the unit price; on a Bunch it means stems per bunch and
+// changes nothing about the money. Same field, two jobs, so the label says which.
+function ctUnitsInput(uom, value, handler) {
+  const u = String(uom || '');
+  const pack = CT_PACK_UNITS.test(u);
+  if (u !== 'Bunch' && !pack) return '';
+  const label = pack ? 'per ' + u.toLowerCase() : 'stems/bu';
+  const title = pack
+    ? 'How many units in one ' + u.toLowerCase() + ' — the line is worth that many times the unit price'
+    : 'Stems per bunch, if known — enables per-stem pricing';
+  return '<input type="number" min="1" placeholder="' + label + '" value="' + (value || '') +
+         '" onchange="' + handler + '" style="font-size:0.7rem;padding:2px 4px;width:66px" title="' +
+         title + '">';
+}
+
 function ctPackUnits(item) {
   const per = Number(item.stemsPerBu) || 0;
   return (per > 1 && CT_PACK_UNITS.test(String(item.uom || ''))) ? per : 1;
@@ -1315,9 +1334,8 @@ function ctBuildGmailCardHtml(inv, invIdx) {
         </div>
       </div>`;
     }
-    const stemsInput = item.uom === 'Bunch'
-      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
-      : '';
+    const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
+      `ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)`);
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
       <div class="ct-item-meta">${item.qty} ${item.uom}${stemsInput ? ' '+stemsInput : ''}</div>
@@ -2383,7 +2401,7 @@ function ctRenderEditInvoice() {
   const inv = window._ctEditingInvoice;
 
   const activeItems = inv.items.filter(i => !i.removed);
-  const itemsTotal = activeItems.reduce((s,i)=>s+(i.total || i.qty*i.unitPrice), 0);
+  const itemsTotal = activeItems.reduce((s,i)=>s+ctLineTotal(i), 0);
   const deliveryFee = inv.deliveryFee || 0;
   const runningTotal = itemsTotal + deliveryFee;
 
@@ -2396,11 +2414,14 @@ function ctRenderEditInvoice() {
         </div>
       </div>`;
     }
-    const stemsInput = item.uom === 'Bunch'
-      ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctEditUpdateStemsPerBu(${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px">`
-      : '';
+    const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
+      `ctEditUpdateStemsPerBu(${i}, this.value)`);
     return `<div class="ct-item-row">
-      <div class="ct-item-name"><input type="text" value="${escHtml(item.name)}" onchange="ctEditUpdateItemField(${i}, 'name', this.value)" style="font-size:0.82rem;border:none;background:transparent;width:100%"></div>
+      <div class="ct-item-name"><input type="text" value="${escHtml(item.name)}" onchange="ctEditUpdateItemField(${i}, 'name', this.value)" style="font-size:0.82rem;border:none;background:transparent;width:100%">${ctPackMultiplier(item) ? `
+        <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
+          ${ctPackMultiplier(item)} per ${escHtml(item.uom)} — line should be $${((item.qty || 0) * ctPackMultiplier(item) * ctUnitPrice(item)).toFixed(2)}
+          <button onclick="ctEditApplyPack(${i})" style="border:none;background:none;color:var(--blue-light);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
+        </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
         <select onchange="ctEditUpdateItemField(${i}, 'uom', this.value)" style="font-size:0.75rem">
@@ -2417,9 +2438,12 @@ function ctRenderEditInvoice() {
         <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family||'')}" onchange="ctEditUpdateItemField(${i}, 'family', this.value)" style="font-size:0.75rem;padding:4px 6px;width:110px">
       </div>
       <div class="ct-item-price">
-        <input type="number" step="0.01" min="0" value="${item.unitPrice}" onchange="ctEditUpdateItemField(${i}, 'unitPrice', this.value)" style="width:65px;font-size:0.78rem">
+        <input type="number" step="0.01" min="0" value="${item.unitPrice}" onchange="ctEditUpdateItemField(${i}, 'unitPrice', this.value)" style="width:62px;font-size:0.78rem">
+        <span style="white-space:nowrap;font-size:0.68rem;color:${ctLineDiscount(item) ? 'var(--red)' : 'var(--mist)'}">
+          <input type="number" step="0.1" min="0" max="99.9" value="${ctLineDiscount(item) ? ctLineDiscount(item).toFixed(1) : ''}" placeholder="0" onchange="ctEditUpdateItemDiscount(${i}, this.value)" style="font-size:0.68rem;padding:1px 3px;width:42px" title="Discount %">% off</span>
       </div>
-      <div class="ct-item-total" style="color:var(--mist)">$${(item.qty*item.unitPrice).toFixed(2)}
+      <div class="ct-item-total">
+        $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctEditUpdateItemTotal(${i}, this.value)" style="width:72px;font-size:0.78rem;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctEditRemoveItem(${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
       </div>
     </div>`;
@@ -2460,13 +2484,57 @@ function ctEditUpdateField(field, val) {
   ctRenderEditInvoice();
 }
 
+// The same rules as the review card, reached through the same helpers. This
+// editor used to keep its own arithmetic, and the two disagreed: line totals
+// recomputed from qty x price while the invoice total went on reading the
+// stored figure, so correcting a quantity from 5 to 200 changed the line and
+// left the total untouched -- which reads as the edit not working.
 function ctEditUpdateItemField(idx, field, val) {
   const item = window._ctEditingInvoice?.items[idx];
   if (!item) return;
-  if (field === 'qty' || field === 'unitPrice') item[field] = parseFloat(val) || 0;
-  else item[field] = val;
-  if (field === 'category') ctLearnCategory(item.name, val);
-  if (field === 'family' && val) ctLearnFamily(item.name, val);
+  if (field === 'qty' || field === 'unitPrice') {
+    const n = parseFloat(val);
+    if (!Number.isFinite(n) || n < 0) return;
+    // A price change preserves whatever the total-to-gross ratio was, discount
+    // or pack multiplier alike. A quantity change preserves only a discount,
+    // because correcting a quantity is usually correcting an error and should
+    // land on the printed figure rather than multiplying the mistake again.
+    const keep = field === 'unitPrice' ? ctLineRatio(item)
+                                       : 1 - ctLineDiscount(item) / 100;
+    item[field] = n;
+    item.total = (item.qty || 0) * ctUnitPrice(item) * keep;
+  } else {
+    item[field] = val;
+    if (field === 'category') ctLearnCategory(item.name, val);
+    if (field === 'family' && val) ctLearnFamily(item.name, val);
+  }
+  ctRenderEditInvoice();
+}
+
+function ctEditApplyPack(idx) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  const per = ctPackMultiplier(item);
+  if (!per) return;
+  item.total = (item.qty || 0) * per * ctUnitPrice(item);
+  ctRenderEditInvoice();
+}
+
+function ctEditUpdateItemDiscount(idx, val) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  const n = val === '' ? 0 : parseFloat(val);
+  if (!Number.isFinite(n) || n < 0 || n >= 100) return;
+  item.total = (item.qty || 0) * ctUnitPrice(item) * (1 - n / 100);
+  ctRenderEditInvoice();
+}
+
+function ctEditUpdateItemTotal(idx, val) {
+  const item = window._ctEditingInvoice?.items[idx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) return;
+  item.total = n;
   ctRenderEditInvoice();
 }
 
@@ -2475,6 +2543,7 @@ function ctEditUpdateStemsPerBu(idx, val) {
   if (!item) return;
   const num = parseInt(val);
   item.stemsPerBu = (num && num > 0) ? num : null;
+  ctRenderEditInvoice();
 }
 
 function ctEditRemoveItem(idx) {
@@ -2510,11 +2579,15 @@ function ctSaveEditedInvoice() {
   const idx = ctData.invoices.findIndex(i => i.id === editing.id);
   if (idx === -1) return;
 
-  const itemsTotal = active.reduce((s,i)=>s+(i.qty*i.unitPrice), 0);
+  // Keep each line total as it stands. Rebuilding them from qty x price here
+  // silently wiped every discount and every pack multiplier on the invoice --
+  // so fixing one wrong quantity cost all the corrections made to the rest.
+  const itemsTotal = active.reduce((s,i)=>s+ctLineTotal(i), 0);
   editing.total = itemsTotal + (editing.deliveryFee || 0);
   editing.items = active.map(i => ({
     name: i.name, category: i.category, family: i.family || '', qty: i.qty, uom: i.uom,
-    unitPrice: i.unitPrice, stemsPerBu: i.stemsPerBu || null, total: i.qty * i.unitPrice
+    unitPrice: i.unitPrice, stemsPerBu: i.stemsPerBu || null,
+    discountPct: ctLineDiscount(i) || undefined, total: ctLineTotal(i)
   }));
 
   ctData.invoices[idx] = editing;
