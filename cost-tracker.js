@@ -12,7 +12,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Plants:'#27ae60', Glass
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Ceramic: 2, 'Other Containers': 2, 'Floral Care': 1.5, Funeral: 2, Packaging: 1.3, Ribbon: 2, 'Tools/Equipment': 1.5, 'Wedding/Event': 2, 'Add-on Retail': 1.8, Seasonal: 2.2, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [] };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {} };
 let ctCharts = {};
 
 function ctSave() {
@@ -21,7 +21,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -414,7 +414,7 @@ function ctGetPriorPrice(itemName, supplierName) {
   // Look for last recorded price from same supplier for same item
   for (let i = ctData.invoices.length - 1; i >= 0; i--) {
     const inv = ctData.invoices[i];
-    if (inv.supplier !== supplierName) continue;
+    if (!ctSameSupplierStrong(inv.supplier, supplierName)) continue;
     const match = inv.items.find(it => ctCatalogKey(it.name) === key);
     if (match) return match.unitPrice;
   }
@@ -460,7 +460,7 @@ function ctSaveUploadInvoice(idx) {
     date: parsed.date || new Date().toISOString().slice(0,10),
     deliveryDate: p.deliveryDate || null,
     deliveryFee,
-    supplier: parsed.supplier || 'Unknown',
+    supplier: ctCanonicalSupplier(parsed.supplier),
     invoiceNumber: parsed.invoice_number || filename,
     total: useTotal,
     items: active.map(i => ({
@@ -526,6 +526,8 @@ function renderCtGmailPanel() {
       </div>`).join('');
   }
 
+  renderCtSupplierSuggestions();
+
   const mergeFrom = document.getElementById('ct-merge-from');
   const mergeTo = document.getElementById('ct-merge-to');
   if (mergeFrom && mergeTo) {
@@ -566,23 +568,180 @@ function ctExportBackup() {
   notify('Cost tracker backup downloaded');
 }
 
+// ============================================================
+// SUPPLIER NAMES
+// ============================================================
+// The parser reads the supplier off whatever the invoice header happens to say,
+// and that wording moves -- 'Main Wholesale Florist NY' one week, 'MAIN
+// WHOLESALE FLORIST' the next, 'DV Flora' against 'DVFlora'. Each variant
+// became a separate supplier with its own price history and its own slice of
+// every chart.
+//
+// Merging by hand fixed the invoices already saved and recorded NOTHING, so the
+// next invoice recreated the variant and it had to be merged again. That is the
+// reason it never stopped. Two changes: a name is resolved to one already known
+// before an invoice is saved, and every merge is remembered so that pairing
+// holds for good.
+
+const CT_SUPPLIER_NOISE = /\b(inc|llc|ltd|co|corp|company|the|and|of|wholesale|florist|florists|floral|flower|flowers|supply|supplies|greenhouse|greenhouses|nursery|farm|farms|imports?|distributors?|group|usa|ny|nj|ct|pa)\b/g;
+
+const ctSupplierNorm = s =>
+  String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+// 'DV Flora' and 'DVFlora' differ only by a space, which no token rule catches.
+const ctSupplierSquash = s => ctSupplierNorm(s).replace(/ /g, '');
+
+// What is left once the words every florist's name contains are removed. A
+// trailing 's' goes too, so Greenhouse and Greenhouses are one word.
+function ctSupplierCore(s) {
+  return new Set(ctSupplierNorm(s).replace(CT_SUPPLIER_NOISE, ' ')
+    .split(/\s+/).filter(w => w.length >= 3).map(w => w.replace(/s$/, '')));
+}
+
+const ctSetsEqual = (a, b) => a.size === b.size && a.size > 0 && [...a].every(x => b.has(x));
+
+// Safe enough to apply without asking: the distinctive part of the name is
+// identical, only the boilerplate around it differs.
+function ctSameSupplierStrong(a, b) {
+  if (!a || !b) return false;
+  if (ctSupplierNorm(a) === ctSupplierNorm(b)) return true;
+  if (ctSupplierSquash(a) === ctSupplierSquash(b)) return true;
+  return ctSetsEqual(ctSupplierCore(a), ctSupplierCore(b));
+}
+
+// Looser: one name's distinctive words are a subset of the other's. Good enough
+// to SUGGEST, never to apply silently -- 'Main Wholesale' and 'Main St Nursery'
+// would both reduce to {main}, and merging those would fuse two real suppliers
+// and their price histories with no way back.
+function ctSameSupplierLikely(a, b) {
+  if (ctSameSupplierStrong(a, b)) return true;
+  const A = ctSupplierCore(a), B = ctSupplierCore(b);
+  if (!A.size || !B.size) return false;
+  const [small, big] = A.size <= B.size ? [A, B] : [B, A];
+  return [...small].every(x => big.has(x)) && [...small].some(x => x.length >= 4);
+}
+
+function ctSupplierAliases() {
+  if (!ctData.supplierAliases) ctData.supplierAliases = {};
+  return ctData.supplierAliases;
+}
+
+// Resolve a freshly parsed name to one already in use. Every invoice-creating
+// path runs through this, so a variant never gets in rather than being cleaned
+// up afterwards.
+function ctCanonicalSupplier(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return 'Unknown';
+  const learned = ctSupplierAliases()[ctSupplierNorm(raw)];
+  if (learned) return learned;
+  // Prefer the spelling already used most, so the winner is stable rather than
+  // whichever invoice happens to sit first in the array.
+  const counts = {};
+  ctData.invoices.forEach(i => { if (i.supplier) counts[i.supplier] = (counts[i.supplier] || 0) + 1; });
+  const known = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  for (const k of known) {
+    if (k !== raw && ctSameSupplierStrong(k, raw)) return k;
+  }
+  return raw;
+}
+
+// Pairs worth offering to merge: distinct names that are probably one supplier.
+function ctSupplierSuggestions() {
+  const counts = {};
+  ctData.invoices.forEach(i => { if (i.supplier) counts[i.supplier] = (counts[i.supplier] || 0) + 1; });
+  const names = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const out = [];
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      if (ctSameSupplierLikely(names[i], names[j])) {
+        // The more-used spelling survives, so the merge moves the fewest rows.
+        out.push({ keep: names[i], drop: names[j],
+                   keepCount: counts[names[i]], dropCount: counts[names[j]],
+                   strong: ctSameSupplierStrong(names[i], names[j]) });
+      }
+    }
+  }
+  return out;
+}
+
+function ctApplySuggestion(keep, drop) {
+  ctMergeSupplierNames(drop, keep, true);
+}
+
+// The shared body: rename, then REMEMBER, which is the part that was missing.
+function ctMergeSupplierNames(fromName, toName, skipConfirm) {
+  if (!fromName || !toName || fromName === toName) return false;
+  const count = ctData.invoices.filter(i => i.supplier === fromName).length;
+  if (!skipConfirm && count === 0) { notify(`No invoices found under "${fromName}"`); return false; }
+  if (!skipConfirm && !confirm(
+      `This will permanently rename ${count} invoice${count !== 1 ? 's' : ''} from "${fromName}" to "${toName}". This can't be automatically undone. Continue?`)) return false;
+
+  ctData.invoices.forEach(inv => { if (inv.supplier === fromName) inv.supplier = toName; });
+  // Without this line the next invoice from that supplier recreates the variant
+  // and the merge has to be done again -- which is what kept happening.
+  ctSupplierAliases()[ctSupplierNorm(fromName)] = toName;
+  ctSave();
+  notify(`Merged "${fromName}" into "${toName}" — ${count} invoice${count !== 1 ? 's' : ''} updated, and remembered`);
+  renderCtGmailPanel();
+  renderCtDashboard();
+  renderCtPrices();
+  return true;
+}
+
+function renderCtSupplierSuggestions() {
+  const el = document.getElementById('ct-supplier-suggestions');
+  if (!el) return;
+  const pairs = ctSupplierSuggestions();
+  const learned = Object.keys(ctSupplierAliases()).length;
+  const footer = learned
+    ? `<div style="font-size:0.72rem;color:var(--mist);margin-top:8px">
+         ${learned} pairing${learned === 1 ? '' : 's'} remembered — new invoices under those names are filed
+         automatically. <a href="#" onclick="ctForgetSupplierAliases();return false"
+         style="color:var(--blue-light)">Forget them</a>.</div>`
+    : '';
+
+  if (!pairs.length) {
+    el.innerHTML = `<div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+      No supplier names look like duplicates right now.${footer}</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff3cd;border:1px solid #ffc107">
+      <strong style="font-size:0.8rem">${pairs.length === 1
+        ? 'One name looks like a duplicate'
+        : pairs.length + ' names look like duplicates'}</strong>
+      <div style="font-size:0.72rem;color:var(--ink-soft);margin:2px 0 8px">
+        The more-used spelling is kept, so the fewest invoices move. Check each one —
+        two real suppliers can share a word.
+      </div>
+      ${pairs.map(p => `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0">
+          <button class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:3px 10px"
+                  onclick="ctApplySuggestion(${JSON.stringify(p.keep).replace(/"/g, '&quot;')}, ${JSON.stringify(p.drop).replace(/"/g, '&quot;')})">Merge</button>
+          <span style="font-size:0.76rem">
+            <strong>${escHtml(p.drop)}</strong> <span style="color:var(--mist)">(${p.dropCount})</span>
+            → <strong>${escHtml(p.keep)}</strong> <span style="color:var(--mist)">(${p.keepCount})</span>
+          </span>
+          ${p.strong ? '' : '<span style="font-size:0.68rem;color:var(--mist)">· partial match, check it</span>'}
+        </div>`).join('')}
+      ${footer}
+    </div>`;
+}
+
+function ctForgetSupplierAliases() {
+  ctData.supplierAliases = {};
+  ctSave();
+  renderCtGmailPanel();
+  notify('Supplier pairings forgotten');
+}
+
 function ctMergeSuppliers() {
   const fromName = document.getElementById('ct-merge-from')?.value;
   const toName = document.getElementById('ct-merge-to')?.value;
   if (!fromName || !toName) return;
   if (fromName === toName) { notify('Pick two different names to merge'); return; }
 
-  const count = ctData.invoices.filter(i => i.supplier === fromName).length;
-  if (count === 0) { notify(`No invoices found under "${fromName}"`); return; }
-
-  if (!confirm(`This will permanently rename ${count} invoice${count!==1?'s':''} from "${fromName}" to "${toName}". This can't be automatically undone. Continue?`)) return;
-
-  ctData.invoices.forEach(inv => { if (inv.supplier === fromName) inv.supplier = toName; });
-  ctSave();
-  notify(`Merged "${fromName}" into "${toName}" — ${count} invoice${count!==1?'s':''} updated`);
-  renderCtGmailPanel();
-  renderCtDashboard();
-  renderCtPrices();
+  ctMergeSupplierNames(fromName, toName);
 }
 
 function ctResetCostData() {
@@ -687,7 +846,7 @@ async function ctFetchGmailInvoices(silent) {
       candidates.push({
         messageId,
         vendor: r[iVendor] || '',
-        supplier: r[iSupplier] || r[iVendor] || 'Unknown',
+        supplier: ctCanonicalSupplier(r[iSupplier] || r[iVendor]),
         date: ctParseSheetsApiDate(r[iDate]),
         deliveryDate: rawDeliveryDate ? ctParseSheetsApiDate(rawDeliveryDate) : null,
         deliveryFee: iDeliveryFee >= 0 ? (parseFloat(r[iDeliveryFee]) || 0) : 0,
@@ -897,7 +1056,7 @@ function ctSaveGmailInvoice(invIdx) {
     date: pending.date,
     deliveryDate: pending.deliveryDate || null,
     deliveryFee,
-    supplier: pending.supplier,
+    supplier: ctCanonicalSupplier(pending.supplier),
     invoiceNumber: pending.invoiceNumber,
     total: useTotal,
     items: active.map(i => ({
@@ -1040,7 +1199,7 @@ function ctStartFromTemplate(id) {
     status: 'ready',
     filename: t.name,
     fromTemplate: true,
-    parsed: { supplier: t.supplier, date: today, invoice_number: '', total: null,
+    parsed: { supplier: ctCanonicalSupplier(t.supplier), date: today, invoice_number: '', total: null,
               items: enriched.map(i => ({ name: i.name, qty: i.qty, uom: i.uom, unit_price: i.unit_price })) },
     enriched,
     deliveryDate: today,
