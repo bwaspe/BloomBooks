@@ -12,7 +12,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Plants:'#27ae60', Glass
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Ceramic: 2, 'Other Containers': 2, 'Floral Care': 1.5, Funeral: 2, Packaging: 1.3, Ribbon: 2, 'Tools/Equipment': 1.5, 'Wedding/Event': 2, 'Add-on Retail': 1.8, Seasonal: 2.2, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {} };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {} };
 let ctCharts = {};
 
 function ctSave() {
@@ -21,7 +21,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -1681,23 +1681,40 @@ function ctCogsPayments() {
 // payment of 660.92 was four of them -- so try combinations, smallest first.
 // Stops at four: beyond that, with enough invoices in the window some
 // combination always lands on the total and a match stops being evidence.
+// Exact cents was too strict. A payment settles several invoices at once and
+// the cents drift: seven payments were reported as having no invoice when the
+// best combination available landed within a dollar, the worst of them 0.72 on
+// $236.83 -- three tenths of a percent. So half a percent is allowed, floored
+// at five cents so a small payment cannot match a merely similar invoice, and
+// capped at two dollars so a large one cannot match by coincidence.
+function ctMatchTolerance(target) {
+  return Math.min(200, Math.max(5, Math.round(Math.abs(target) * 0.005)));
+}
+
+// Returns the matching subset, or -- when nothing matches -- how close the best
+// available combination got. That is what separates a genuinely missing invoice
+// (nowhere near, or no candidates at all) from a rounding difference.
 function ctFindSubset(items, target) {
+  const tol = ctMatchTolerance(target);
   const n = items.length;
-  for (let i = 0; i < n; i++) {
-    if (items[i].c === target) return [items[i]];
-  }
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-    if (items[i].c + items[j].c === target) return [items[i], items[j]];
-  }
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) {
-    if (items[i].c + items[j].c + items[k].c === target) return [items[i], items[j], items[k]];
-  }
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++)
-    for (let l = k + 1; l < n; l++) {
-      if (items[i].c + items[j].c + items[k].c + items[l].c === target)
-        return [items[i], items[j], items[k], items[l]];
-    }
-  return null;
+  let best = null;
+  const consider = (sum, pick) => {
+    if (Math.abs(sum - target) <= tol) return pick;
+    if (!best || Math.abs(sum - target) < Math.abs(best.sum - target)) best = { sum, pick };
+    return null;
+  };
+  let hit = null;
+  for (let i = 0; i < n && !hit; i++) hit = consider(items[i].c, [items[i]]);
+  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
+    hit = consider(items[i].c + items[j].c, [items[i], items[j]]);
+  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
+    for (let k = j + 1; k < n && !hit; k++)
+      hit = consider(items[i].c + items[j].c + items[k].c, [items[i], items[j], items[k]]);
+  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
+    for (let k = j + 1; k < n && !hit; k++) for (let l = k + 1; l < n && !hit; l++)
+      hit = consider(items[i].c + items[j].c + items[k].c + items[l].c,
+                     [items[i], items[j], items[k], items[l]]);
+  return { hit: hit, best: best, candidates: n };
 }
 
 const ctCents = n => Math.round(Number(n || 0) * 100);
@@ -1723,14 +1740,48 @@ function ctUnmatchedPayments() {
   ctCogsPayments().forEach(t => {
     if (t.date < start || t.date > cutoff) return;
     if ((ctData.dismissedPayments || {})[t.id]) return;
-    const lo = ctShiftDay(t.date, -CT_LAG_BACK), hi = ctShiftDay(t.date, CT_LAG_FWD);
     const name = t.vendor || t.desc;
+    // A supermarket will never produce a supplier invoice, and dismissing each
+    // purchase one at a time means doing it again on the next shop. Dismissed
+    // once, the whole vendor stays quiet.
+    if ((ctData.noInvoiceVendors || {})[ctSupplierNorm(name)]) return;
+    const lo = ctShiftDay(t.date, -CT_LAG_BACK), hi = ctShiftDay(t.date, CT_LAG_FWD);
     const cands = pool.filter(p => !p.used && p.d >= lo && p.d <= hi && ctSameVendor(name, p.sup));
-    const hit = ctFindSubset(cands, ctCents(t.amount));
-    if (hit) hit.forEach(p => { p.used = true; });
-    else out.push(t);
+    const target = ctCents(t.amount);
+    const r = ctFindSubset(cands, target);
+    if (r.hit) { r.hit.forEach(p => { p.used = true; }); return; }
+    // Carried so each row can say WHY, which is what decides the response:
+    // chase an invoice, or silence a vendor that was never going to have one.
+    const why = !cands.length
+      ? 'no invoice from this supplier near that date'
+      : r.best
+        ? 'closest is ' + (r.best.sum / 100).toFixed(2) + ' from ' + r.best.pick.length +
+          ' invoice' + (r.best.pick.length === 1 ? '' : 's') + ', short ' +
+          ((target - r.best.sum) / 100).toFixed(2)
+        : 'no combination found';
+    out.push(Object.assign({}, t, { _why: why, _cands: cands.length }));
   });
   return out;
+}
+
+function ctIgnoreVendor(id) {
+  const t = ctCogsPayments().find(x => x.id === id);
+  if (!t) return;
+  const name = String(t.vendor || t.desc || '').trim();
+  if (!confirm('Stop expecting an invoice from "' + name + '"?\n\n' +
+               'Every past and future payment to them is left out of this list.')) return;
+  if (!ctData.noInvoiceVendors) ctData.noInvoiceVendors = {};
+  ctData.noInvoiceVendors[ctSupplierNorm(name)] = name;
+  ctSave();
+  renderCtMissingInvoices();
+  notify('No invoice will be expected from ' + name);
+}
+
+function ctExpectInvoicesAgain() {
+  ctData.noInvoiceVendors = {};
+  ctSave();
+  renderCtMissingInvoices();
+  notify('Expecting invoices from every vendor again');
 }
 
 function ctDismissPayment(id) {
@@ -1764,9 +1815,10 @@ function renderCtMissingInvoices() {
   const el = document.getElementById('ct-missing-invoices');
   if (!el) return;
   const dismissed = Object.keys(ctData.dismissedPayments || {}).length;
-  const restore = dismissed
-    ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--blue-light)">Restore ${dismissed} dismissed</a>.`
-    : '';
+  const ignored = Object.keys(ctData.noInvoiceVendors || {}).length;
+  const restore =
+    (dismissed ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--blue-light)">Restore ${dismissed} dismissed</a>.` : '') +
+    (ignored ? ` <a href="#" onclick="ctExpectInvoicesAgain();return false" style="color:var(--blue-light)">Expect invoices from ${ignored} silenced vendor${ignored === 1 ? '' : 's'} again</a>.` : '');
   let missing = [];
   try { missing = ctUnmatchedPayments(); }
   catch (e) { el.innerHTML = ''; return; }   // never take the dashboard down with it
@@ -1793,13 +1845,14 @@ function renderCtMissingInvoices() {
       <div class="staging-table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Vendor</th><th style="text-align:right">Amount</th>
-                     <th style="width:1%"></th></tr></thead>
+                     <th>Why</th><th style="width:1%"></th></tr></thead>
           <tbody>
             ${missing.slice(0, 40).map(t => `
               <tr>
                 <td style="white-space:nowrap">${escHtml(t.date)}</td>
                 <td>${escHtml(String(t.vendor || t.desc || '').slice(0, 40))}</td>
                 <td class="amount-out" style="text-align:right">${fmt(t.amount)}</td>
+                <td style="font-size:0.68rem;color:var(--ink-soft)">${escHtml(t._why || '')}</td>
                 <td style="white-space:nowrap">
                   <select id="ct-link-${escHtml(t.id)}" onchange="ctLinkVendor('${escHtml(t.id)}')"
                           style="font-size:0.7rem;padding:2px 4px;max-width:130px"
@@ -1808,7 +1861,11 @@ function renderCtMissingInvoices() {
                     ${suppliers.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
                   </select>
                   <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
-                          onclick="ctDismissPayment('${escHtml(t.id)}')">dismiss</button>
+                          onclick="ctDismissPayment('${escHtml(t.id)}')"
+                          title="Hide just this payment">dismiss</button>
+                  <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
+                          onclick="ctIgnoreVendor('${escHtml(t.id)}')"
+                          title="Never expect an invoice from this vendor">never</button>
                 </td>
               </tr>`).join('')}
           </tbody>
