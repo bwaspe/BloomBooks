@@ -1653,7 +1653,14 @@ const CT_NAME_NOISE = /\b(inc|llc|co|corp|company|the|wholesale|florist|floral|f
 function ctNameTokens(name) {
   const raw = String(name || '').trim().toLowerCase();
   const alias = (ctData.vendorAliases || {})[raw];
-  const base = String(alias || raw).replace(/[^a-z0-9 ]/g, ' ').replace(CT_NAME_NOISE, ' ');
+  // The alias VALUE is a supplier's display name and carries capitals. It has to
+  // be lowercased too: the strip below replaces everything outside [a-z0-9 ]
+  // with a space, so an unlowered 'Main Wholesale Florist NY' lost the first
+  // letter of every word and came out as {holesale, lorist} -- matching nothing.
+  // Setting an alias then made a supplier match WORSE than leaving it alone,
+  // which is how three helpful links turned 22 unmatched payments into 42.
+  const base = String(alias || raw).toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ').replace(CT_NAME_NOISE, ' ');
   // Four characters and up: shorter fragments match each other by accident.
   return new Set(base.split(/\s+/).filter(w => w.length >= 4));
 }
