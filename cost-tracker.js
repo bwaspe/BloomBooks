@@ -269,7 +269,7 @@ function ctBuildUploadCardHtml(p, idx) {
         </div>
       </div>`;
     }
-    const priceFlag = ctPriceFlag(item.unit_price, item.priorPrice);
+    const priceFlag = ctPriceFlag(ctEffectiveUnit(item), item.priorPrice);
     const disc = ctLineDiscount(item);
     const pack = ctPackMultiplier(item);
     const stemsInput = item.uom === 'Bunch'
@@ -417,6 +417,42 @@ function ctPackMultiplier(item) {
   return Math.abs(ctLineTotal(item) - gross) < 0.005 ? per : 0;
 }
 
+// Perri's website PDF prints a list price and a discount percentage; the paper
+// invoice that comes with the delivery prints the discounted price outright.
+// The same stems therefore arrive as '$10.00 less 13%' or as '$8.69', and
+// comparing those price columns directly reports a 13% swing every time the
+// source alternates. Four such phantom moves are already in the book -- one of
+// them 65% -- against no real change at all.
+//
+// So price history compares the EFFECTIVE unit price: what was actually paid
+// per unit, derived from the line total rather than read off the price column.
+// Nothing is rewritten -- it comes from fields already stored, so invoices
+// saved under either convention line up, past ones included.
+function ctPackUnits(item) {
+  const per = Number(item.stemsPerBu) || 0;
+  return (per > 1 && CT_PACK_UNITS.test(String(item.uom || ''))) ? per : 1;
+}
+
+function ctEffectiveUnit(item) {
+  // A line whose pack multiplier was dropped has a total a sixteenth of the
+  // truth, and deriving from it would report a 94% price collapse. Its price
+  // column is the sound half, so use that until the line is repaired.
+  if (ctPackMultiplier(item)) return ctUnitPrice(item);
+  const price = ctUnitPrice(item);
+  const units = (item.qty || 0) * ctPackUnits(item);
+  if (!units) return price;
+  const eff = ctLineTotal(item) / units;
+  if (!Number.isFinite(eff) || eff <= 0) return price;
+  // A discount can only push the effective price BELOW the printed one. Above
+  // it means the quantity is under-recorded -- 13 lines in the book are priced
+  // per stem while counting one bunch, and dividing their total by that 1 gives
+  // a figure 25x the real cost. Far below is a mis-parsed total rather than a
+  // discount; the deepest real one in the book is 39.5%. Outside that band the
+  // price column is the sounder of the two, so it wins.
+  if (price && (eff > price * 1.02 || eff < price * 0.25)) return price;
+  return eff;
+}
+
 function ctApplyPackMultiplier(idx, itemIdx) {
   const item = window._ctUploadPending[idx]?.enriched[itemIdx];
   if (!item) return;
@@ -481,6 +517,76 @@ function ctRepairs() {
   return out;
 }
 
+// A dropped discount is not traceless, which an earlier reading of this got
+// wrong. The same item, same supplier, same printed unit price, carries a
+// discounted total on some invoices and a plain qty x price on others. In this
+// book five items flip together on the same four invoices -- a parse
+// difference, not a promotion coming and going, which would not switch on and
+// off across five unrelated items in lockstep.
+//
+// It is INFERRED rather than read, so it is offered on its own and never folded
+// into the ordinary repair: a purchase genuinely made at full price looks
+// exactly the same from here.
+function ctDroppedDiscounts() {
+  const groups = {};
+  (ctData.invoices || []).forEach(inv => {
+    (inv.items || []).forEach((it, i) => {
+      const qty = it.qty || 0, price = ctUnitPrice(it);
+      if (!qty || !price) return;
+      const gross = qty * price;
+      const k = ctSupplierNorm(inv.supplier) + '|' + ctCatalogKey(it.name) + '|' + price.toFixed(4);
+      (groups[k] = groups[k] || []).push(
+        { inv, i, it, gross, disc: (1 - ctLineTotal(it) / gross) * 100 });
+    });
+  });
+  const out = [];
+  Object.keys(groups).forEach(k => {
+    const recs = groups[k];
+    const seen = recs.filter(r => r.disc > 0.05);
+    const missing = recs.filter(r => r.disc <= 0.05);
+    if (!seen.length || !missing.length) return;
+    const rate = seen.reduce((s, r) => s + r.disc, 0) / seen.length;
+    missing.forEach(r => out.push({
+      inv: r.inv, i: r.i, name: r.it.name, date: ctEffDate(r.inv), rate,
+      qty: r.it.qty, price: ctUnitPrice(r.it),
+      from: ctLineTotal(r.it), to: r.gross * (1 - rate / 100), seenOn: seen.length }));
+  });
+  return out;
+}
+
+function ctApplyDroppedDiscounts() {
+  const rows = ctDroppedDiscounts();
+  if (!rows.length) { notify('No dropped discounts found'); return; }
+  const money = rows.reduce((s, r) => s + (r.from - r.to), 0);
+  if (!confirm(
+    `Apply the discount seen elsewhere to ${rows.length} line${rows.length === 1 ? '' : 's'}, ` +
+    `reducing recorded cost by $${money.toFixed(2)}?\n\n` +
+    `These are INFERRED from the same item at the same price being discounted on other ` +
+    `invoices — a purchase genuinely made at full price looks identical from here. ` +
+    `Check a couple against the paper first.\n\n` +
+    `This cannot be undone automatically.`)) return;
+
+  // Whether each invoice's total came from its own lines, decided before any of
+  // them move. A derived total has to come down with them; one read off the
+  // document already states the discounted figure.
+  const derived = new Map();
+  rows.forEach(r => {
+    if (derived.has(r.inv)) return;
+    const items = r.inv.items.reduce((s, it) => s + ctLineTotal(it), 0);
+    derived.set(r.inv, Math.abs((r.inv.total || 0) - (items + (r.inv.deliveryFee || 0))) < 0.02);
+  });
+  rows.forEach(r => {
+    r.inv.items[r.i].total = r.to;
+    r.inv.items[r.i].discountPct = r.rate;
+    if (derived.get(r.inv)) r.inv.total = (r.inv.total || 0) - (r.from - r.to);
+  });
+  ctSave();
+  renderCtGmailPanel();
+  renderCtDashboard();
+  renderCtPrices();
+  notify(`Applied the discount to ${rows.length} lines — $${money.toFixed(2)} off recorded cost`);
+}
+
 function ctApplyRepairs() {
   const r = ctRepairs();
   if (!r.packLines.length && !r.feeGaps.length) { notify('Nothing to repair'); return; }
@@ -518,7 +624,7 @@ function renderCtRepairs() {
   try { r = ctRepairs(); } catch (e) { el.innerHTML = ''; return; }
   if (!r.packLines.length && !r.feeGaps.length) {
     el.innerHTML = `<div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
-      No saved invoice needs repair.</div>`;
+      No saved invoice needs repair.</div>` + ctDroppedDiscountHtml();
     return;
   }
   const added = r.packLines.reduce((s, p) => s + (p.to - p.from), 0);
@@ -549,6 +655,33 @@ function renderCtRepairs() {
           </ul>
         </div>` : ''}
       <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair them</button>
+    </div>` + ctDroppedDiscountHtml();
+}
+
+// Kept in its own panel with its own button, because unlike the two above this
+// one is inferred rather than detected, and must not ride along on a click
+// meant for something certain.
+function ctDroppedDiscountHtml() {
+  let rows;
+  try { rows = ctDroppedDiscounts(); } catch (e) { return ''; }
+  if (!rows.length) return '';
+  const money = rows.reduce((s, r) => s + (r.from - r.to), 0);
+  const invoices = new Set(rows.map(r => r.date)).size;
+  return `
+    <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:#fff3cd;border:1px solid #ffc107">
+      <strong style="font-size:0.82rem">${rows.length} line${rows.length === 1 ? '' : 's'} may have lost a discount — ${fmt(money)}</strong>
+      <div style="font-size:0.73rem;color:var(--ink-soft);margin:3px 0 8px">
+        The same item, at the same printed price, is discounted on other invoices from this
+        supplier. Across ${invoices} dates here, so it looks like the parser dropping it rather
+        than the discount coming and going. <strong>Inferred, not read</strong> — a purchase
+        genuinely made at full price looks identical. Check a couple against the paper.
+      </div>
+      <ul style="margin:0 0 8px 18px;font-size:0.74rem;color:var(--ink-soft);max-height:170px;overflow:auto">
+        ${rows.map(r => `<li>${escHtml(r.date)} · ${escHtml(String(r.name).slice(0, 30))}
+          — ${fmt(r.from)} → ${fmt(r.to)} (${r.rate.toFixed(1)}% off, seen on ${r.seenOn} other
+          invoice${r.seenOn === 1 ? '' : 's'})</li>`).join('')}
+      </ul>
+      <button class="btn btn-outline btn-sm" onclick="ctApplyDroppedDiscounts()">Apply these discounts</button>
     </div>`;
 }
 
@@ -661,13 +794,13 @@ function ctGetPriorPrice(itemName, supplierName) {
     const inv = ctData.invoices[i];
     if (!ctSameSupplierStrong(inv.supplier, supplierName)) continue;
     const match = inv.items.find(it => ctCatalogKey(it.name) === key);
-    if (match) return match.unitPrice;
+    if (match) return ctEffectiveUnit(match);
   }
   // Try any supplier
   for (let i = ctData.invoices.length - 1; i >= 0; i--) {
     const inv = ctData.invoices[i];
     const match = inv.items.find(it => ctCatalogKey(it.name) === key);
-    if (match) return match.unitPrice;
+    if (match) return ctEffectiveUnit(match);
   }
   return null;
 }
@@ -1434,11 +1567,13 @@ function ctStartFromTemplate(id) {
   // than whatever was true when the template was made. Anything never seen
   // before starts at 0, which reads as "fill this in" instead of a wrong guess.
   const enriched = t.items.map(i => {
+    // The prior price is now EFFECTIVE -- already net of any discount -- so no
+    // discount is re-applied here. Doing so would discount a discounted price,
+    // and the standing order arrives on paper with net prices in any case.
     const prior = ctGetPriorPrice(i.name, t.supplier);   // a number, or null
     const unit = prior || 0;
-    const disc = i.discountPct || 0;
     return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit,
-             total: i.qty * unit * (1 - disc / 100),
+             total: i.qty * unit,
              category: i.category || ctGuessCategory(i.name),
              family: i.family || ctGuessFamily(i.name),
              priorPrice: prior,
@@ -2101,7 +2236,7 @@ function ctBuildAlerts() {
     inv.items.forEach(item => {
       const key = ctCatalogKey(item.name);
       if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, records:[] };
-      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:item.unitPrice });
+      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctEffectiveUnit(item) });
     });
   });
   const alerts = [];
@@ -2567,7 +2702,7 @@ function renderCtPrices() {
         if (search && !item.name.toLowerCase().includes(search)) return;
         const key = ctCatalogKey(item.name);
         if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, key, records:[] };
-        itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:item.unitPrice, qty:item.qty, uom:item.uom, stemsPerBu:item.stemsPerBu||null, invoiceId:inv.id, itemIndex:inv.items.indexOf(item) });
+        itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctEffectiveUnit(item), qty:item.qty, uom:item.uom, stemsPerBu:item.stemsPerBu||null, invoiceId:inv.id, itemIndex:inv.items.indexOf(item) });
       });
     });
 
