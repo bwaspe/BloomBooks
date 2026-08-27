@@ -375,14 +375,19 @@ function ctUpdateUploadDeliveryDate(idx, dateVal) {
 // so only a shortfall counts -- an excess means the quantity is under-recorded,
 // which is a different problem and left alone here.
 function ctLineDiscount(item) {
-  const gross = (item.qty || 0) * (item.unit_price || 0);
+  const gross = (item.qty || 0) * ctUnitPrice(item);
   if (!gross || item.total == null) return 0;
   const pct = (1 - item.total / gross) * 100;
   return pct > 0.05 && pct < 100 ? pct : 0;
 }
 
+// A pending line calls it unit_price, a saved one unitPrice. Both shapes go
+// through these, so the repair below applies exactly the rules the review card
+// applies rather than a second copy that could drift from them.
+const ctUnitPrice = item => (item.unit_price != null ? item.unit_price : item.unitPrice) || 0;
+
 const ctLineTotal = item =>
-  (item.total != null ? item.total : (item.qty || 0) * (item.unit_price || 0));
+  (item.total != null ? item.total : (item.qty || 0) * ctUnitPrice(item));
 
 // The printed total over quantity times price. Below 1 is a discount; above 1
 // means the quantity is under-recorded, as when Perri prices roses per stem and
@@ -407,7 +412,7 @@ const CT_PACK_UNITS = /^(box|case|carton|flat|bundle|pack|other)$/i;
 function ctPackMultiplier(item) {
   const per = Number(item.stemsPerBu) || 0;
   if (per <= 1 || !CT_PACK_UNITS.test(String(item.uom || ''))) return 0;
-  const gross = (item.qty || 0) * (item.unit_price || 0);
+  const gross = (item.qty || 0) * ctUnitPrice(item);
   if (!gross) return 0;
   return Math.abs(ctLineTotal(item) - gross) < 0.005 ? per : 0;
 }
@@ -441,8 +446,114 @@ function ctAssignUploadGap(idx) {
   notify(`Recorded $${gap.toFixed(2)} as a delivery charge`);
 }
 
+// ============================================================
+// REPAIRING WHAT WAS ALREADY SAVED
+// ============================================================
+// The two faults above were live for months before they were spotted, so
+// invoices already in the book carry them. This finds and fixes those, using
+// exactly the same rules the review card uses -- a second copy of the logic
+// would drift from it.
+//
+// It reads live data rather than a backup, because the owner has been
+// correcting some by hand, and it is idempotent: a repaired line no longer
+// matches qty x price, and a filed delivery charge closes its own gap, so
+// neither can be applied twice. What it CANNOT find is a discount the parser
+// multiplied out -- that leaves a line reading 3 x $10 = $30, identical to a
+// line that never had a discount. Those are only recoverable from the paper.
+function ctRepairs() {
+  const out = { packLines: [], feeGaps: [] };
+  (ctData.invoices || []).forEach(inv => {
+    const items = (inv.items || []).reduce((s, it) => s + ctLineTotal(it), 0);
+    const fee = inv.deliveryFee || 0;
+    // Whether the invoice total was computed from its lines or read off the
+    // document. Decided BEFORE anything changes, because the repair moves both.
+    const derived = Math.abs((inv.total || 0) - (items + fee)) < 0.02;
+    (inv.items || []).forEach((it, i) => {
+      const per = ctPackMultiplier(it);
+      if (!per) return;
+      out.packLines.push({ inv, i, per, name: it.name, date: ctEffDate(inv),
+                           from: ctLineTotal(it),
+                           to: (it.qty || 0) * per * ctUnitPrice(it), derived });
+    });
+    const gap = (inv.total || 0) - (items + fee);
+    if (gap > 0.02) out.feeGaps.push({ inv, gap, date: ctEffDate(inv) });
+  });
+  return out;
+}
+
+function ctApplyRepairs() {
+  const r = ctRepairs();
+  if (!r.packLines.length && !r.feeGaps.length) { notify('Nothing to repair'); return; }
+  const added = r.packLines.reduce((s, p) => s + (p.to - p.from), 0);
+  const filed = r.feeGaps.reduce((s, g) => s + g.gap, 0);
+  if (!confirm(
+    `Repair ${r.packLines.length} line${r.packLines.length === 1 ? '' : 's'} ` +
+    `(restoring $${added.toFixed(2)} of cost that was dropped) and file ` +
+    `$${filed.toFixed(2)} of delivery charges into a category?\n\n` +
+    `This rewrites saved invoices and cannot be undone automatically. ` +
+    `Download a backup first if you want one.`)) return;
+
+  r.packLines.forEach(p => {
+    p.inv.items[p.i].total = p.to;
+    // The invoice total was computed from the broken line and is short by the
+    // same amount. Where a real header total was read off the document it
+    // already includes the full line, so raising it would overstate the invoice.
+    if (p.derived) p.inv.total = (p.inv.total || 0) + (p.to - p.from);
+  });
+  // Re-scanned, because the line repairs above have moved these gaps.
+  ctRepairs().feeGaps.forEach(g => { g.inv.deliveryFee = (g.inv.deliveryFee || 0) + g.gap; });
+
+  ctSave();
+  renderCtGmailPanel();
+  renderCtDashboard();
+  renderCtPrices();
+  notify(`Repaired ${r.packLines.length} line${r.packLines.length === 1 ? '' : 's'} ` +
+         `and filed ${r.feeGaps.length} delivery charge${r.feeGaps.length === 1 ? '' : 's'}`);
+}
+
+function renderCtRepairs() {
+  const el = document.getElementById('ct-repairs');
+  if (!el) return;
+  let r;
+  try { r = ctRepairs(); } catch (e) { el.innerHTML = ''; return; }
+  if (!r.packLines.length && !r.feeGaps.length) {
+    el.innerHTML = `<div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+      No saved invoice needs repair.</div>`;
+    return;
+  }
+  const added = r.packLines.reduce((s, p) => s + (p.to - p.from), 0);
+  const filed = r.feeGaps.reduce((s, g) => s + g.gap, 0);
+  el.innerHTML = `
+    <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:#f8d7da;border:1px solid #dc3545">
+      <strong style="font-size:0.82rem">Saved invoices need repair</strong>
+      <div style="font-size:0.73rem;color:var(--ink-soft);margin:3px 0 8px">
+        Faults that were live before they were caught. A discount the parser multiplied
+        out cannot be found this way and is not included — only the paper shows those.
+      </div>
+      ${r.packLines.length ? `
+        <div style="font-size:0.75rem;margin-bottom:6px">
+          <strong>${r.packLines.length} line${r.packLines.length === 1 ? '' : 's'}</strong>
+          lost a pack multiplier — ${fmt(added)} of cost missing:
+          <ul style="margin:4px 0 0 18px;color:var(--ink-soft);max-height:150px;overflow:auto">
+            ${r.packLines.map(p => `<li>${escHtml(p.date)} · ${escHtml(String(p.name).slice(0, 34))}
+              — ${fmt(p.from)} → ${fmt(p.to)} (x${p.per})</li>`).join('')}
+          </ul>
+        </div>` : ''}
+      ${r.feeGaps.length ? `
+        <div style="font-size:0.75rem;margin-bottom:6px">
+          <strong>${r.feeGaps.length} delivery charge${r.feeGaps.length === 1 ? '' : 's'}</strong>
+          in no category — ${fmt(filed)}:
+          <ul style="margin:4px 0 0 18px;color:var(--ink-soft);max-height:150px;overflow:auto">
+            ${r.feeGaps.map(g => `<li>${escHtml(g.date)} · ${escHtml(g.inv.supplier)}
+              ${g.inv.invoiceNumber ? '#' + escHtml(String(g.inv.invoiceNumber)) : ''} — ${fmt(g.gap)}</li>`).join('')}
+          </ul>
+        </div>` : ''}
+      <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair them</button>
+    </div>`;
+}
+
 function ctLineRatio(item) {
-  const gross = (item.qty || 0) * (item.unit_price || 0);
+  const gross = (item.qty || 0) * ctUnitPrice(item);
   if (!gross || item.total == null) return 1;
   const r = item.total / gross;
   return Number.isFinite(r) && r > 0 ? r : 1;
@@ -661,6 +772,7 @@ function renderCtGmailPanel() {
       </div>`).join('');
   }
 
+  renderCtRepairs();
   renderCtSupplierSuggestions();
 
   const mergeFrom = document.getElementById('ct-merge-from');

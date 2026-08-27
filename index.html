@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=20260827d">
+<link rel="stylesheet" href="styles.css?v=20260827e">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -373,6 +373,7 @@ Manually uploaded invoices exist only here — there's no other copy. Gmail-scan
 <p style="font-size:0.78rem;color:var(--mist);margin-bottom:12px">
 Same real vendor sometimes shows up under different printed names (e.g. "A. Perri Farms Inc" vs "Perri Farms"). A new invoice is matched to a name already in use before it saves, so most variants never appear. Anything left is offered below, and every merge is remembered — so a name you have paired once stays paired.
 </p>
+<div id="ct-repairs"></div>
 <div id="ct-supplier-suggestions"></div>
 <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
 <div class="form-group" style="margin:0;min-width:200px">
@@ -483,16 +484,16 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260827d"></script>
-<script src="utils.js?v=20260827d"></script>
-<script src="sync.js?v=20260827d"></script>
-<script src="ledger.js?v=20260827d"></script>
-<script src="reports.js?v=20260827d"></script>
-<script src="holiday-sync.js?v=20260827d"></script>
-<script src="daily-sales.js?v=20260827d"></script>
-<script src="import-trainer.js?v=20260827d"></script>
-<script src="cost-tracker.js?v=20260827d"></script>
-<script src="init.js?v=20260827d"></script>
+<script src="config.js?v=20260827e"></script>
+<script src="utils.js?v=20260827e"></script>
+<script src="sync.js?v=20260827e"></script>
+<script src="ledger.js?v=20260827e"></script>
+<script src="reports.js?v=20260827e"></script>
+<script src="holiday-sync.js?v=20260827e"></script>
+<script src="daily-sales.js?v=20260827e"></script>
+<script src="import-trainer.js?v=20260827e"></script>
+<script src="cost-tracker.js?v=20260827e"></script>
+<script src="init.js?v=20260827e"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
