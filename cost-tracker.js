@@ -12,7 +12,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Plants:'#27ae60', Glass
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Ceramic: 2, 'Other Containers': 2, 'Floral Care': 1.5, Funeral: 2, Packaging: 1.3, Ribbon: 2, 'Tools/Equipment': 1.5, 'Wedding/Event': 2, 'Add-on Retail': 1.8, Seasonal: 2.2, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {} };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [] };
 let ctCharts = {};
 
 function ctSave() {
@@ -21,7 +21,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -228,6 +228,7 @@ async function ctProcessOneFile(file, idx) {
 }
 
 function ctRenderUploadArea() {
+  renderCtTemplates();
   const area = document.getElementById('ct-parse-area');
   if (window._ctUploadPending.length === 0) { area.innerHTML = ''; return; }
 
@@ -269,7 +270,9 @@ function ctBuildUploadCardHtml(p, idx) {
       : '';
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
-      <div class="ct-item-meta">${item.qty} ${item.uom}${stemsInput ? ' '+stemsInput : ''}</div>
+      <div class="ct-item-meta">
+        <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
+        ${escHtml(item.uom)}${stemsInput ? ' '+stemsInput : ''}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateUploadItemCat(${idx}, ${i}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -278,7 +281,7 @@ function ctBuildUploadCardHtml(p, idx) {
       <div class="ct-item-family">
         <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family)}" onchange="ctUpdateUploadItemFamily(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:4px 6px;width:110px">
       </div>
-      <div class="ct-item-price">$${item.unit_price.toFixed(2)}${priceFlag}</div>
+      <div class="ct-item-price">$<input type="number" step="0.01" min="0" value="${item.unit_price.toFixed(2)}" onchange="ctUpdateUploadItemPrice(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:66px" title="Unit price — correct it against the paper invoice">${priceFlag}</div>
       <div class="ct-item-total" style="color:var(--mist)">$${(item.total||item.qty*item.unit_price).toFixed(2)}
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
       </div>
@@ -300,6 +303,7 @@ function ctBuildUploadCardHtml(p, idx) {
       <div style="display:flex;gap:8px;align-items:center">
         <span style="font-size:0.85rem;font-weight:600;color:var(--ink)">$${activeTotal.toFixed(2)}</span>
         <button class="btn btn-primary btn-sm" onclick="ctSaveUploadInvoice(${idx})">Save Invoice</button>
+        <button class="btn btn-outline btn-sm" onclick="ctSaveAsTemplate(${idx})" title="Remember these items so this delivery starts pre-filled next time">Save as standing order</button>
         <button class="btn btn-outline btn-sm" onclick="ctDismissUpload(${idx})">Discard</button>
       </div>
     </div>
@@ -332,6 +336,31 @@ function ctUpdateUploadDeliveryDate(idx, dateVal) {
   const p = window._ctUploadPending[idx];
   if (!p) return;
   p.deliveryDate = dateVal || null;
+}
+
+// Price and quantity are editable because the parser misreads things, and
+// because a standing order starts from last month's figures and has to be
+// corrected against the paper. Both rewrite item.total: the parsed total would
+// otherwise win over the corrected numbers, since every downstream sum reads
+// `i.total || i.qty * i.unit_price` and a stale total is truthy.
+function ctUpdateUploadItemPrice(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) return;
+  item.unit_price = n;
+  item.total = item.qty * n;
+  ctRenderUploadArea();
+}
+
+function ctUpdateUploadItemQty(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) return;
+  item.qty = n;
+  item.total = n * item.unit_price;
+  ctRenderUploadArea();
 }
 
 function ctUpdateUploadItemCat(idx, itemIdx, category) {
@@ -942,7 +971,312 @@ function ctGetFilteredInvoices() {
   return invoices;
 }
 
+// ============================================================
+// STANDING ORDERS
+// ============================================================
+// A supplier that emails its invoices gets scanned automatically. The Perri
+// standing order arrives on paper with the delivery, so it has to be entered by
+// hand every week -- the same items, the same quantities, only the prices move.
+//
+// A template holds the item list. It does NOT hold prices: starting one pulls
+// each item's most recent actual price, and the result lands in the ordinary
+// review card, where the figures must be checked against the paper before
+// anything saves. That distinction is the whole safety of it -- the tracker
+// exists to record what things really cost, so no price may enter it unseen.
+// What a template removes is the typing, not the checking.
+
+function ctTemplates() {
+  if (!ctData.templates) ctData.templates = [];
+  return ctData.templates;
+}
+
+function ctSaveAsTemplate(idx) {
+  const p = window._ctUploadPending[idx];
+  if (!p || p.status !== 'ready') return;
+  const active = p.enriched.filter(i => !i.removed);
+  if (!active.length) { notify('Nothing to save as a template'); return; }
+  const name = prompt('Name this standing order', `${p.parsed.supplier || 'Supplier'} standing order`);
+  if (!name) return;
+  ctTemplates().push({
+    id: 'tpl-' + Date.now(),
+    name,
+    supplier: p.parsed.supplier || 'Unknown',
+    deliveryFee: p.deliveryFee || 0,
+    items: active.map(i => ({ name: i.name, category: i.category, family: i.family || '',
+                              qty: i.qty, uom: i.uom, stemsPerBu: i.stemsPerBu || null })),
+  });
+  ctSave();
+  renderCtTemplates();
+  notify(`Saved "${name}" — start it from the Upload tab each week`);
+}
+
+function ctDeleteTemplate(id) {
+  const t = ctTemplates().find(x => x.id === id);
+  if (!t || !confirm(`Delete the standing order "${t.name}"? Invoices already saved from it are untouched.`)) return;
+  ctData.templates = ctTemplates().filter(x => x.id !== id);
+  ctSave();
+  renderCtTemplates();
+}
+
+function ctStartFromTemplate(id) {
+  const t = ctTemplates().find(x => x.id === id);
+  if (!t) return;
+  const today = new Date().toISOString().slice(0, 10);
+  // Prices come from the latest real invoice for each item, never from the
+  // template, so the starting figures are the last thing actually paid rather
+  // than whatever was true when the template was made. Anything never seen
+  // before starts at 0, which reads as "fill this in" instead of a wrong guess.
+  const enriched = t.items.map(i => {
+    const prior = ctGetPriorPrice(i.name, t.supplier);   // a number, or null
+    const unit = prior || 0;
+    return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit, total: i.qty * unit,
+             category: i.category || ctGuessCategory(i.name),
+             family: i.family || ctGuessFamily(i.name),
+             priorPrice: prior,
+             stemsPerBu: i.stemsPerBu || ctGetPriorStemsPerBunch(i.name) || null,
+             removed: false };
+  });
+  window._ctUploadPending.push({
+    status: 'ready',
+    filename: t.name,
+    fromTemplate: true,
+    parsed: { supplier: t.supplier, date: today, invoice_number: '', total: null,
+              items: enriched.map(i => ({ name: i.name, qty: i.qty, uom: i.uom, unit_price: i.unit_price })) },
+    enriched,
+    deliveryDate: today,
+    deliveryFee: t.deliveryFee || 0,
+  });
+  ctRenderUploadArea();
+  notify(`Started "${t.name}" — check every price against the paper before saving`);
+}
+
+function renderCtTemplates() {
+  const el = document.getElementById('ct-templates');
+  if (!el) return;
+  const tpls = ctTemplates();
+  if (!tpls.length) {
+    el.innerHTML = `<div style="font-size:0.72rem;color:var(--mist);margin:10px 0 0">
+      Have a delivery whose invoice never arrives by email? Upload one, then press
+      <em>Save as standing order</em> on the review card — after that it starts pre-filled each week.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="margin:14px 0 0;padding:10px 12px;border-radius:8px;background:var(--paper);border:1px solid var(--border)">
+      <strong style="font-size:0.8rem">Standing orders</strong>
+      <div style="font-size:0.72rem;color:var(--ink-soft);margin:2px 0 8px">
+        Starts pre-filled at the last price actually paid. Check every figure against the paper — nothing saves until you do.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${tpls.map(t => `
+          <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);
+                       border-radius:6px;padding:4px 6px 4px 10px;background:var(--surface)">
+            <button class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:3px 10px"
+                    onclick="ctStartFromTemplate('${escHtml(t.id)}')">
+              ${escHtml(t.name)} <span style="opacity:.7">· ${t.items.length} items</span>
+            </button>
+            <button onclick="ctDeleteTemplate('${escHtml(t.id)}')" title="Delete this standing order"
+                    style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.85rem">✕</button>
+          </span>`).join('')}
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// PAYMENTS WITH NO INVOICE
+// ============================================================
+// The Gmail scan catches whatever a supplier emails. It cannot catch what
+// arrives on paper with the delivery -- the Perri standing order -- or what is
+// bought at retail. Those stay invisible until a month is totalled and the
+// dashboard comes up short against the ledger's COGS. July 2026 was short
+// $2,046.71 that way.
+//
+// The tempting fix is to generate the recurring invoice from a template on a
+// schedule. That would put invented unit prices into the price history this
+// whole tracker exists to keep -- and a standing order is precisely where real
+// price movement matters most, since it repeats. So instead: find the payments
+// no invoice accounts for and ask for the upload. It catches every gap rather
+// than only the recurring one.
+
+const CT_LAG_BACK = 16;    // Fisch settles ~10 days after delivery; 16 covers it
+const CT_LAG_FWD = 3;      // and a card can post before the paperwork is dated
+const CT_GRACE_DAYS = 5;   // an invoice for a payment this recent may still arrive
+
+// A bank line and an invoice name the same supplier differently: the statement
+// says 'DELAWARE VALLEY FLORSEWELL', the invoice says 'DVFlora'. Compare on
+// distinctive tokens, and keep an alias map for the pairs no rule can connect.
+const CT_NAME_NOISE = /\b(inc|llc|co|corp|company|the|wholesale|florist|floral|flower|flowers|supply|supplies|farm|farms|of|and|ny|nj|ct)\b/g;
+
+function ctNameTokens(name) {
+  const raw = String(name || '').trim().toLowerCase();
+  const alias = (ctData.vendorAliases || {})[raw];
+  const base = String(alias || raw).replace(/[^a-z0-9 ]/g, ' ').replace(CT_NAME_NOISE, ' ');
+  // Four characters and up: shorter fragments match each other by accident.
+  return new Set(base.split(/\s+/).filter(w => w.length >= 4));
+}
+
+function ctSameVendor(a, b) {
+  const A = ctNameTokens(a), B = ctNameTokens(b);
+  for (const t of A) if (B.has(t)) return true;
+  return false;
+}
+
+// Only payments from the tracker's own start date onwards. Flagging purchases
+// made before there were any invoices to match would bury the real gaps under
+// years of history.
+function ctCogsPayments() {
+  const txs = (typeof appData !== 'undefined' && appData.transactions) || {};
+  const out = [];
+  Object.keys(txs).forEach(k => (txs[k] || []).forEach(t => {
+    if (!t._vault && t.type === 'out' && t.date &&
+        t.category === 'Supplies & Materials - COGS') out.push(t);
+  }));
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// A single card payment often settles several invoices at once -- one Perri
+// payment of 660.92 was four of them -- so try combinations, smallest first.
+// Stops at four: beyond that, with enough invoices in the window some
+// combination always lands on the total and a match stops being evidence.
+function ctFindSubset(items, target) {
+  const n = items.length;
+  for (let i = 0; i < n; i++) {
+    if (items[i].c === target) return [items[i]];
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    if (items[i].c + items[j].c === target) return [items[i], items[j]];
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) {
+    if (items[i].c + items[j].c + items[k].c === target) return [items[i], items[j], items[k]];
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++)
+    for (let l = k + 1; l < n; l++) {
+      if (items[i].c + items[j].c + items[k].c + items[l].c === target)
+        return [items[i], items[j], items[k], items[l]];
+    }
+  return null;
+}
+
+const ctCents = n => Math.round(Number(n || 0) * 100);
+const ctShiftDay = (d, n) =>
+  new Date(new Date(d + 'T00:00:00').getTime() + n * 864e5).toISOString().slice(0, 10);
+
+function ctUnmatchedPayments() {
+  const invoices = ctData.invoices.filter(i => ctEffDate(i));
+  if (!invoices.length) return [];
+  // Start at the month AFTER the first invoice, not the first invoice itself.
+  // The month a capture habit begins is partial by definition -- June 2026 had
+  // 25 unmatched payments for that reason alone, which would bury the real ones.
+  const first = invoices.reduce((m, i) => ctEffDate(i) < m ? ctEffDate(i) : m, '9999-99-99');
+  const start = ctData.reconcileFrom ||
+    (first.slice(5, 7) === '12' ? `${+first.slice(0, 4) + 1}-01-01`
+                                : `${first.slice(0, 4)}-${String(+first.slice(5, 7) + 1).padStart(2, '0')}-01`);
+  const cutoff = ctShiftDay(new Date().toISOString().slice(0, 10), -CT_GRACE_DAYS);
+
+  // An invoice may only settle one payment, so matches are consumed as they go.
+  const pool = invoices.map(i => ({ d: ctEffDate(i), c: ctCents(i.total),
+                                    sup: i.supplier, used: false }));
+  const out = [];
+  ctCogsPayments().forEach(t => {
+    if (t.date < start || t.date > cutoff) return;
+    if ((ctData.dismissedPayments || {})[t.id]) return;
+    const lo = ctShiftDay(t.date, -CT_LAG_BACK), hi = ctShiftDay(t.date, CT_LAG_FWD);
+    const name = t.vendor || t.desc;
+    const cands = pool.filter(p => !p.used && p.d >= lo && p.d <= hi && ctSameVendor(name, p.sup));
+    const hit = ctFindSubset(cands, ctCents(t.amount));
+    if (hit) hit.forEach(p => { p.used = true; });
+    else out.push(t);
+  });
+  return out;
+}
+
+function ctDismissPayment(id) {
+  if (!ctData.dismissedPayments) ctData.dismissedPayments = {};
+  ctData.dismissedPayments[id] = true;
+  ctSave();
+  renderCtMissingInvoices();
+}
+
+function ctRestoreDismissedPayments() {
+  ctData.dismissedPayments = {};
+  ctSave();
+  renderCtMissingInvoices();
+  notify('Dismissed payments restored');
+}
+
+// One-off pairing for names no token rule connects. Keyed on the bank's own
+// spelling, so it applies to every future payment from that vendor.
+function ctLinkVendor(id) {
+  const t = ctCogsPayments().find(x => x.id === id);
+  const sel = document.getElementById('ct-link-' + id);
+  if (!t || !sel || !sel.value) return;
+  if (!ctData.vendorAliases) ctData.vendorAliases = {};
+  ctData.vendorAliases[String(t.vendor || t.desc || '').trim().toLowerCase()] = sel.value;
+  ctSave();
+  renderCtMissingInvoices();
+  notify(`Bank name linked to ${sel.value}`);
+}
+
+function renderCtMissingInvoices() {
+  const el = document.getElementById('ct-missing-invoices');
+  if (!el) return;
+  const dismissed = Object.keys(ctData.dismissedPayments || {}).length;
+  const restore = dismissed
+    ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--blue-light)">Restore ${dismissed} dismissed</a>.`
+    : '';
+  let missing = [];
+  try { missing = ctUnmatchedPayments(); }
+  catch (e) { el.innerHTML = ''; return; }   // never take the dashboard down with it
+
+  if (!missing.length) {
+    el.innerHTML = `<div style="margin-bottom:16px;padding:10px 12px;border-radius:6px;
+      background:var(--paper);border:1px solid var(--border);font-size:0.78rem;color:var(--mist)">
+      Every COGS payment since ${escHtml(ctData.invoices.length ? 'the first invoice' : '')} has an invoice behind it.${restore}</div>`;
+    return;
+  }
+
+  const total = missing.reduce((s, t) => s + t.amount, 0);
+  const suppliers = [...new Set(ctData.invoices.map(i => i.supplier))].sort();
+  el.innerHTML = `
+    <div style="margin-bottom:16px;padding:12px 14px;border-radius:8px;
+                background:#fff3cd;border:1px solid #ffc107">
+      <strong style="font-size:0.85rem">${missing.length} payment${missing.length === 1 ? '' : 's'}
+        with no invoice — ${fmt(total)}</strong>
+      <div style="font-size:0.74rem;color:var(--ink-soft);margin:4px 0 10px">
+        These left the bank but nothing was uploaded or scanned to account for them. Photograph
+        the paper invoice and drop it in Upload — the parser reads a phone picture.
+        Dismiss anything with no invoice to find, like a retail run or a delivery fee.${restore}
+      </div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Vendor</th><th style="text-align:right">Amount</th>
+                     <th style="width:1%"></th></tr></thead>
+          <tbody>
+            ${missing.slice(0, 40).map(t => `
+              <tr>
+                <td style="white-space:nowrap">${escHtml(t.date)}</td>
+                <td>${escHtml(String(t.vendor || t.desc || '').slice(0, 40))}</td>
+                <td class="amount-out" style="text-align:right">${fmt(t.amount)}</td>
+                <td style="white-space:nowrap">
+                  <select id="ct-link-${escHtml(t.id)}" onchange="ctLinkVendor('${escHtml(t.id)}')"
+                          style="font-size:0.7rem;padding:2px 4px;max-width:130px"
+                          title="If this is a supplier you already have invoices from, link the names">
+                    <option value="">link to…</option>
+                    ${suppliers.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+                  </select>
+                  <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
+                          onclick="ctDismissPayment('${escHtml(t.id)}')">dismiss</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${missing.length > 40 ? `<div style="font-size:0.72rem;color:var(--ink-soft);margin-top:6px">
+        …and ${missing.length - 40} more.</div>` : ''}
+    </div>`;
+}
+
 function renderCtDashboard() {
+  renderCtMissingInvoices();
   const invoices = ctGetFilteredInvoices();
 
   // Populate supplier filter
@@ -1311,6 +1645,12 @@ function ctComputeWeeklySummary() {
     budget = { type: 'trailing', baseline: trailingWeeklyAvg, actual: weeklyTotal, weeksOfData };
   }
 
+  // Carried into the emailed digest as well as the dashboard: the failure mode
+  // is nobody noticing, and an invoice that never got uploaded is exactly the
+  // thing you will not think to go and look for.
+  let missing = [];
+  try { missing = ctUnmatchedPayments(); } catch (e) { /* never break the digest */ }
+
   return {
     generatedAt: new Date().toISOString(),
     weekStart: weekAgo,
@@ -1318,6 +1658,11 @@ function ctComputeWeeklySummary() {
     weeklyTotal,
     byCategory,
     staleMargins: ctGetStaleMargins().slice(0, 10),
+    missingInvoices: {
+      count: missing.length,
+      total: missing.reduce((s, t) => s + t.amount, 0),
+      oldest: missing.length ? missing[0].date : null
+    },
     budget
   };
 }
