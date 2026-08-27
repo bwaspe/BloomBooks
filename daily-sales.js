@@ -552,67 +552,47 @@ function dsRevenueHtml() {
           : `<button class="btn btn-primary" onclick="dsSetRevenueFrom('${year}-01')">Use the day book for ${year} onwards</button>
              <span style="font-size:0.72rem;color:var(--mist)">Earlier years are left exactly as they are.</span>`}
       </div>
-      ${from ? `
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
-        <label style="display:flex;gap:8px;align-items:flex-start;font-size:0.8rem;cursor:pointer">
-          <input type="checkbox" ${dsDeliveryBasis() ? 'checked' : ''}
-                 onchange="dsSetDeliveryBasis(this.checked)" style="margin-top:2px">
-          <span>Count a house-account sale in the month it was <strong>delivered</strong>,
-            not the month the payment cleared
-            <span style="display:block;color:var(--mist);font-size:0.73rem;margin-top:2px">
-              FloraNext dates a house-account row by when the cheque arrived, which is how an
-              order comes through delivered two months before it was placed. Where the delivery
-              date is the earlier of the two, it is used instead. Nothing moves earlier than
-              ${escHtml(from)}. <strong>Re-import the period for this to take effect</strong> —
-              and note it shifts revenue between months, sales tax quarters included.
-            </span>
-          </span>
-        </label>
-      </div>` : ''}
     </div>`;
 }
 
-function dsSetDeliveryBasis(on) {
-  appData.deliveryBasis = !!on;
-  saveData();
-  renderDailySalesPanel();
-  notify(on
-    ? 'Deferred sales will count on their delivery date — re-import to apply it'
-    : 'Deferred sales will count on the date the payment cleared — re-import to apply it');
-}
 
 // ============================================================
-// WHEN A DEFERRED SALE COUNTS
+// WHEN A DEFERRED SALE WAS ACTUALLY DELIVERED
 // ============================================================
 // FloraNext stamps a house-account row's Order Date with the date the PAYMENT
-// arrived, not the date the order was placed. That is why the export shows
-// orders delivered before they were ordered -- Westchester Funeral Home has
-// deliveries dated 1 March against an order date of 9 May. An order cannot be
-// delivered two months before it exists, so where the delivery date precedes
-// the order date, the order date is a payment date and the delivery date is
-// when the sale actually happened.
+// arrived. That is why the export contains orders delivered before they were
+// ordered: Westchester Funeral Home has deliveries dated 1 March against an
+// order date of 9 May. An order cannot be delivered two months before it
+// exists, so where the delivery date is the earlier of the two, the order date
+// is a payment date and the delivery date is when the sale really happened.
 //
-// 222 rows in 2026 are like that, $29,598, median 41 days late and up to 117.
-// Left alone they pile a whole quarter of funeral-home work into whichever
-// month the cheque cleared.
+// The day book still records the sale where FloraNext puts it. That is what the
+// exports, the deposits and the filed sales tax returns all agree on, and moving
+// it would put the books out of step with every one of them.
 //
-// OFF by default, because switching it on moves revenue between months that
-// sales tax has already been filed for. It is a setting rather than a
-// correction so the rule applies to every future import as well -- a rule
-// stays consistent, a one-off adjustment made by hand does not.
-function dsDeliveryBasis() {
-  return !!appData.deliveryBasis;
+// What is recorded ALONGSIDE is how much of each month belongs to an earlier
+// one. That is enough to draw the year on a delivery basis without a single
+// stored figure changing -- a view, not an accounting change.
+//
+// Nothing is attributed earlier than the day book's own start: before that the
+// year is on the deposit basis and filed, and the question does not apply.
+function dsDeferrals() {
+  if (!appData.deferrals) appData.deferrals = {};
+  return appData.deferrals;
 }
 
-// Never move a sale earlier than the day book itself starts. Before that the
-// year is on the deposit basis and has been filed; adding revenue to it would
-// change a closed year rather than sharpen an open one.
-function dsSaleDate(orderIso, deliveryIso) {
-  if (!dsDeliveryBasis() || !deliveryIso || !orderIso) return orderIso;
-  if (deliveryIso >= orderIso) return orderIso;
+// Which month a deferred sale belongs to, or null if it belongs where it is.
+function dsDeliveredMonth(orderIso, deliveryIso) {
+  if (!deliveryIso || !orderIso || deliveryIso >= orderIso) return null;
   const from = appData.dailyRevenueFrom;
-  if (from && deliveryIso < from + '-01') return orderIso;
-  return deliveryIso;
+  if (from && deliveryIso < from + '-01') return null;
+  return `${+deliveryIso.slice(0, 4)}-${+deliveryIso.slice(5, 7) - 1}`;
+}
+
+// Revenue by month with the deferrals put back where they were delivered.
+function dsRevenueByDelivery(key) {
+  const d = dsDeferrals()[key];
+  return dsMonthTotals(...key.split('-').map(Number)).revenue + (d || 0);
 }
 
 // ============================================================
@@ -714,20 +694,19 @@ function fnBuildImport(text) {
   const skipped = {};
   const methods = {};
   let counted = 0, minD = null, maxD = null, deferred = 0;
+  const defer = {};
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!r || !(r[iDate] || '').trim()) continue;
     const type = String(r[iType] || '').trim();
     if (!FN_TYPES.has(type)) { skipped[type || '(blank)'] = (skipped[type || '(blank)'] || 0) + 1; continue; }
-    let dt = fnParseDate(r[iDate]);
+    const dt = fnParseDate(r[iDate]);
     if (!dt) { skipped['unreadable date'] = (skipped['unreadable date'] || 0) + 1; continue; }
+    let deliveredIn = null;
     if (iDelivDate >= 0) {
       const dd = fnParseDate(r[iDelivDate]);
-      if (dd) {
-        const moved = dsSaleDate(fnIso(dt), fnIso(dd));
-        if (moved !== fnIso(dt)) { dt = dd; deferred++; }
-      }
+      if (dd) deliveredIn = dsDeliveredMonth(fnIso(dt), fnIso(dd));
     }
 
     const method = String(r[iMethod] || '').trim().toLowerCase();
@@ -745,6 +724,13 @@ function fnBuildImport(text) {
                   + fnMoney(r[iMark]) + fnMoney(r[iDisc]);
 
     const key = `${dt.y}-${dt.m}`;
+    // Measured, never moved: the sale stays in the month the payment cleared.
+    if (deliveredIn && deliveredIn !== key) {
+      const amt = grand - tax - tips + tips;
+      defer[key] = (defer[key] || 0) - amt;
+      defer[deliveredIn] = (defer[deliveredIn] || 0) + amt;
+      deferred++;
+    }
     if (!days[key]) days[key] = {};
     if (!days[key][dt.d]) days[key][dt.d] = {};
     const day = days[key][dt.d];
@@ -767,7 +753,7 @@ function fnBuildImport(text) {
     if (!maxD || iso > maxD) maxD = iso;
   }
 
-  fnFinishImport(days, { skipped, methods, counted, minD, maxD, mode: 'export', deferred });
+  fnFinishImport(days, { skipped, methods, counted, minD, maxD, mode: 'export', deferred, defer });
 }
 
 // Rounding, the change list and the channel totals are the same whichever
@@ -848,6 +834,19 @@ function fnApplyImport() {
     if (existing) existing.active = true;
     else dsChannels().push({ id, label: LABEL[id] || id, active: true });
   });
+  // Replace the deferral figures for every month this import touched, so a
+  // re-import corrects them rather than adding to them -- the same rule the
+  // day book itself follows.
+  if (fnImport.defer) {
+    const d = dsDeferrals();
+    Object.keys(fnImport.days).forEach(k => { delete d[k]; });
+    Object.keys(fnImport.defer).forEach(k => { delete d[k]; });
+    Object.keys(fnImport.defer).forEach(k => {
+      const v = Math.round(fnImport.defer[k] * 100) / 100;
+      if (Math.abs(v) > 0.005) d[k] = v;
+    });
+  }
+
   // The combined pre-split channel has no place in the years now split out --
   // unless the import IS the combined figure, which a pasted daily report is.
   const daily = fnImport.mode === 'daily';
@@ -913,6 +912,7 @@ function fnBuildDaily(text) {
   const days = {}, skipped = {};
   let counted = 0, minD = null, maxD = null, deferred = 0;
   let sumGrand = 0, sumTax = 0, sumTips = 0, worstTax = null;
+  const defer = {};
 
   rows.forEach(r => {
     const hdr = fnDailyHeaderMap(r);
@@ -927,11 +927,12 @@ function fnBuildDaily(text) {
     }
 
     if (!map) return;
-    let dt = fnParseDate(r[map.date]);
+    const dt = fnParseDate(r[map.date]);
     if (!dt) return;
+    let deliveredIn = null;
     if (map.deliv >= 0) {
       const dd = fnParseDate(r[map.deliv]);
-      if (dd && dsSaleDate(fnIso(dt), fnIso(dd)) !== fnIso(dt)) { dt = dd; deferred++; }
+      if (dd) deliveredIn = dsDeliveredMonth(fnIso(dt), fnIso(dd));
     }
 
     const pick  = i => (i >= 0 ? fnMoney(r[i]) : 0);
@@ -949,6 +950,11 @@ function fnBuildDaily(text) {
     }
 
     const key = `${dt.y}-${dt.m}`;
+    if (deliveredIn && deliveredIn !== key) {
+      defer[key] = (defer[key] || 0) - (grand - tax);
+      defer[deliveredIn] = (defer[deliveredIn] || 0) + (grand - tax);
+      deferred++;
+    }
     if (!days[key]) days[key] = {};
     if (!days[key][dt.d]) days[key][dt.d] = {};
     const day = days[key][dt.d];
@@ -979,7 +985,7 @@ function fnBuildDaily(text) {
     tips:    { ours: r2(sumTips),   theirs: summary['tips'] },
     worstTax,
   };
-  fnFinishImport(days, { skipped, methods: {}, counted, minD, maxD, mode: 'daily', check, deferred });
+  fnFinishImport(days, { skipped, methods: {}, counted, minD, maxD, mode: 'daily', check, deferred, defer });
 }
 
 function fnLoadPaste() {
@@ -1375,6 +1381,81 @@ function dsSetView(year, month) {
   renderDailySalesPanel();
 }
 
+
+// ============================================================
+// THE YEAR AS A SHAPE
+// ============================================================
+// Two questions the day book could not answer at a glance: which months were
+// actually good, and how much of a month was work delivered earlier and paid
+// for late. Both are a view over figures already stored -- nothing here writes.
+let dsRevChart = null;
+
+function dsChartHtml(year) {
+  const defer = dsDeferrals();
+  const any = Object.keys(defer).some(k => k.startsWith(year + '-'));
+  return `
+    <div class="ledger-wrap" style="margin-bottom:16px">
+      <div class="ledger-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0">Revenue by month — ${year}</h3>
+        ${any ? `
+          <label style="font-size:0.75rem;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
+            <input type="checkbox" ${dsPref('deliveryView') ? 'checked' : ''}
+                   onchange="dsTogglePref('deliveryView')">
+            Show what was delivered that month
+          </label>
+          <span style="font-size:0.7rem;color:var(--mist)">
+            House-account work is paid for weeks after it goes out; this shows it
+            against the month it was delivered. Nothing in the books moves.
+          </span>`
+        : `<span style="font-size:0.7rem;color:var(--mist)">
+             Import a FloraNext export to see the delivered-month view.</span>`}
+      </div>
+      <div style="padding:14px 16px"><div style="position:relative;height:230px">
+        <canvas id="ds-rev-chart"></canvas>
+      </div></div>
+    </div>`;
+}
+
+function dsDrawRevChart(year) {
+  const canvas = document.getElementById('ds-rev-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (dsRevChart) { dsRevChart.destroy(); dsRevChart = null; }
+
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const booked = [], delivered = [];
+  for (let m = 0; m < 12; m++) {
+    const key = year + '-' + m;
+    booked.push(Math.round(dsMonthTotals(year, m).revenue * 100) / 100);
+    delivered.push(Math.round(dsRevenueByDelivery(key) * 100) / 100);
+  }
+  // A month with nothing on either basis is not yet reached; leaving it as a
+  // zero bar makes a part-finished year look like a collapse.
+  const upto = booked.reduce((last, v, i) => (v || delivered[i] ? i : last), 0);
+  const labels = MN.slice(0, upto + 1);
+
+  const sets = [{ label: 'As booked', data: booked.slice(0, upto + 1),
+                  backgroundColor: '#4a7ba7', borderRadius: 3 }];
+  if (dsPref('deliveryView')) {
+    sets.push({ label: 'By month delivered', data: delivered.slice(0, upto + 1),
+                backgroundColor: '#2a7a4f', borderRadius: 3 });
+  }
+  dsRevChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: sets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: sets.length > 1, labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmt(c.parsed.y) } }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { callback: v => '$' + (v / 1000) + 'k', font: { size: 11 } } },
+        x: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
 function renderDailySalesPanel() {
   const el = document.getElementById('daily-sales-content');
   if (!el) return;
@@ -1445,6 +1526,8 @@ function renderDailySalesPanel() {
         </div>
       </div>
     </div>
+
+    ${dsChartHtml(year)}
 
     <div class="ledger-wrap">
       <div class="ds-table-wrap">
@@ -1528,4 +1611,6 @@ function renderDailySalesPanel() {
     ${fnImportHtml()}
     ${dsImportHtml()}
   `;
+  // After innerHTML, or the canvas does not exist yet.
+  dsDrawRevChart(year);
 }
