@@ -1665,6 +1665,16 @@ function ctNameTokens(name) {
   return new Set(base.split(/\s+/).filter(w => w.length >= 4));
 }
 
+// How many leading characters two names share once punctuation and spacing are
+// gone. Deliberately crude: it is only used to decide whether a name is worth
+// SUGGESTING as a link, never to match anything on its own.
+function ctNamePrefixOverlap(a, b) {
+  const x = ctSupplierSquash(a), y = ctSupplierSquash(b);
+  let n = 0;
+  while (n < x.length && n < y.length && x[n] === y[n]) n++;
+  return n;
+}
+
 function ctSameVendor(a, b) {
   const A = ctNameTokens(a), B = ctNameTokens(b);
   for (const t of A) if (B.has(t)) return true;
@@ -1758,15 +1768,43 @@ function ctUnmatchedPayments() {
     const r = ctFindSubset(cands, target);
     if (r.hit) { r.hit.forEach(p => { p.used = true; }); return; }
     // Carried so each row can say WHY, which is what decides the response:
-    // chase an invoice, or silence a vendor that was never going to have one.
-    const why = !cands.length
-      ? 'no invoice from this supplier near that date'
-      : r.best
+    // chase an invoice, link a name, or silence a vendor that never had one.
+    let why, suggest = [];
+    if (cands.length) {
+      why = r.best
         ? 'closest is ' + (r.best.sum / 100).toFixed(2) + ' from ' + r.best.pick.length +
           ' invoice' + (r.best.pick.length === 1 ? '' : 's') + ', short ' +
           ((target - r.best.sum) / 100).toFixed(2)
         : 'no combination found';
-    out.push(Object.assign({}, t, { _why: why, _cands: cands.length }));
+    } else {
+      // Two very different situations look identical from here and need
+      // opposite responses: the supplier genuinely billed nothing that week, or
+      // the bank spells them in a way no supplier name matches. 'DVFG' sat one
+      // day after a DVFlora invoice and still reported as though nothing had
+      // been delivered, which sends you hunting for paperwork that is already
+      // filed. So say which it is, and name what is sitting there unmatched.
+      const known = ctData.invoices.some(i => ctSameVendor(name, i.supplier));
+      // Every supplier with an unmatched invoice that week is not a suggestion,
+      // it is a list -- on a busy week that is all of them, and offering Juliet
+      // against a supermarket run is worse than offering nothing. Only names
+      // that actually start alike: 'DVFG' and 'DVFlora' share two letters,
+      // 'Trader Joes' shares none with anyone.
+      const near = [...new Set(pool.filter(p => !p.used && p.d >= lo && p.d <= hi)
+                                   .map(p => p.sup))]
+        .filter(sup => ctNamePrefixOverlap(name, sup) >= 2);
+      if (!known && near.length) {
+        suggest = near;
+        why = 'this bank name is not linked to any supplier — ' +
+              near.slice(0, 3).join(', ') + (near.length > 3 ? ' and others' : '') +
+              (near.length === 1 ? ' has an unmatched invoice' : ' have unmatched invoices') +
+              ' near that date';
+      } else if (!known) {
+        why = 'this bank name is not linked to any supplier';
+      } else {
+        why = 'this supplier has no unmatched invoice near that date';
+      }
+    }
+    out.push(Object.assign({}, t, { _why: why, _cands: cands.length, _suggest: suggest }));
   });
   return out;
 }
@@ -1865,7 +1903,9 @@ function renderCtMissingInvoices() {
                           style="font-size:0.7rem;padding:2px 4px;max-width:130px"
                           title="If this is a supplier you already have invoices from, link the names">
                     <option value="">link to…</option>
-                    ${suppliers.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+                    ${(t._suggest || []).map(s => `<option value="${escHtml(s)}">${escHtml(s)} — has an unmatched invoice</option>`).join('')}
+                    ${suppliers.filter(s => (t._suggest || []).indexOf(s) < 0)
+                      .map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
                   </select>
                   <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
                           onclick="ctDismissPayment('${escHtml(t.id)}')"
