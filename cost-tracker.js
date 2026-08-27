@@ -265,6 +265,7 @@ function ctBuildUploadCardHtml(p, idx) {
       </div>`;
     }
     const priceFlag = ctPriceFlag(item.unit_price, item.priorPrice);
+    const disc = ctLineDiscount(item);
     const stemsInput = item.uom === 'Bunch'
       ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
       : '';
@@ -281,8 +282,13 @@ function ctBuildUploadCardHtml(p, idx) {
       <div class="ct-item-family">
         <input type="text" list="ct-family-list" placeholder="Family/Type" value="${escHtml(item.family)}" onchange="ctUpdateUploadItemFamily(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:4px 6px;width:110px">
       </div>
-      <div class="ct-item-price">$<input type="number" step="0.01" min="0" value="${item.unit_price.toFixed(2)}" onchange="ctUpdateUploadItemPrice(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:66px" title="Unit price — correct it against the paper invoice">${priceFlag}</div>
-      <div class="ct-item-total" style="color:var(--mist)">$${(item.total||item.qty*item.unit_price).toFixed(2)}
+      <div class="ct-item-price">
+        $<input type="number" step="0.01" min="0" value="${item.unit_price.toFixed(2)}" onchange="ctUpdateUploadItemPrice(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:62px" title="Unit price — correct it against the paper invoice">${priceFlag}
+        <span style="white-space:nowrap;font-size:0.68rem;color:${disc ? 'var(--red)' : 'var(--mist)'}">
+          <input type="number" step="0.1" min="0" max="99.9" value="${disc ? disc.toFixed(1) : ''}" placeholder="0" onchange="ctUpdateUploadItemDiscount(${idx}, ${i}, this.value)" style="font-size:0.68rem;padding:1px 3px;width:42px" title="Discount % — the invoice prints a reduced total for this line">% off</span>
+      </div>
+      <div class="ct-item-total">
+        $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctUpdateUploadItemTotal(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:72px;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
       </div>
     </div>`;
@@ -338,18 +344,54 @@ function ctUpdateUploadDeliveryDate(idx, dateVal) {
   p.deliveryDate = dateVal || null;
 }
 
+// A line total is NOT always quantity times price. Suppliers discount single
+// items by a percentage and print the reduced figure: three bunches of aster at
+// $10.00 came to $26.07 on Perri's invoice, 13% off, and multiplying would
+// overstate that one line by $3.93.
+//
+// The gap is not always a discount, though. Perri also prices roses per STEM
+// while recording one bunch, so the printed total is 25x the line and the ratio
+// runs the other way. Treating that as a negative discount would be nonsense,
+// so only a shortfall counts -- an excess means the quantity is under-recorded,
+// which is a different problem and left alone here.
+function ctLineDiscount(item) {
+  const gross = (item.qty || 0) * (item.unit_price || 0);
+  if (!gross || item.total == null) return 0;
+  const pct = (1 - item.total / gross) * 100;
+  return pct > 0.05 && pct < 100 ? pct : 0;
+}
+
+const ctLineTotal = item =>
+  (item.total != null ? item.total : (item.qty || 0) * (item.unit_price || 0));
+
+// The printed total over quantity times price. Below 1 is a discount; above 1
+// means the quantity is under-recorded, as when Perri prices roses per stem and
+// records one bunch. A PRICE correction has to preserve either of them --
+// rebuilding the total from qty x price collapsed a $42.75 line to $1.71.
+// A QUANTITY correction deliberately does not: the reason to retype a quantity
+// is usually that it was the wrong one, and 1 -> 25 on that line should give
+// $42.75 rather than multiplying the error by 25 again.
+function ctLineRatio(item) {
+  const gross = (item.qty || 0) * (item.unit_price || 0);
+  if (!gross || item.total == null) return 1;
+  const r = item.total / gross;
+  return Number.isFinite(r) && r > 0 ? r : 1;
+}
+
 // Price and quantity are editable because the parser misreads things, and
 // because a standing order starts from last month's figures and has to be
-// corrected against the paper. Both rewrite item.total: the parsed total would
-// otherwise win over the corrected numbers, since every downstream sum reads
-// `i.total || i.qty * i.unit_price` and a stale total is truthy.
+// corrected against the paper. Each rewrites item.total -- a stale parsed total
+// is truthy and would win over the correction, since every downstream sum reads
+// `i.total || i.qty * i.unit_price` -- but each PRESERVES the discount, which
+// an earlier version silently threw away on the first keystroke.
 function ctUpdateUploadItemPrice(idx, itemIdx, val) {
   const item = window._ctUploadPending[idx]?.enriched[itemIdx];
   if (!item) return;
   const n = parseFloat(val);
   if (!Number.isFinite(n) || n < 0) return;
+  const ratio = ctLineRatio(item);            // read before the price moves
   item.unit_price = n;
-  item.total = item.qty * n;
+  item.total = item.qty * n * ratio;
   ctRenderUploadArea();
 }
 
@@ -358,8 +400,30 @@ function ctUpdateUploadItemQty(idx, itemIdx, val) {
   if (!item) return;
   const n = parseFloat(val);
   if (!Number.isFinite(n) || n < 0) return;
+  const disc = ctLineDiscount(item);
   item.qty = n;
-  item.total = n * item.unit_price;
+  item.total = n * item.unit_price * (1 - disc / 100);
+  ctRenderUploadArea();
+}
+
+function ctUpdateUploadItemDiscount(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const n = val === '' ? 0 : parseFloat(val);
+  if (!Number.isFinite(n) || n < 0 || n >= 100) return;
+  item.total = (item.qty || 0) * (item.unit_price || 0) * (1 - n / 100);
+  ctRenderUploadArea();
+}
+
+// The total is editable directly as well, because that is the figure actually
+// printed on the invoice -- typing it is quicker and less error-prone than
+// working out what percentage produces it. The discount then follows from it.
+function ctUpdateUploadItemTotal(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) return;
+  item.total = n;
   ctRenderUploadArea();
 }
 
@@ -471,7 +535,8 @@ function ctSaveUploadInvoice(idx) {
       uom: i.uom,
       unitPrice: i.unit_price,
       stemsPerBu: i.stemsPerBu || null,
-      total: i.total || i.qty * i.unit_price
+      discountPct: ctLineDiscount(i) || undefined,
+      total: i.total != null ? i.total : i.qty * i.unit_price
     }))
   };
 
@@ -1162,7 +1227,8 @@ function ctSaveAsTemplate(idx) {
     supplier: p.parsed.supplier || 'Unknown',
     deliveryFee: p.deliveryFee || 0,
     items: active.map(i => ({ name: i.name, category: i.category, family: i.family || '',
-                              qty: i.qty, uom: i.uom, stemsPerBu: i.stemsPerBu || null })),
+                              qty: i.qty, uom: i.uom, stemsPerBu: i.stemsPerBu || null,
+                              discountPct: ctLineDiscount(i) })),
   });
   ctSave();
   renderCtTemplates();
@@ -1188,7 +1254,9 @@ function ctStartFromTemplate(id) {
   const enriched = t.items.map(i => {
     const prior = ctGetPriorPrice(i.name, t.supplier);   // a number, or null
     const unit = prior || 0;
-    return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit, total: i.qty * unit,
+    const disc = i.discountPct || 0;
+    return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit,
+             total: i.qty * unit * (1 - disc / 100),
              category: i.category || ctGuessCategory(i.name),
              family: i.family || ctGuessFamily(i.name),
              priorPrice: prior,
