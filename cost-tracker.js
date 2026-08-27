@@ -250,10 +250,15 @@ function ctBuildUploadCardHtml(p, idx) {
 
   const { parsed, enriched, filename } = p;
   const activeItems = enriched.filter(i=>!i.removed);
-  const itemsTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
+  const itemsTotal = activeItems.reduce((s,i)=>s+ctLineTotal(i),0);
   const deliveryFee = p.deliveryFee || 0;
   const activeTotal = itemsTotal + deliveryFee;
   const removedCount = enriched.length - activeItems.length;
+  // Only meaningful while every line is still present: once something has been
+  // removed the document's stated total no longer describes what is being saved.
+  const headerGap = (parsed.total != null && !removedCount &&
+                     Math.abs(parsed.total - activeTotal) > 0.02)
+    ? parsed.total - activeTotal : 0;
 
   const rows = enriched.map((item, i) => {
     if (item.removed) {
@@ -266,11 +271,16 @@ function ctBuildUploadCardHtml(p, idx) {
     }
     const priceFlag = ctPriceFlag(item.unit_price, item.priorPrice);
     const disc = ctLineDiscount(item);
+    const pack = ctPackMultiplier(item);
     const stemsInput = item.uom === 'Bunch'
       ? `<input type="number" min="1" placeholder="stems/bu" value="${item.stemsPerBu||''}" onchange="ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)" style="font-size:0.7rem;padding:2px 4px;width:60px" title="Stems per bunch, if known — enables per-stem pricing">`
       : '';
     return `<div class="ct-item-row">
-      <div class="ct-item-name">${escHtml(item.name)}</div>
+      <div class="ct-item-name">${escHtml(item.name)}${pack ? `
+        <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
+          ${pack} per ${escHtml(item.uom)} — line should be $${((item.qty || 0) * pack * item.unit_price).toFixed(2)}
+          <button onclick="ctApplyPackMultiplier(${idx}, ${i})" style="border:none;background:none;color:var(--blue-light);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
+        </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
         ${escHtml(item.uom)}${stemsInput ? ' '+stemsInput : ''}</div>
@@ -313,6 +323,16 @@ function ctBuildUploadCardHtml(p, idx) {
         <button class="btn btn-outline btn-sm" onclick="ctDismissUpload(${idx})">Discard</button>
       </div>
     </div>
+    ${headerGap !== 0 ? `
+      <div style="padding:8px 18px;background:#fff3cd;border-bottom:1px solid #ffc107;font-size:0.75rem;color:var(--ink)">
+        The invoice header says <strong>$${parsed.total.toFixed(2)}</strong>, the lines and fee come to
+        <strong>$${activeTotal.toFixed(2)}</strong> — ${headerGap > 0 ? 'short by' : 'over by'}
+        <strong>$${Math.abs(headerGap).toFixed(2)}</strong>.
+        ${headerGap > 0
+          ? `<button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px;margin-left:6px"
+                     onclick="ctAssignUploadGap(${idx})">Record it as a delivery charge</button>`
+          : 'Check the lines against the paper.'}
+      </div>` : ''}
     <div style="padding:8px 18px;background:var(--paper);border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist)">
       <span style="flex:2">Item</span><span style="flex:1">Qty</span><span style="flex:1">Category</span><span style="min-width:110px">Family/Type</span><span style="min-width:70px;text-align:right">Unit</span><span style="min-width:70px;text-align:right">Total</span>
     </div>
@@ -371,6 +391,56 @@ const ctLineTotal = item =>
 // A QUANTITY correction deliberately does not: the reason to retype a quantity
 // is usually that it was the wrong one, and 1 -> 25 on that line should give
 // $42.75 rather than multiplying the error by 25 again.
+// A box of 16 bunches gets parsed two ways. Usually '16 Bunch @ $7.99' with a
+// total of $127.84, which is right. Sometimes '1 Box @ $7.99' with the 16 in
+// stemsPerBu and a total of $7.99, which drops $119.85 off the line -- it
+// happened three times in August on one Perri item alone.
+//
+// stemsPerBu is doing two jobs: stems per bunch on a Bunch line, units per pack
+// on a Box line. That is why the unit of measure has to gate this. On the 212
+// saved Bunch lines that carry a stem count the price IS per bunch and the
+// total is already right; multiplying those would be a disaster. Only a
+// container unit qualifies, and only when the total still equals qty x price,
+// which is the signature of the multiplier having been dropped.
+const CT_PACK_UNITS = /^(box|case|carton|flat|bundle|pack|other)$/i;
+
+function ctPackMultiplier(item) {
+  const per = Number(item.stemsPerBu) || 0;
+  if (per <= 1 || !CT_PACK_UNITS.test(String(item.uom || ''))) return 0;
+  const gross = (item.qty || 0) * (item.unit_price || 0);
+  if (!gross) return 0;
+  return Math.abs(ctLineTotal(item) - gross) < 0.005 ? per : 0;
+}
+
+function ctApplyPackMultiplier(idx, itemIdx) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  const per = ctPackMultiplier(item);
+  if (!per) return;
+  item.total = (item.qty || 0) * per * (item.unit_price || 0);
+  ctRenderUploadArea();
+}
+
+// The parser puts a delivery charge into the header total without extracting it
+// as a line or a fee. Seven saved invoices are short that way -- $18.75 five
+// times from Main Wholesale, $25.00 from Alexander Hay, $15.00 from Juliet. The
+// money reached the invoice total but landed in no category at all.
+//
+// Assigning it also rewrites parsed.total down to the items subtotal, because
+// the save computes `(parsed.total || itemsTotal) + deliveryFee` and would
+// otherwise count the charge twice.
+function ctAssignUploadGap(idx) {
+  const p = window._ctUploadPending[idx];
+  if (!p || p.parsed.total == null) return;
+  const items = p.enriched.filter(i => !i.removed).reduce((s, i) => s + ctLineTotal(i), 0);
+  const gap = p.parsed.total - (items + (p.deliveryFee || 0));
+  if (gap <= 0.02) return;
+  p.deliveryFee = (p.deliveryFee || 0) + gap;
+  p.parsed.total = items;
+  ctRenderUploadArea();
+  notify(`Recorded $${gap.toFixed(2)} as a delivery charge`);
+}
+
 function ctLineRatio(item) {
   const gross = (item.qty || 0) * (item.unit_price || 0);
   if (!gross || item.total == null) return 1;
