@@ -314,6 +314,9 @@ async function pushToSheet() {
       // FloraNext and retires Web, but it would silently undo those choices
       // for anyone who later decided otherwise.
       channelsVersion: appData.channelsVersion || null,
+      // Whether a deferred house-account sale counts on its delivery date
+      // rather than the day the payment cleared. Same allowlist rule as above.
+      deliveryBasis: !!appData.deliveryBasis,
       dailyRevenueFrom: appData.dailyRevenueFrom || null,
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()

@@ -552,7 +552,67 @@ function dsRevenueHtml() {
           : `<button class="btn btn-primary" onclick="dsSetRevenueFrom('${year}-01')">Use the day book for ${year} onwards</button>
              <span style="font-size:0.72rem;color:var(--mist)">Earlier years are left exactly as they are.</span>`}
       </div>
+      ${from ? `
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:0.8rem;cursor:pointer">
+          <input type="checkbox" ${dsDeliveryBasis() ? 'checked' : ''}
+                 onchange="dsSetDeliveryBasis(this.checked)" style="margin-top:2px">
+          <span>Count a house-account sale in the month it was <strong>delivered</strong>,
+            not the month the payment cleared
+            <span style="display:block;color:var(--mist);font-size:0.73rem;margin-top:2px">
+              FloraNext dates a house-account row by when the cheque arrived, which is how an
+              order comes through delivered two months before it was placed. Where the delivery
+              date is the earlier of the two, it is used instead. Nothing moves earlier than
+              ${escHtml(from)}. <strong>Re-import the period for this to take effect</strong> —
+              and note it shifts revenue between months, sales tax quarters included.
+            </span>
+          </span>
+        </label>
+      </div>` : ''}
     </div>`;
+}
+
+function dsSetDeliveryBasis(on) {
+  appData.deliveryBasis = !!on;
+  saveData();
+  renderDailySalesPanel();
+  notify(on
+    ? 'Deferred sales will count on their delivery date — re-import to apply it'
+    : 'Deferred sales will count on the date the payment cleared — re-import to apply it');
+}
+
+// ============================================================
+// WHEN A DEFERRED SALE COUNTS
+// ============================================================
+// FloraNext stamps a house-account row's Order Date with the date the PAYMENT
+// arrived, not the date the order was placed. That is why the export shows
+// orders delivered before they were ordered -- Westchester Funeral Home has
+// deliveries dated 1 March against an order date of 9 May. An order cannot be
+// delivered two months before it exists, so where the delivery date precedes
+// the order date, the order date is a payment date and the delivery date is
+// when the sale actually happened.
+//
+// 222 rows in 2026 are like that, $29,598, median 41 days late and up to 117.
+// Left alone they pile a whole quarter of funeral-home work into whichever
+// month the cheque cleared.
+//
+// OFF by default, because switching it on moves revenue between months that
+// sales tax has already been filed for. It is a setting rather than a
+// correction so the rule applies to every future import as well -- a rule
+// stays consistent, a one-off adjustment made by hand does not.
+function dsDeliveryBasis() {
+  return !!appData.deliveryBasis;
+}
+
+// Never move a sale earlier than the day book itself starts. Before that the
+// year is on the deposit basis and has been filed; adding revenue to it would
+// change a closed year rather than sharpen an open one.
+function dsSaleDate(orderIso, deliveryIso) {
+  if (!dsDeliveryBasis() || !deliveryIso || !orderIso) return orderIso;
+  if (deliveryIso >= orderIso) return orderIso;
+  const from = appData.dailyRevenueFrom;
+  if (from && deliveryIso < from + '-01') return orderIso;
+  return deliveryIso;
 }
 
 // ============================================================
@@ -609,6 +669,9 @@ function fnParseDate(s) {
   return { y: +m[3], m: mo, d: +m[2] };
 }
 
+const fnIso = dt =>
+  `${dt.y}-${String(dt.m + 1).padStart(2, '0')}-${String(dt.d).padStart(2, '0')}`;
+
 const fnMoney = v => {
   const n = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g, ''));
   return Number.isFinite(n) ? n : 0;
@@ -642,21 +705,30 @@ function fnBuildImport(text) {
   }
   const iDate = col('order date'), iGrand = col('grand total'), iTax = col('tax'),
         iTips = col('tips'), iMethod = col('order method'), iType = col('transaction type'),
+        // NOT col('delivery'), which is the delivery CHARGE.
+        iDelivDate = col('delivery date'),
         iProd = col('product total'), iDeliv = col('delivery'), iWire = col('wire out fee'),
         iMark = col('product markup'), iDisc = col('discount');
 
   const days = {};            // 'y-m' -> { day -> { ch -> {s,t,x}, _tips } }
   const skipped = {};
   const methods = {};
-  let counted = 0, minD = null, maxD = null;
+  let counted = 0, minD = null, maxD = null, deferred = 0;
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!r || !(r[iDate] || '').trim()) continue;
     const type = String(r[iType] || '').trim();
     if (!FN_TYPES.has(type)) { skipped[type || '(blank)'] = (skipped[type || '(blank)'] || 0) + 1; continue; }
-    const dt = fnParseDate(r[iDate]);
+    let dt = fnParseDate(r[iDate]);
     if (!dt) { skipped['unreadable date'] = (skipped['unreadable date'] || 0) + 1; continue; }
+    if (iDelivDate >= 0) {
+      const dd = fnParseDate(r[iDelivDate]);
+      if (dd) {
+        const moved = dsSaleDate(fnIso(dt), fnIso(dd));
+        if (moved !== fnIso(dt)) { dt = dd; deferred++; }
+      }
+    }
 
     const method = String(r[iMethod] || '').trim().toLowerCase();
     const ch = FN_METHOD_CHANNEL[method];
@@ -695,7 +767,7 @@ function fnBuildImport(text) {
     if (!maxD || iso > maxD) maxD = iso;
   }
 
-  fnFinishImport(days, { skipped, methods, counted, minD, maxD, mode: 'export' });
+  fnFinishImport(days, { skipped, methods, counted, minD, maxD, mode: 'export', deferred });
 }
 
 // Rounding, the change list and the channel totals are the same whichever
@@ -819,7 +891,8 @@ function fnDailyHeaderMap(row) {
   const h = row.map(c => String(c).replace(/^﻿/, '').trim().toLowerCase());
   const at = n => h.indexOf(n);
   if (at('order date') < 0 || at('grand total') < 0) return null;
-  return { date: at('order date'), grand: at('grand total'), tax: at('tax'),
+  return { date: at('order date'), deliv: at('delivery date'),
+           grand: at('grand total'), tax: at('tax'),
            tips: at('tips'), prodT: at('taxable products'),
            delivT: at('taxable delivery'), wire: at('wire fee'),
            markup: at('product markup'), disc: at('discounts'), id: at('order id') };
@@ -838,7 +911,7 @@ function fnBuildDaily(text) {
 
   let map = null;
   const days = {}, skipped = {};
-  let counted = 0, minD = null, maxD = null;
+  let counted = 0, minD = null, maxD = null, deferred = 0;
   let sumGrand = 0, sumTax = 0, sumTips = 0, worstTax = null;
 
   rows.forEach(r => {
@@ -854,8 +927,12 @@ function fnBuildDaily(text) {
     }
 
     if (!map) return;
-    const dt = fnParseDate(r[map.date]);
+    let dt = fnParseDate(r[map.date]);
     if (!dt) return;
+    if (map.deliv >= 0) {
+      const dd = fnParseDate(r[map.deliv]);
+      if (dd && dsSaleDate(fnIso(dt), fnIso(dd)) !== fnIso(dt)) { dt = dd; deferred++; }
+    }
 
     const pick  = i => (i >= 0 ? fnMoney(r[i]) : 0);
     const grand = pick(map.grand), tax = pick(map.tax), tips = pick(map.tips);
@@ -902,7 +979,7 @@ function fnBuildDaily(text) {
     tips:    { ours: r2(sumTips),   theirs: summary['tips'] },
     worstTax,
   };
-  fnFinishImport(days, { skipped, methods: {}, counted, minD, maxD, mode: 'daily', check });
+  fnFinishImport(days, { skipped, methods: {}, counted, minD, maxD, mode: 'daily', check, deferred });
 }
 
 function fnLoadPaste() {
@@ -939,7 +1016,7 @@ function fnImportHtml() {
         </div>
       </div>`;
   }
-  const { totals, skipped, counted, minD, maxD, changes, mode, check, collapses } = fnImport;
+  const { totals, skipped, counted, minD, maxD, changes, mode, check, collapses, deferred } = fnImport;
   const dayCount = Object.values(fnImport.days).reduce((s, m) => s + Object.keys(m).length, 0);
   const chanLabel = id => (dsChannels().find(c => c.id === id) || {}).label
     || ({ phone: 'Phone', counter: 'Walk-in', web: 'Website', standing: 'Standing',
@@ -1020,6 +1097,11 @@ function fnImportHtml() {
         </table>
       </div>
 
+      ${deferred ? `
+        <div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);font-size:0.75rem">
+          ${deferred} deferred sale${deferred === 1 ? '' : 's'} dated by delivery rather than by
+          when the payment cleared — house-account work counted in the month it went out.
+        </div>` : ''}
       ${checkHtml}
       ${collapseHtml}
 
