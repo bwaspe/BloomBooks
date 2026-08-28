@@ -12,7 +12,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Plants:'#27ae60', Glass
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Ceramic: 2, 'Other Containers': 2, 'Floral Care': 1.5, Funeral: 2, Packaging: 1.3, Ribbon: 2, 'Tools/Equipment': 1.5, 'Wedding/Event': 2, 'Add-on Retail': 1.8, Seasonal: 2.2, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {} };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {}, reconcileFrom: '', gmailCoverage: null };
 let ctCharts = {};
 
 function ctSave() {
@@ -21,7 +21,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -939,6 +939,27 @@ function renderCtGmailPanel() {
     mergeTo.innerHTML = opts;
   }
 
+  const coverage = document.getElementById('ct-gmail-coverage');
+  if (coverage) {
+    // Two different facts, and the second is the one that matters when an old
+    // invoice appears to be missing: the sheet can only offer what the Apps
+    // Script's Gmail query reached, and that query lives in the script, not here.
+    const c = ctData.gmailCoverage;
+    const mine = (ctData.invoices || [])
+      .filter(i => String(i.id || '').startsWith('inv-gmail-')).map(ctEffDate).filter(Boolean).sort();
+    coverage.innerHTML = `
+      ${mine.length
+        ? `<div>${mine.length} invoice${mine.length === 1 ? '' : 's'} imported from Gmail,
+             <strong>${escHtml(mine[0])}</strong> to <strong>${escHtml(mine[mine.length - 1])}</strong>.</div>`
+        : '<div>No invoices imported from Gmail yet.</div>'}
+      ${c
+        ? `<div>The sheet holds ${c.rows} row${c.rows === 1 ? '' : 's'} covering
+             <strong>${escHtml(c.from)}</strong> to <strong>${escHtml(c.to)}</strong>.
+             Anything older than that was never searched — the date range is in the
+             Apps Script's Gmail query, not in BloomBooks.</div>`
+        : '<div>Check for new invoices to see what period the sheet covers.</div>'}`;
+  }
+
   const lastChecked = document.getElementById('ct-gmail-last-checked');
   if (lastChecked) {
     lastChecked.textContent = ctData.gmailLastChecked
@@ -1255,6 +1276,14 @@ async function ctFetchGmailInvoices(silent) {
       });
     });
 
+    // What the SHEET holds, not just what was new this time. Without it the
+    // panel can only say when it last checked, which says nothing about the
+    // period searched -- and that is the question actually asked when an old
+    // invoice seems to be missing.
+    const dates = rows.map(r => ctParseSheetsApiDate(r[iDate])).filter(Boolean).sort();
+    ctData.gmailCoverage = dates.length
+      ? { from: dates[0], to: dates[dates.length - 1], rows: rows.length }
+      : null;
     ctData.gmailLastChecked = Date.now();
     ctSave();
     renderCtGmailPanel();
@@ -1756,16 +1785,41 @@ const ctCents = n => Math.round(Number(n || 0) * 100);
 const ctShiftDay = (d, n) =>
   new Date(new Date(d + 'T00:00:00').getTime() + n * 864e5).toISOString().slice(0, 10);
 
+// Where the reconciliation starts looking. Derived by default, but SETTABLE --
+// and the setting is what makes a backfill safe. Upload a single February
+// invoice and the derived date jumps from July to March, putting four months of
+// payments up against a handful of holiday invoices and burying twenty real
+// rows under a hundred false ones. Pin it before backfilling anything old.
+function ctReconcileDefault() {
+  const dated = (ctData.invoices || []).map(ctEffDate).filter(Boolean);
+  if (!dated.length) return '';
+  // The month AFTER the first invoice, never the month of it: the month a
+  // capture habit begins is partial by definition, and June 2026 contributed
+  // 25 unmatched payments for that reason alone.
+  const first = dated.reduce((m, d) => d < m ? d : m, '9999-99-99');
+  return first.slice(5, 7) === '12'
+    ? `${+first.slice(0, 4) + 1}-01-01`
+    : `${first.slice(0, 4)}-${String(+first.slice(5, 7) + 1).padStart(2, '0')}-01`;
+}
+
+function ctReconcileFrom() {
+  return ctData.reconcileFrom || ctReconcileDefault();
+}
+
+function ctSetReconcileFrom(val) {
+  const v = String(val || '').trim();
+  ctData.reconcileFrom = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+  ctSave();
+  renderCtMissingInvoices();
+  notify(ctData.reconcileFrom
+    ? `Checking payments from ${ctData.reconcileFrom} onwards`
+    : 'Back to starting from the month after the first invoice');
+}
+
 function ctUnmatchedPayments() {
   const invoices = ctData.invoices.filter(i => ctEffDate(i));
   if (!invoices.length) return [];
-  // Start at the month AFTER the first invoice, not the first invoice itself.
-  // The month a capture habit begins is partial by definition -- June 2026 had
-  // 25 unmatched payments for that reason alone, which would bury the real ones.
-  const first = invoices.reduce((m, i) => ctEffDate(i) < m ? ctEffDate(i) : m, '9999-99-99');
-  const start = ctData.reconcileFrom ||
-    (first.slice(5, 7) === '12' ? `${+first.slice(0, 4) + 1}-01-01`
-                                : `${first.slice(0, 4)}-${String(+first.slice(5, 7) + 1).padStart(2, '0')}-01`);
+  const start = ctReconcileFrom();
   const cutoff = ctShiftDay(new Date().toISOString().slice(0, 10), -CT_GRACE_DAYS);
 
   // An invoice may only settle one payment, so matches are consumed as they go.
@@ -1878,6 +1932,19 @@ function renderCtMissingInvoices() {
   const el = document.getElementById('ct-missing-invoices');
   if (!el) return;
   const dismissed = Object.keys(ctData.dismissedPayments || {}).length;
+  const from = ctReconcileFrom();
+  const pinned = !!ctData.reconcileFrom;
+  const fromLine = `
+    <div style="font-size:0.72rem;color:var(--mist);margin-top:6px;display:flex;
+                align-items:center;gap:6px;flex-wrap:wrap">
+      Checking payments from
+      <input type="date" value="${escHtml(from)}" onchange="ctSetReconcileFrom(this.value)"
+             style="font-size:0.7rem;padding:1px 4px"
+             title="Pin this before uploading older invoices, or the list fills with payments whose invoices were never captured">
+      ${pinned
+        ? `<a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--blue-light)">use the default</a>`
+        : `<span>(the month after your first invoice — pin it before backfilling older ones)</span>`}
+    </div>`;
   const ignored = Object.keys(ctData.noInvoiceVendors || {}).length;
   const restore =
     (dismissed ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--blue-light)">Restore ${dismissed} dismissed</a>.` : '') +
@@ -1889,7 +1956,7 @@ function renderCtMissingInvoices() {
   if (!missing.length) {
     el.innerHTML = `<div style="margin-bottom:16px;padding:10px 12px;border-radius:6px;
       background:var(--paper);border:1px solid var(--border);font-size:0.78rem;color:var(--mist)">
-      Every COGS payment since ${escHtml(ctData.invoices.length ? 'the first invoice' : '')} has an invoice behind it.${restore}</div>`;
+      Every COGS payment has an invoice behind it.${restore}${fromLine}</div>`;
     return;
   }
 
@@ -1905,6 +1972,7 @@ function renderCtMissingInvoices() {
         the paper invoice and drop it in Upload — the parser reads a phone picture.
         Dismiss anything with no invoice to find, like a retail run or a delivery fee.${restore}
       </div>
+      ${fromLine}
       <div class="staging-table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Vendor</th><th style="text-align:right">Amount</th>
