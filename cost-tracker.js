@@ -1053,6 +1053,7 @@ function ctSaveUploadInvoice(idx) {
     if (i.family) ctLearnFamily(i.name, i.family);
   });
 
+  ctHoldReconcileStart(ctEffDate(invoice));
   ctData.invoices.push(invoice);
   ctSave();
 
@@ -1672,6 +1673,7 @@ function ctSaveGmailInvoice(invIdx) {
     if (i.family) ctLearnFamily(i.name, i.family);
   });
 
+  ctHoldReconcileStart(ctEffDate(invoice));
   ctData.invoices.push(invoice);
   ctData.importedGmailIds = ctData.importedGmailIds || [];
   ctData.importedGmailIds.push(pending.messageId);
@@ -1965,6 +1967,20 @@ const ctShiftDay = (d, n) =>
 // invoice and the derived date jumps from July to March, putting four months of
 // payments up against a handful of holiday invoices and burying twenty real
 // rows under a hundred false ones. Pin it before backfilling anything old.
+// Saving an OLDER invoice must not widen a reconciliation already worked
+// through. The start is derived from the earliest invoice, so backfilling a May
+// invoice would drag it from July back to June and put four months of payments
+// against paperwork that was never captured -- twenty rows became a hundred and
+// sixty when measured. Relying on the owner to pin it first was a footgun of my
+// making, so the pin now happens on its own, once, at the moment it matters.
+function ctHoldReconcileStart(effDate) {
+  if (!effDate || ctData.reconcileFrom) return;
+  const cur = ctReconcileFrom();
+  if (!cur || effDate >= cur) return;
+  ctData.reconcileFrom = cur;
+  notify(`Kept the invoice check starting ${cur} — an older invoice would have widened it`);
+}
+
 function ctReconcileDefault() {
   const dated = (ctData.invoices || []).map(ctEffDate).filter(Boolean);
   if (!dated.length) return '';
