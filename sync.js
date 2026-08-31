@@ -318,6 +318,9 @@ async function pushToSheet() {
       // measured at import, used to draw the year on a delivery basis without
       // moving anything. Same allowlist rule as above.
       deferrals: appData.deferrals || {},
+      // When holiday buying started, per holiday per year. Same allowlist rule:
+      // a top-level key missing from this list is dropped on every sync.
+      holidayBuy: appData.holidayBuy || {},
       dailyRevenueFrom: appData.dailyRevenueFrom || null,
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()

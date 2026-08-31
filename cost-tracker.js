@@ -1000,24 +1000,78 @@ function ctEffDate(inv) {
 //
 // The buying window runs three weeks up to the day, because that is when the
 // payments actually ramp; Christmas buying runs the front of December.
+// The three holidays, and the day each falls on. Kept here so the price
+// comparison and the holiday cost view cannot drift apart -- they were computing
+// their own windows separately, which is a disagreement waiting to happen.
+const CT_HOLIDAYS = [
+  { month: 1,  key: 'valentines',   label: "Valentine's" },
+  { month: 4,  key: 'mothers',      label: "Mother's Day" },
+  { month: 11, key: 'christmas',    label: 'Christmas' },
+];
+
+const ctIsoOf = ms => new Date(ms).toISOString().slice(0, 10);
+
+// Every holiday's date, including the two that do NOT move prices. Which
+// holidays cost money and which change what a stem costs are separate
+// questions: Easter and Thanksgiving are worth a cost view like any other, they
+// just never doubled the price of a rose.
+function ctNthWeekdayIso(year, month, weekday, n) {
+  const d = new Date(Date.UTC(year, month, 1));
+  let seen = 0;
+  while (d.getUTCMonth() === month) {
+    if (d.getUTCDay() === weekday && ++seen === n) return ctIsoOf(d.getTime());
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return null;
+}
+
+function ctHolidayDayIso(year, month) {
+  if (month === 1) return ctIsoOf(Date.UTC(year, 1, 14));       // Valentine's
+  if (month === 11) return ctIsoOf(Date.UTC(year, 11, 25));     // Christmas
+  if (month === 4) return ctNthWeekdayIso(year, 4, 0, 2);       // Mother's Day
+  if (month === 10) return ctNthWeekdayIso(year, 10, 4, 4);     // Thanksgiving
+  if (month === 3 && typeof easterSunday === 'function') {
+    return ctIsoOf(easterSunday(year).getTime());
+  }
+  return null;
+}
+
+// When the holiday buying actually starts. Three weeks is only a default --
+// when the flowers land differs every year, and the owner is the one who knows,
+// so a date set here beats any rule. Stored per holiday per year, keyed the way
+// the revenue figures already are.
+const CT_DEFAULT_BUY_DAYS = 21;
+
+function ctHolidayBuyStart(year, month) {
+  const set = (typeof appData !== 'undefined' && appData.holidayBuy) || {};
+  const override = set[`${year}-${month}`];
+  if (override && /^\d{4}-\d{2}-\d{2}$/.test(override)) return override;
+  const day = ctHolidayDayIso(year, month);
+  if (!day) return null;
+  return ctIsoOf(new Date(day + 'T00:00:00Z').getTime() - CT_DEFAULT_BUY_DAYS * 864e5);
+}
+
+function ctSetHolidayBuyStart(year, month, val) {
+  if (typeof appData === 'undefined') return;
+  if (!appData.holidayBuy) appData.holidayBuy = {};
+  const v = String(val || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) appData.holidayBuy[`${year}-${month}`] = v;
+  else delete appData.holidayBuy[`${year}-${month}`];
+  saveData();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+  if (typeof renderCtPrices === 'function') renderCtPrices();
+  notify(v ? `Buying for that holiday starts ${v}` : 'Back to three weeks before the day');
+}
+
+// Which holiday a purchase date belongs to, if any.
 function ctHolidayOf(iso) {
   if (!iso || iso.length < 10) return null;
   const y = +iso.slice(0, 4);
-  const day = new Date(iso + 'T00:00:00Z');
-  // Milliseconds, not a Date: Date.UTC returns a number and getTime returns a
-  // number, and taking one of each is how this got written wrong the first time.
-  const within = (endMs, days) =>
-    day.getTime() <= endMs && day.getTime() >= endMs - days * 864e5;
-  if (within(Date.UTC(y, 1, 14), 21)) return "Valentine's";
-  // Second Sunday in May.
-  const m = new Date(Date.UTC(y, 4, 1));
-  let n = 0;
-  while (true) {
-    if (m.getUTCDay() === 0 && ++n === 2) break;
-    m.setUTCDate(m.getUTCDate() + 1);
+  for (const h of CT_HOLIDAYS) {
+    const day = ctHolidayDayIso(y, h.month);
+    const from = ctHolidayBuyStart(y, h.month);
+    if (day && from && iso >= from && iso <= day) return h.label;
   }
-  if (within(m.getTime(), 21)) return "Mother's Day";
-  if (iso.slice(5, 7) === '12' && +iso.slice(8, 10) <= 25) return 'Christmas';
   return null;
 }
 

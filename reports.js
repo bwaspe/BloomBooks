@@ -168,46 +168,11 @@ const HOLIDAYS = [
 // before a holiday and are not always invoiced then, so no single number is
 // right; the payments show the buy ramping from roughly three weeks out.
 
-// The Sunday-based rules already used by the revenue side.
-function hcHolidayDate(year, month) {
-  if (month === 1) return new Date(Date.UTC(year, 1, 14));
-  if (month === 4) {                                  // second Sunday in May
-    const d = new Date(Date.UTC(year, 4, 1));
-    let n = 0;
-    while (true) {
-      if (d.getUTCDay() === 0 && ++n === 2) return new Date(d);
-      d.setUTCDate(d.getUTCDate() + 1);
-    }
-  }
-  if (month === 10) {                                 // fourth Thursday in Nov
-    const d = new Date(Date.UTC(year, 10, 1));
-    let n = 0;
-    while (true) {
-      if (d.getUTCDay() === 4 && ++n === 4) return new Date(d);
-      d.setUTCDate(d.getUTCDate() + 1);
-    }
-  }
-  if (month === 11) return new Date(Date.UTC(year, 11, 25));
-  if (month === 3 && typeof easterSunday === 'function') return easterSunday(year);
-  return null;
-}
-
-function hcWindowDays() {
-  const n = parseInt(localStorage.getItem('bb_hc_days') || '', 10);
-  return [7, 14, 21, 28].indexOf(n) >= 0 ? n : 21;
-}
-
-function hcSetWindow(n) {
-  try { localStorage.setItem('bb_hc_days', String(n)); } catch (e) {}
-  renderHolidayPanel();
-}
-
 function hcWindow(year, month) {
-  const day = hcHolidayDate(year, month);
-  if (!day) return null;
-  const iso = d => d.toISOString().slice(0, 10);
-  const from = new Date(day.getTime() - hcWindowDays() * 864e5);
-  return { from: iso(from), to: iso(day) };
+  if (typeof ctHolidayDayIso !== 'function') return null;
+  const to = ctHolidayDayIso(year, month);
+  const from = ctHolidayBuyStart(year, month);
+  return to && from ? { from, to, set: !!((appData.holidayBuy || {})[`${year}-${month}`]) } : null;
 }
 
 // Invoices dated into the window, and what they were for.
@@ -258,7 +223,6 @@ function hcToggle(key) { hcOpen = (hcOpen === key ? null : key); renderHolidayPa
 
 function hcCostHtml() {
   const years = appData.years.slice().sort((a, b) => b - a);
-  const days = hcWindowDays();
   const rows = [];
   years.forEach(yr => {
     HOLIDAYS.forEach(h => {
@@ -279,13 +243,10 @@ function hcCostHtml() {
     <div class="ledger-wrap" style="margin-top:18px">
       <div class="ledger-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <h3 style="margin:0">What the holiday cost</h3>
-        <span style="font-size:0.75rem;color:var(--mist)">buying window:</span>
-        ${[7, 14, 21, 28].map(n => `
-          <button class="btn btn-sm ${n === days ? 'btn-primary' : 'btn-outline'}"
-                  style="font-size:0.7rem;padding:2px 8px" onclick="hcSetWindow(${n})">${n}d</button>`).join('')}
         <span style="font-size:0.7rem;color:var(--mist)">
           Invoices say what was bought; payments say what left the bank. A gap between
           them means the invoices for that holiday are incomplete, not that it was cheap.
+          Set when the buying actually started for each one — it is never the same date twice.
         </span>
       </div>
       <div class="staging-table-wrap">
@@ -303,7 +264,14 @@ function hcCostHtml() {
               return `
               <tr class="clickable-row" onclick="hcToggle('${r.key}')" style="cursor:pointer">
                 <td><strong>${escHtml(r.h.label)} ${r.yr}</strong>
-                  <div style="font-size:0.68rem;color:var(--mist)">${r.w.from} to ${r.w.to}</div></td>
+                  <div style="font-size:0.68rem;color:var(--mist)" onclick="event.stopPropagation()">
+                    buying from
+                    <input type="date" value="${escHtml(r.w.from)}" max="${escHtml(r.w.to)}"
+                           onchange="ctSetHolidayBuyStart(${r.yr}, ${r.h.month}, this.value)"
+                           style="font-size:0.66rem;padding:0 2px"
+                           title="When the flowers for this holiday actually started arriving">
+                    to ${r.w.to}${r.w.set ? '' : ' <span style="opacity:.7">(default)</span>'}
+                  </div></td>
                 <td style="text-align:right">${r.rev ? fmt(r.rev) : '—'}</td>
                 <td style="text-align:right">${invTot ? fmt(invTot) : '—'}
                   <div style="font-size:0.68rem;color:${gap > 1 ? 'var(--red)' : 'var(--mist)'}">
