@@ -12,7 +12,7 @@ const CT_COLORS = { Flowers:'#c0392b', Greens:'#2a7a4f', Plants:'#27ae60', Glass
 
 const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Ceramic: 2, 'Other Containers': 2, 'Floral Care': 1.5, Funeral: 2, Packaging: 1.3, Ribbon: 2, 'Tools/Equipment': 1.5, 'Wedding/Event': 2, 'Add-on Retail': 1.8, Seasonal: 2.2, Other: 2 };
 
-let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {}, reconcileFrom: '', gmailCoverage: null };
+let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {}, reconcileFrom: '', gmailCoverage: null, dismissedRepairs: {} };
 let ctCharts = {};
 
 function ctSave() {
@@ -21,7 +21,7 @@ function ctSave() {
 function ctLoad() {
   try {
     const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, ...JSON.parse(raw) };
+    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, dismissedRepairs:{}, ...JSON.parse(raw) };
   } catch(e) {}
 }
 
@@ -282,7 +282,9 @@ function ctBuildUploadCardHtml(p, idx) {
         </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
-        ${escHtml(item.uom)}${stemsInput ? ' '+stemsInput : ''}</div>
+        <select onchange="ctUpdateUploadItemUom(${idx}, ${i}, this.value)" style="font-size:0.72rem" title="Unit — pick a pack unit like Box or Case to record how many are in one">
+          ${CT_UOMS.map(u => `<option value="${u}" ${u === item.uom ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>${stemsInput ? ' ' + stemsInput : ''}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateUploadItemCat(${idx}, ${i}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -299,6 +301,7 @@ function ctBuildUploadCardHtml(p, idx) {
       <div class="ct-item-total">
         $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctUpdateUploadItemTotal(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:72px;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
+        ${ctLineWorking(item)}
       </div>
     </div>`;
   });
@@ -408,6 +411,8 @@ const ctLineTotal = item =>
 // container unit qualifies, and only when the total still equals qty x price,
 // which is the signature of the multiplier having been dropped.
 const CT_PACK_UNITS = /^(box|case|carton|flat|bundle|pack|other)$/i;
+
+const CT_UOMS = ['Stem','Bunch','Each','Box','Case','Roll','Other'];
 
 // Whether the price on a pack line is per UNIT or per PACK -- and nothing in
 // the line itself can say which. '1 Box @ $7.99, 16 per box' is a per-bunch
@@ -559,7 +564,7 @@ function ctRepairs() {
     const derived = Math.abs((inv.total || 0) - (items + fee)) < 0.02;
     (inv.items || []).forEach((it, i) => {
       const per = ctPackMultiplier(it);
-      if (!per) return;
+      if (!per || ctRepairDismissed(inv.id, it.name)) return;
       out.packLines.push({ inv, i, per, name: it.name, date: ctEffDate(inv),
                            supplier: inv.supplier, number: inv.invoiceNumber, id: inv.id,
                            why: ctPackCorroboration(it),
@@ -567,7 +572,9 @@ function ctRepairs() {
                            to: (it.qty || 0) * per * ctUnitPrice(it), derived });
     });
     const gap = (inv.total || 0) - (items + fee);
-    if (gap > 0.02) out.feeGaps.push({ inv, gap, date: ctEffDate(inv) });
+    if (gap > 0.02 && !ctRepairDismissed(inv.id, '__fee__')) {
+      out.feeGaps.push({ inv, gap, date: ctEffDate(inv) });
+    }
   });
   return out;
 }
@@ -601,10 +608,13 @@ function ctDroppedDiscounts() {
     const missing = recs.filter(r => r.disc <= 0.05);
     if (!seen.length || !missing.length) return;
     const rate = seen.reduce((s, r) => s + r.disc, 0) / seen.length;
-    missing.forEach(r => out.push({
+    missing.forEach(r => {
+      if (ctRepairDismissed(r.inv.id, r.it.name)) return;
+      out.push({
       inv: r.inv, i: r.i, name: r.it.name, date: ctEffDate(r.inv), rate,
       qty: r.it.qty, price: ctUnitPrice(r.it),
-      from: ctLineTotal(r.it), to: r.gross * (1 - rate / 100), seenOn: seen.length }));
+      from: ctLineTotal(r.it), to: r.gross * (1 - rate / 100), seenOn: seen.length });
+    });
   });
   return out;
 }
@@ -649,6 +659,84 @@ function ctOpenInvoice(id) {
   ctEditInvoice(id);
 }
 
+// One button that applied everything was wrong for a list that mixes certainty
+// with inference. Some rows are right, some are not, and the four hard-goods
+// lines proved a whole batch can be wrong. So each row can be applied on its
+// own, opened to fix by hand, or dismissed -- and a dismissal sticks, because
+// a line that is genuinely priced by the case will be flagged again on every
+// scan otherwise.
+//
+// Keyed by invoice id and item name rather than array position: an edit that
+// reorders or removes a line would otherwise silently move a dismissal onto a
+// different item.
+function ctRepairKey(invId, name) {
+  return String(invId) + '|' + ctCatalogKey(name || '');
+}
+
+function ctRepairDismissed(invId, name) {
+  return !!(ctData.dismissedRepairs || {})[ctRepairKey(invId, name)];
+}
+
+function ctDismissRepair(invId, name, label) {
+  if (!ctData.dismissedRepairs) ctData.dismissedRepairs = {};
+  ctData.dismissedRepairs[ctRepairKey(invId, name)] = label || true;
+  ctSave();
+  renderCtRepairs();
+  notify('Left as it is — it will not be flagged again');
+}
+
+function ctRestoreDismissedRepairs() {
+  ctData.dismissedRepairs = {};
+  ctSave();
+  renderCtRepairs();
+  notify('Dismissed repairs restored');
+}
+
+// Applying one line, with the same derived-total rule the batch uses.
+function ctApplyOneRepair(kind, invId, name) {
+  const r = ctRepairs();
+  if (kind === 'pack') {
+    const row = r.packLines.find(x => x.inv.id === invId && ctCatalogKey(x.name) === ctCatalogKey(name));
+    if (!row) return;
+    row.inv.items[row.i].total = row.to;
+    if (row.derived) row.inv.total = (row.inv.total || 0) + (row.to - row.from);
+  } else if (kind === 'fee') {
+    const row = r.feeGaps.find(x => x.inv.id === invId);
+    if (!row) return;
+    row.inv.deliveryFee = (row.inv.deliveryFee || 0) + row.gap;
+  } else if (kind === 'disc') {
+    const rows = ctDroppedDiscounts()
+      .filter(x => x.inv.id === invId && ctCatalogKey(x.name) === ctCatalogKey(name));
+    if (!rows.length) return;
+    const items = rows[0].inv.items.reduce((sum, it) => sum + ctLineTotal(it), 0);
+    const derived = Math.abs((rows[0].inv.total || 0) - (items + (rows[0].inv.deliveryFee || 0))) < 0.02;
+    rows.forEach(row => {
+      row.inv.items[row.i].total = row.to;
+      row.inv.items[row.i].discountPct = row.rate;
+      if (derived) row.inv.total = (row.inv.total || 0) - (row.from - row.to);
+    });
+  }
+  ctSave();
+  renderCtRepairs();
+  renderCtDashboard();
+  renderCtPrices();
+  notify('Fixed');
+}
+
+// The three little controls every repair row carries.
+function ctRowActions(kind, invId, name) {
+  const q = v => String(v).replace(/'/g, "\\'");
+  return `<span style="white-space:nowrap;margin-left:6px">
+    <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+            onclick="ctApplyOneRepair('${kind}', '${q(invId)}', '${q(name || '')}')">fix</button>
+    <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+            onclick="ctOpenInvoice('${q(invId)}')">open</button>
+    <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+            onclick="ctDismissRepair('${q(invId)}', '${q(name || '')}')"
+            title="It is correct as it stands — stop flagging it">leave</button>
+  </span>`;
+}
+
 function ctApplyRepairs() {
   const r = ctRepairs();
   if (!r.packLines.length && !r.feeGaps.length) { notify('Nothing to repair'); return; }
@@ -679,6 +767,13 @@ function ctApplyRepairs() {
          `and filed ${r.feeGaps.length} delivery charge${r.feeGaps.length === 1 ? '' : 's'}`);
 }
 
+function ctDismissedRepairHtml() {
+  const n = Object.keys(ctData.dismissedRepairs || {}).length;
+  if (!n) return '';
+  return ` <a href="#" onclick="ctRestoreDismissedRepairs();return false"
+    style="color:var(--blue-light);font-size:0.72rem">Bring back ${n} left as-is</a>.`;
+}
+
 function renderCtRepairs() {
   const el = document.getElementById('ct-repairs');
   if (!el) return;
@@ -686,7 +781,7 @@ function renderCtRepairs() {
   try { r = ctRepairs(); } catch (e) { el.innerHTML = ''; return; }
   if (!r.packLines.length && !r.feeGaps.length) {
     el.innerHTML = `<div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
-      No saved invoice needs repair.</div>` + ctDroppedDiscountHtml();
+      No saved invoice needs repair.${ctDismissedRepairHtml()}</div>` + ctDroppedDiscountHtml();
     return;
   }
   const added = r.packLines.reduce((s, p) => s + (p.to - p.from), 0);
@@ -706,8 +801,8 @@ function renderCtRepairs() {
             ${r.packLines.map(p => `<li style="margin-bottom:4px">
               ${escHtml(p.date)} · <strong>${escHtml(String(p.name).slice(0, 34))}</strong>
               — ${fmt(p.from)} → ${fmt(p.to)} (x${p.per})
-              <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
-                      onclick="ctOpenInvoice('${escHtml(p.id)}')">open ${escHtml(String(p.supplier || '').slice(0, 18))}${p.number ? ' #' + escHtml(String(p.number).slice(0, 14)) : ''}</button>
+              <span style="color:var(--mist)">${escHtml(String(p.supplier || '').slice(0, 18))}${p.number ? ' #' + escHtml(String(p.number).slice(0, 14)) : ''}</span>
+              ${ctRowActions('pack', p.id, p.name)}
               ${p.why ? `<div style="color:var(--ink-soft);font-size:0.68rem">
                 also recorded as ${p.why.qty} ${escHtml(p.why.uom || '')} at ${fmt(p.why.price)}
                 on ${escHtml(p.why.date)}, so that price is per unit</div>` : ''}
@@ -721,11 +816,11 @@ function renderCtRepairs() {
           <ul style="margin:4px 0 0 18px;color:var(--ink-soft);max-height:150px;overflow:auto">
             ${r.feeGaps.map(g => `<li>${escHtml(g.date)} · ${escHtml(g.inv.supplier)}
               ${g.inv.invoiceNumber ? '#' + escHtml(String(g.inv.invoiceNumber)) : ''} — ${fmt(g.gap)}
-              <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
-                      onclick="ctOpenInvoice('${escHtml(g.inv.id)}')">open</button></li>`).join('')}
+              ${ctRowActions('fee', g.inv.id, '__fee__')}</li>`).join('')}
           </ul>
         </div>` : ''}
-      <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair them</button>
+      <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair all of them</button>
+      ${ctDismissedRepairHtml()}
     </div>` + ctDroppedDiscountHtml();
 }
 
@@ -751,8 +846,7 @@ function ctDroppedDiscountHtml() {
         ${rows.map(r => `<li>${escHtml(r.date)} · ${escHtml(String(r.name).slice(0, 30))}
           — ${fmt(r.from)} → ${fmt(r.to)} (${r.rate.toFixed(1)}% off, seen on ${r.seenOn} other
           invoice${r.seenOn === 1 ? '' : 's'})
-          <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
-                  onclick="ctOpenInvoice('${escHtml(r.inv.id)}')">open</button></li>`).join('')}
+          ${ctRowActions('disc', r.inv.id, r.name)}</li>`).join('')}
       </ul>
       <button class="btn btn-outline btn-sm" onclick="ctApplyDroppedDiscounts()">Apply these discounts</button>
     </div>`;
@@ -790,6 +884,33 @@ function ctUpdateUploadItemQty(idx, itemIdx, val) {
   const disc = ctLineDiscount(item);
   item.qty = n;
   item.total = n * item.unit_price * (1 - disc / 100);
+  ctRenderUploadArea();
+}
+
+// Changing the unit changes whether the line is a pack, which changes what the
+// line is worth -- so it re-renders rather than quietly altering the meaning of
+// the numbers beside it.
+// The sum behind the total, spelled out. Quantity, unit and units-per-pack are
+// three fields that between them decide one number, and which of them applies
+// is not obvious from looking -- '1 Box' at $7.99 coming to $127.84 makes no
+// sense until you can see the 16.
+function ctLineWorking(item) {
+  const qty = item.qty || 0, price = ctUnitPrice(item), per = ctPackUnits(item);
+  const disc = ctLineDiscount(item);
+  if (!qty || !price) return '';
+  const parts = [qty + (per > 1 ? ' \u00d7 ' + per + ' per ' + String(item.uom).toLowerCase() : '')];
+  parts.push('$' + price.toFixed(2));
+  let txt = parts.join(' \u00d7 ');
+  if (disc) txt += ' less ' + disc.toFixed(1) + '%';
+  // Silent when it is just quantity times price with nothing else going on.
+  if (per <= 1 && !disc) return '';
+  return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">${escHtml(txt)}</div>`;
+}
+
+function ctUpdateUploadItemUom(idx, itemIdx, val) {
+  const item = window._ctUploadPending[idx]?.enriched[itemIdx];
+  if (!item) return;
+  item.uom = val;
   ctRenderUploadArea();
 }
 
@@ -2547,7 +2668,7 @@ function ctRenderEditInvoice() {
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
         <select onchange="ctEditUpdateItemField(${i}, 'uom', this.value)" style="font-size:0.75rem">
-          ${['Stem','Bunch','Each','Box','Roll','Other'].map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
+          ${CT_UOMS.map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
         </select>
         ${stemsInput}
       </div>
