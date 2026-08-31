@@ -2242,16 +2242,24 @@ function renderCtMissingInvoices() {
   const dismissed = Object.keys(ctData.dismissedPayments || {}).length;
   const from = ctReconcileFrom();
   const pinned = !!ctData.reconcileFrom;
+  // Styled as a control, not as fine print. At 0.7rem in grey it read as part
+  // of the sentence around it, and the one thing on this panel worth changing
+  // was the one thing that did not look changeable.
   const fromLine = `
-    <div style="font-size:0.72rem;color:var(--mist);margin-top:6px;display:flex;
-                align-items:center;gap:6px;flex-wrap:wrap">
-      Checking payments from
-      <input type="date" value="${escHtml(from)}" onchange="ctSetReconcileFrom(this.value)"
-             style="font-size:0.7rem;padding:1px 4px"
-             title="Pin this before uploading older invoices, or the list fills with payments whose invoices were never captured">
-      ${pinned
-        ? `<a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--blue-light)">use the default</a>`
-        : `<span>(the month after your first invoice — it pins itself if you save an older one)</span>`}
+    <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:var(--surface);
+                border:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label for="ct-reconcile-from" style="font-size:0.78rem;font-weight:500">
+        Check payments from</label>
+      <input type="date" id="ct-reconcile-from" value="${escHtml(from)}"
+             onchange="ctSetReconcileFrom(this.value)"
+             style="font-size:0.8rem;padding:4px 6px;border:1px solid var(--blue-light);
+                    border-radius:4px;background:var(--paper);color:var(--ink)"
+             title="Payments before this date are not checked. It moves back on its own only if you have never set it.">
+      <span style="font-size:0.72rem;color:var(--mist)">
+        ${pinned
+          ? `set by you — <a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--blue-light)">use the default instead</a>`
+          : 'the month after your first invoice, chosen automatically'}
+      </span>
     </div>`;
   const ignored = Object.keys(ctData.noInvoiceVendors || {}).length;
   const restore =
