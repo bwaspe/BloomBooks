@@ -409,12 +409,46 @@ const ctLineTotal = item =>
 // which is the signature of the multiplier having been dropped.
 const CT_PACK_UNITS = /^(box|case|carton|flat|bundle|pack|other)$/i;
 
+// Whether the price on a pack line is per UNIT or per PACK -- and nothing in
+// the line itself can say which. '1 Box @ $7.99, 16 per box' is a per-bunch
+// price and the line is worth $127.84; '1 Case @ $36.50, 48 per case' is the
+// price of the case and the line is worth $36.50. Multiplying the second turns
+// $36.50 of foam bricks into $1,752.
+//
+// The only honest evidence is elsewhere in the book: the same item, from the
+// same supplier, recorded in UNITS at about the same price. Alstroemeria was
+// detectable because it appears as '16 Bunch @ $7.99' on three other invoices;
+// the wood boxes and foam bricks appear only ever by the case, so their price
+// is a case price and there is nothing to correct.
+function ctPackCorroboration(item) {
+  const key = ctCatalogKey(item.name || '');
+  const price = ctUnitPrice(item);
+  if (!key || !price) return null;
+  for (const inv of (ctData.invoices || [])) {
+    for (const it of (inv.items || [])) {
+      if (it === item || ctCatalogKey(it.name || '') !== key) continue;
+      // A record in single units, not another pack line.
+      if (CT_PACK_UNITS.test(String(it.uom || ''))) continue;
+      if ((it.qty || 0) <= 1) continue;
+      const p = ctUnitPrice(it);
+      if (!p || Math.abs(p - price) / price > 0.1) continue;
+      return { qty: it.qty, uom: it.uom, price: p,
+               date: ctEffDate(inv), supplier: inv.supplier };
+    }
+  }
+  return null;
+}
+
 function ctPackMultiplier(item) {
   const per = Number(item.stemsPerBu) || 0;
   if (per <= 1 || !CT_PACK_UNITS.test(String(item.uom || ''))) return 0;
   const gross = (item.qty || 0) * ctUnitPrice(item);
   if (!gross) return 0;
-  return Math.abs(ctLineTotal(item) - gross) < 0.005 ? per : 0;
+  if (Math.abs(ctLineTotal(item) - gross) >= 0.005) return 0;
+  // Without corroboration the price is assumed to be for the pack, which is the
+  // safe reading: a missed multiplier understates cost and can be corrected by
+  // hand, while a wrongly applied one invents cost that was never spent.
+  return ctPackCorroboration(item) ? per : 0;
 }
 
 // Perri's website PDF prints a list price and a discount percentage; the paper
@@ -527,6 +561,8 @@ function ctRepairs() {
       const per = ctPackMultiplier(it);
       if (!per) return;
       out.packLines.push({ inv, i, per, name: it.name, date: ctEffDate(inv),
+                           supplier: inv.supplier, number: inv.invoiceNumber, id: inv.id,
+                           why: ctPackCorroboration(it),
                            from: ctLineTotal(it),
                            to: (it.qty || 0) * per * ctUnitPrice(it), derived });
     });
@@ -606,6 +642,13 @@ function ctApplyDroppedDiscounts() {
   notify(`Applied the discount to ${rows.length} lines — $${money.toFixed(2)} off recorded cost`);
 }
 
+// The repair list names a line but the fix happens on the invoice, and hunting
+// for it through a paginated list is the slow part. This opens it directly.
+function ctOpenInvoice(id) {
+  if (typeof switchPanel === 'function') switchPanel('ct-dashboard');
+  ctEditInvoice(id);
+}
+
 function ctApplyRepairs() {
   const r = ctRepairs();
   if (!r.packLines.length && !r.feeGaps.length) { notify('Nothing to repair'); return; }
@@ -660,8 +703,15 @@ function renderCtRepairs() {
           <strong>${r.packLines.length} line${r.packLines.length === 1 ? '' : 's'}</strong>
           lost a pack multiplier — ${fmt(added)} of cost missing:
           <ul style="margin:4px 0 0 18px;color:var(--ink-soft);max-height:150px;overflow:auto">
-            ${r.packLines.map(p => `<li>${escHtml(p.date)} · ${escHtml(String(p.name).slice(0, 34))}
-              — ${fmt(p.from)} → ${fmt(p.to)} (x${p.per})</li>`).join('')}
+            ${r.packLines.map(p => `<li style="margin-bottom:4px">
+              ${escHtml(p.date)} · <strong>${escHtml(String(p.name).slice(0, 34))}</strong>
+              — ${fmt(p.from)} → ${fmt(p.to)} (x${p.per})
+              <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
+                      onclick="ctOpenInvoice('${escHtml(p.id)}')">open ${escHtml(String(p.supplier || '').slice(0, 18))}${p.number ? ' #' + escHtml(String(p.number).slice(0, 14)) : ''}</button>
+              ${p.why ? `<div style="color:var(--ink-soft);font-size:0.68rem">
+                also recorded as ${p.why.qty} ${escHtml(p.why.uom || '')} at ${fmt(p.why.price)}
+                on ${escHtml(p.why.date)}, so that price is per unit</div>` : ''}
+            </li>`).join('')}
           </ul>
         </div>` : ''}
       ${r.feeGaps.length ? `
@@ -670,7 +720,9 @@ function renderCtRepairs() {
           in no category — ${fmt(filed)}:
           <ul style="margin:4px 0 0 18px;color:var(--ink-soft);max-height:150px;overflow:auto">
             ${r.feeGaps.map(g => `<li>${escHtml(g.date)} · ${escHtml(g.inv.supplier)}
-              ${g.inv.invoiceNumber ? '#' + escHtml(String(g.inv.invoiceNumber)) : ''} — ${fmt(g.gap)}</li>`).join('')}
+              ${g.inv.invoiceNumber ? '#' + escHtml(String(g.inv.invoiceNumber)) : ''} — ${fmt(g.gap)}
+              <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
+                      onclick="ctOpenInvoice('${escHtml(g.inv.id)}')">open</button></li>`).join('')}
           </ul>
         </div>` : ''}
       <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair them</button>
@@ -698,7 +750,9 @@ function ctDroppedDiscountHtml() {
       <ul style="margin:0 0 8px 18px;font-size:0.74rem;color:var(--ink-soft);max-height:170px;overflow:auto">
         ${rows.map(r => `<li>${escHtml(r.date)} · ${escHtml(String(r.name).slice(0, 30))}
           — ${fmt(r.from)} → ${fmt(r.to)} (${r.rate.toFixed(1)}% off, seen on ${r.seenOn} other
-          invoice${r.seenOn === 1 ? '' : 's'})</li>`).join('')}
+          invoice${r.seenOn === 1 ? '' : 's'})
+          <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:6px"
+                  onclick="ctOpenInvoice('${escHtml(r.inv.id)}')">open</button></li>`).join('')}
       </ul>
       <button class="btn btn-outline btn-sm" onclick="ctApplyDroppedDiscounts()">Apply these discounts</button>
     </div>`;
