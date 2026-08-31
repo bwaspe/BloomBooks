@@ -2974,32 +2974,56 @@ function ctPriceDateFilter(dateStr) {
   return true;
 }
 
+// The third place a line could be edited, and the last still keeping its own
+// arithmetic. It went through the same helpers as the review card and the
+// invoice editor now, because three copies of this had already produced three
+// different behaviours.
 function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
   const inv = ctData.invoices.find(i => i.id === invoiceId);
   if (!inv || !inv.items[itemIndex]) return;
   const item = inv.items[itemIndex];
 
+  // Whether the invoice total was computed from its own lines or read off the
+  // document -- decided BEFORE anything moves. Recomputing unconditionally, as
+  // this used to, silently discarded a delivery charge that reached the header
+  // total but was never assigned: editing any line on such an invoice quietly
+  // knocked $18.75 off it.
+  const linesBefore = inv.items.reduce((sum, i) => sum + ctLineTotal(i), 0);
+  const derived = Math.abs((inv.total || 0) - (linesBefore + (inv.deliveryFee || 0))) < 0.02;
+
   if (field === 'unitPrice') {
     const num = parseFloat(val);
     if (isNaN(num) || num < 0) return;
+    // Preserve the total-to-gross ratio, discount or pack multiplier alike.
+    // Rebuilding the total from qty x price wiped both.
+    const ratio = ctLineRatio(item);
     item.unitPrice = num;
-    item.total = item.qty * num;
+    item.total = (item.qty || 0) * num * ratio;
   } else if (field === 'qty') {
     const num = parseFloat(val);
     if (isNaN(num) || num <= 0) return;
+    // A quantity correction keeps a discount but drops an above-1 ratio: the
+    // reason to retype a quantity is usually that it was wrong, and 1 -> 25
+    // should land on the printed total rather than multiply the error again.
+    const keep = 1 - ctLineDiscount(item) / 100;
     item.qty = num;
-    item.total = num * item.unitPrice;
+    item.total = num * ctUnitPrice(item) * keep;
   } else if (field === 'uom') {
     item.uom = val;
-    // Stems-per-bunch only makes sense for Bunch-priced items — clear it if the unit changed away from Bunch
-    if (val !== 'Bunch') item.stemsPerBu = null;
+    // The count means stems on a Bunch line and units-per-pack on a Box or
+    // Case, so it survives either. It is only meaningless on a Stem, Each or
+    // Roll -- clearing it whenever the unit was not Bunch threw away the pack
+    // count that made a Box line worth anything.
+    if (val !== 'Bunch' && !CT_PACK_UNITS.test(String(val || ''))) item.stemsPerBu = null;
   } else if (field === 'stemsPerBu') {
     const num = parseInt(val);
     item.stemsPerBu = (num && num > 0) ? num : null;
   }
 
-  // Recalculate the invoice total from all its items plus delivery fee
-  inv.total = inv.items.reduce((s,i)=>s+(i.total||i.qty*i.unitPrice), 0) + (inv.deliveryFee||0);
+  const linesAfter = inv.items.reduce((sum, i) => sum + ctLineTotal(i), 0);
+  if (derived) inv.total = linesAfter + (inv.deliveryFee || 0);
+  else inv.total = (inv.total || 0) + (linesAfter - linesBefore);
+
   ctSave();
   notify('Updated — this changes the original invoice, so it affects margin/history calculations too');
   renderCtPrices();
