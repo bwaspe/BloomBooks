@@ -216,7 +216,10 @@ async function ctProcessOneFile(file, idx) {
       ...item,
       category: ctGuessCategory(item.name),
       family: ctGuessFamily(item.name),
-      priorPrice: ctGetPriorPrice(item.name, parsed.supplier),
+      priorInfo: ctGetPriorPriceInfo(item.name, parsed.supplier,
+                                     parsed.delivery_date || parsed.date),
+      priorPrice: ctGetPriorPrice(item.name, parsed.supplier,
+                                  parsed.delivery_date || parsed.date),
       stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null,
       removed: false
     }));
@@ -269,7 +272,10 @@ function ctBuildUploadCardHtml(p, idx) {
         </div>
       </div>`;
     }
-    const priceFlag = ctPriceFlag(ctEffectiveUnit(item), item.priorPrice);
+    const priceFlag = ctPriceFlag(ctEffectiveUnit(item), item.priorPrice,
+      item.priorInfo && item.priorInfo.holiday
+        ? item.priorInfo.holiday
+        : (item.priorInfo && item.priorInfo.date ? item.priorInfo.date : null));
     const disc = ctLineDiscount(item);
     const pack = ctPackMultiplier(item);
     const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
@@ -967,11 +973,15 @@ function ctDismissUpload(idx) {
   ctRenderUploadArea();
 }
 
-function ctPriceFlag(current, prior) {
-  if (prior === null) return ' <span class="ct-flag new">new</span>';
+function ctPriceFlag(current, prior, against) {
+  if (prior === null || prior === undefined) return ' <span class="ct-flag new">new</span>';
   const diff = ((current - prior) / prior) * 100;
-  if (diff > 5) return ` <span class="ct-flag up">▲${diff.toFixed(0)}%</span>`;
-  if (diff < -5) return ` <span class="ct-flag down">▼${Math.abs(diff).toFixed(0)}%</span>`;
+  // Naming what it is measured against is the difference between a number that
+  // alarms and one that informs: roses are not dearer than in March, they are
+  // dearer than they were last Valentine's, or they are not dearer at all.
+  const vs = against ? `<span style="opacity:.7"> vs ${escHtml(against)}</span>` : '';
+  if (diff > 5) return ` <span class="ct-flag up">▲${diff.toFixed(0)}%${vs}</span>`;
+  if (diff < -5) return ` <span class="ct-flag down">▼${Math.abs(diff).toFixed(0)}%${vs}</span>`;
   return '';
 }
 
@@ -981,22 +991,64 @@ function ctEffDate(inv) {
   return inv.deliveryDate || inv.date;
 }
 
-function ctGetPriorPrice(itemName, supplierName) {
-  const key = ctCatalogKey(itemName);
-  // Look for last recorded price from same supplier for same item
-  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
-    const inv = ctData.invoices[i];
-    if (!ctSameSupplierStrong(inv.supplier, supplierName)) continue;
-    const match = inv.items.find(it => ctCatalogKey(it.name) === key);
-    if (match) return ctEffectiveUnit(match);
+// Three holidays move prices enough to matter: Valentine's and Mother's Day,
+// where roses and anything in a seasonal colour can nearly double, and
+// Christmas, where a few items spike. Everything else sits in its normal range
+// all year -- which is exactly why this must NOT blanket-suppress ordinary
+// comparisons. Forcing every February purchase to compare against December
+// would throw away a real January price to fix a problem most items do not have.
+//
+// The buying window runs three weeks up to the day, because that is when the
+// payments actually ramp; Christmas buying runs the front of December.
+function ctHolidayOf(iso) {
+  if (!iso || iso.length < 10) return null;
+  const y = +iso.slice(0, 4);
+  const day = new Date(iso + 'T00:00:00Z');
+  // Milliseconds, not a Date: Date.UTC returns a number and getTime returns a
+  // number, and taking one of each is how this got written wrong the first time.
+  const within = (endMs, days) =>
+    day.getTime() <= endMs && day.getTime() >= endMs - days * 864e5;
+  if (within(Date.UTC(y, 1, 14), 21)) return "Valentine's";
+  // Second Sunday in May.
+  const m = new Date(Date.UTC(y, 4, 1));
+  let n = 0;
+  while (true) {
+    if (m.getUTCDay() === 0 && ++n === 2) break;
+    m.setUTCDate(m.getUTCDate() + 1);
   }
-  // Try any supplier
-  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
-    const inv = ctData.invoices[i];
-    const match = inv.items.find(it => ctCatalogKey(it.name) === key);
-    if (match) return ctEffectiveUnit(match);
-  }
+  if (within(m.getTime(), 21)) return "Mother's Day";
+  if (iso.slice(5, 7) === '12' && +iso.slice(8, 10) <= 25) return 'Christmas';
   return null;
+}
+
+// The last price paid for an item, preferring a comparison of the same kind:
+// a holiday purchase against the last holiday purchase, an ordinary one against
+// the last ordinary one. Falls back to plain most-recent when there is no match
+// in kind, so a first-ever holiday buy still gets compared to something.
+function ctGetPriorPriceInfo(itemName, supplierName, whenIso) {
+  const key = ctCatalogKey(itemName);
+  const want = ctHolidayOf(whenIso);
+  const found = [];
+  for (let i = ctData.invoices.length - 1; i >= 0; i--) {
+    const inv = ctData.invoices[i];
+    const match = (inv.items || []).find(it => ctCatalogKey(it.name) === key);
+    if (!match) continue;
+    const d = ctEffDate(inv);
+    if (whenIso && d && d >= whenIso) continue;      // never compare to the future
+    found.push({ price: ctEffectiveUnit(match), date: d,
+                 holiday: ctHolidayOf(d),
+                 sameSupplier: ctSameSupplierStrong(inv.supplier, supplierName) });
+  }
+  if (!found.length) return null;
+  const pick = list => list.find(r => r.sameSupplier) || list[0] || null;
+  // Same kind first, and from the same supplier within that where possible.
+  const sameKind = found.filter(r => (want ? !!r.holiday : !r.holiday));
+  return pick(sameKind) || pick(found);
+}
+
+function ctGetPriorPrice(itemName, supplierName, whenIso) {
+  const info = ctGetPriorPriceInfo(itemName, supplierName, whenIso);
+  return info ? info.price : null;
 }
 
 // Last known stems-per-bunch for this item — a starting suggestion, not a rule, since
@@ -1794,7 +1846,7 @@ function ctStartFromTemplate(id) {
     // The prior price is now EFFECTIVE -- already net of any discount -- so no
     // discount is re-applied here. Doing so would discount a discounted price,
     // and the standing order arrives on paper with net prices in any case.
-    const prior = ctGetPriorPrice(i.name, t.supplier);   // a number, or null
+    const prior = ctGetPriorPrice(i.name, t.supplier, today);   // a number, or null
     const unit = prior || 0;
     return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit,
              total: i.qty * unit,
