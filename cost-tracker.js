@@ -257,11 +257,20 @@ function ctBuildUploadCardHtml(p, idx) {
   const deliveryFee = p.deliveryFee || 0;
   const activeTotal = itemsTotal + deliveryFee;
   const removedCount = enriched.length - activeItems.length;
+  // Compared against the LINES, not the lines plus the fee. The save computes
+  // `(parsed.total || itemsTotal) + deliveryFee`, so it treats the parsed total
+  // as a subtotal that the fee is added to -- and this check has to agree with
+  // it. Comparing against the fee-inclusive figure meant that the moment a
+  // delivery charge WAS read correctly, the banner reported a discrepancy of
+  // exactly that charge: header $99.89 against $116.39, over by the $16.50 it
+  // had just parsed. It went unnoticed because every invoice it was built
+  // against had no fee, where the two readings coincide.
+  //
   // Only meaningful while every line is still present: once something has been
   // removed the document's stated total no longer describes what is being saved.
   const headerGap = (parsed.total != null && !removedCount &&
-                     Math.abs(parsed.total - activeTotal) > 0.02)
-    ? parsed.total - activeTotal : 0;
+                     Math.abs(parsed.total - itemsTotal) > 0.02)
+    ? parsed.total - itemsTotal : 0;
 
   const rows = enriched.map((item, i) => {
     if (item.removed) {
@@ -333,8 +342,9 @@ function ctBuildUploadCardHtml(p, idx) {
     </div>
     ${headerGap !== 0 ? `
       <div style="padding:8px 18px;background:#fff3cd;border-bottom:1px solid #ffc107;font-size:0.75rem;color:var(--ink)">
-        The invoice header says <strong>$${parsed.total.toFixed(2)}</strong>, the lines and fee come to
-        <strong>$${activeTotal.toFixed(2)}</strong> — ${headerGap > 0 ? 'short by' : 'over by'}
+        The invoice header says <strong>$${parsed.total.toFixed(2)}</strong>, the lines come to
+        <strong>$${itemsTotal.toFixed(2)}</strong>${deliveryFee ? ` (plus $${deliveryFee.toFixed(2)} delivery)` : ''}
+        — ${headerGap > 0 ? 'short by' : 'over by'}
         <strong>$${Math.abs(headerGap).toFixed(2)}</strong>.
         ${headerGap > 0
           ? `<button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px;margin-left:6px"
@@ -538,7 +548,8 @@ function ctAssignUploadGap(idx) {
   const p = window._ctUploadPending[idx];
   if (!p || p.parsed.total == null) return;
   const items = p.enriched.filter(i => !i.removed).reduce((s, i) => s + ctLineTotal(i), 0);
-  const gap = p.parsed.total - (items + (p.deliveryFee || 0));
+  // Against the lines alone, for the same reason as the banner above.
+  const gap = p.parsed.total - items;
   if (gap <= 0.02) return;
   p.deliveryFee = (p.deliveryFee || 0) + gap;
   p.parsed.total = items;
@@ -2240,7 +2251,7 @@ function renderCtMissingInvoices() {
              title="Pin this before uploading older invoices, or the list fills with payments whose invoices were never captured">
       ${pinned
         ? `<a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--blue-light)">use the default</a>`
-        : `<span>(the month after your first invoice — pin it before backfilling older ones)</span>`}
+        : `<span>(the month after your first invoice — it pins itself if you save an older one)</span>`}
     </div>`;
   const ignored = Object.keys(ctData.noInvoiceVendors || {}).length;
   const restore =
