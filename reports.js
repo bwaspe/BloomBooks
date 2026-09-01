@@ -232,6 +232,7 @@ function hcQtyByType(year, month) {
   const eff = i => (i.deliveryDate || i.date || '');
   const map = ctRoseColorMap();
   const types = {};
+  const unresolved = [];
   let otherCost = 0;
 
   ctData.invoices.filter(i => eff(i) >= w.from && eff(i) <= w.to).forEach(inv => {
@@ -241,12 +242,24 @@ function hcQtyByType(year, month) {
       if (cat !== 'Flowers' && cat !== 'Greens') { otherCost += cost; return; }
       const fam = it.family || (typeof ctGuessFamily === 'function' ? ctGuessFamily(it.name) : '') || it.name;
       const { stems, bunches } = ctLineStems(it);
-      const t = types[fam] || (types[fam] = { type: fam, stems: 0, bunches: 0, cost: 0, colors: {} });
+      const t = types[fam] || (types[fam] =
+        { type: fam, stems: 0, bunches: 0, cost: 0, stemCost: 0, colors: {} });
       t.stems += stems; t.bunches += bunches; t.cost += cost;
+      // Cost per stem must divide only the cost of the lines whose stems are
+      // actually known. Dividing the WHOLE cost by the PART of it that resolved
+      // reported roses at $3.77 a stem against a real figure near $2 -- the
+      // unresolved lines brought cost with them and no stems to carry it.
+      if (stems) t.stemCost += cost;
+      if (bunches) {
+        unresolved.push({ name: it.name, qty: it.qty, uom: it.uom, per: it.stemsPerBu || null,
+                          bunches, cost, type: fam, supplier: inv.supplier, date: eff(inv) });
+      }
       if (/rose/i.test(fam)) {
         const c = ctRoseColor(it.name, map) || 'Colour not recorded';
-        const b = t.colors[c] || (t.colors[c] = { color: c, stems: 0, bunches: 0, cost: 0, names: {} });
+        const b = t.colors[c] || (t.colors[c] =
+          { color: c, stems: 0, bunches: 0, cost: 0, stemCost: 0, names: {} });
         b.stems += stems; b.bunches += bunches; b.cost += cost;
+        if (stems) b.stemCost += cost;
         if (c === 'Colour not recorded') b.names[ctRoseVariety(it.name) || it.name] = 1;
       }
     });
@@ -259,11 +272,13 @@ function hcQtyByType(year, month) {
     return t;
   }).sort((a, b) => b.cost - a.cost);
 
+  unresolved.sort((a, b) => b.cost - a.cost);
   return {
-    rows, otherCost, window: w,
+    rows, otherCost, unresolved, window: w,
     stems: rows.reduce((n, r) => n + r.stems, 0),
     bunches: rows.reduce((n, r) => n + r.bunches, 0),
     cost: rows.reduce((n, r) => n + r.cost, 0),
+    stemCost: rows.reduce((n, r) => n + r.stemCost, 0),
   };
 }
 
@@ -280,7 +295,8 @@ function hcQtyHtml(year, month) {
       <td style="padding-left:${indent ? 18 : 0}px">${isHtml ? label : escHtml(label)}</td>
       <td style="text-align:right">${cell(r.stems, r.bunches)}</td>
       <td style="text-align:right">${fmt(r.cost)}</td>
-      <td style="text-align:right">${r.stems ? '$' + (r.cost / r.stems).toFixed(2) : '—'}</td>
+      <td style="text-align:right">${r.stems ? '$' + (r.stemCost / r.stems).toFixed(2) : '—'}${
+        r.stems && r.bunches ? '<span style="color:var(--mist)">*</span>' : ''}</td>
     </tr>`;
 
   // A variety no invoice ever names a colour for is asked about rather than
@@ -311,14 +327,43 @@ function hcQtyHtml(year, month) {
           <tr style="font-weight:600;border-top:1px solid var(--border)">
             <td>Total</td><td style="text-align:right">${cell(q.stems, q.bunches)}</td>
             <td style="text-align:right">${fmt(q.cost)}</td>
-            <td style="text-align:right">${q.stems ? '$' + (q.cost / q.stems).toFixed(2) : '—'}</td></tr>
+            <td style="text-align:right">${q.stems ? '$' + (q.stemCost / q.stems).toFixed(2) : '—'}</td></tr>
         </tbody>
       </table>
     </div>
-    ${q.bunches ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:6px">
-      ${num(q.bunches)} bunches have no stem count on file, so they are shown as bunches
-      rather than counted as stems — a bunch counted as one stem would understate this
-      badly. Add the count on the invoice to fold them in.</div>` : ''}
+    ${q.bunches ? `
+      <div style="font-size:0.7rem;color:var(--mist);margin-top:6px">
+        * Cost per stem covers only the lines whose stem count is known.
+        ${num(q.bunches)} units below have none on file, so they carry cost but no stems and
+        are left out of that figure rather than skewing it.
+      </div>
+      <details style="margin-top:6px">
+        <summary style="font-size:0.72rem;color:var(--blue-light);cursor:pointer">
+          Show the ${q.unresolved.length} line${q.unresolved.length === 1 ? '' : 's'}
+          with no stem count</summary>
+        <div style="max-height:220px;overflow:auto;margin-top:4px">
+          <table style="width:100%;font-size:0.72rem">
+            <thead><tr style="color:var(--mist)">
+              <th style="text-align:left">Item</th><th style="text-align:right">Qty</th>
+              <th style="text-align:left">Unit</th><th style="text-align:right">Counted as</th>
+              <th style="text-align:right">Cost</th><th style="text-align:left">Date</th>
+            </tr></thead>
+            <tbody>
+              ${q.unresolved.map(u => `
+                <tr><td>${escHtml(String(u.name).slice(0, 40))}</td>
+                    <td style="text-align:right">${u.qty}</td>
+                    <td>${escHtml(u.uom || '')}${u.per ? ' ×' + u.per : ''}</td>
+                    <td style="text-align:right">${num(u.bunches)} bu</td>
+                    <td style="text-align:right">${fmt(u.cost)}</td>
+                    <td>${escHtml(u.date || '')}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size:0.7rem;color:var(--mist);margin-top:4px">
+          If the quantity here is really a stem count, the unit on that line is wrong —
+          fix it on the invoice and these fold into the stem totals.
+        </div>
+      </details>` : ''}
     ${q.otherCost > 0.005 ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">
       Plus ${fmt(q.otherCost)} of plants, containers and supplies, which are not stems
       and are not counted above.</div>` : ''}`;
