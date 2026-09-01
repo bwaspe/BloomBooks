@@ -70,7 +70,7 @@ function epxParseStatement(text) {
   const mInv = /Invoice#\s*([\w-]+)/.exec(text);
   if (mInv) out.invoice = mInv[1];
 
-  let inSummary = false, inCharges = false, day = null;
+  let inSummary = false, inCharges = false, day = null, dayBilling = 0;
   lines.forEach(line => {
     if (/^Deposit Detail Summary/i.test(line)) { inSummary = true; return; }
     if (/^Details/i.test(line)) { inSummary = false; return; }
@@ -102,14 +102,29 @@ function epxParseStatement(text) {
     const d = /^(\d{2}\/\d{2})\b/.exec(line);
     if (d) day = d[1];
 
+    // EPX takes its monthly service charge out of the LAST batch of the month,
+    // so that day's release is the sale minus the charge. Captured per day and
+    // added back below, or every month-end looks like an under-recorded sale by
+    // exactly the charge over the tax rate -- which is how it first showed up,
+    // as six false alarms across eight statements.
+    //
+    // Matched anywhere in the line, not just at the start: on a day whose only
+    // entry IS the charge, it shares the line with the date ("08/31 Billing").
+    if (/\bBilling\b/i.test(line) && day && !/^Daily Total:/i.test(line)) {
+      const money = epxMoney(line);
+      if (money.length >= 2) dayBilling += Math.abs(money[1]);
+      return;
+    }
+
     if (/^Daily Total:/i.test(line) && day) {
       const money = epxMoney(line);
       if (money.length >= 3) {
         out.days.push({ date: epxIso(out.year, day), mmdd: day,
                         gross: money[0], offset: money[1], net: money[2],
-                        items: epxInts(line)[0] || 0 });
+                        billing: dayBilling, items: epxInts(line)[0] || 0 });
       }
       day = null;
+      dayBilling = 0;
       return;
     }
 
@@ -182,26 +197,64 @@ function epxReconcile(parsed) {
   const used = {};
   const matched = [], missing = [], pending = [];
 
+  // One settlement does not always arrive as one ledger row. In March 2026 each
+  // was entered as TWO -- the sale under Revenue and its tax under Sales Tax
+  // Collected -- so looking only for a single row of the full amount reported
+  // eight of ten deposits missing in a month where every penny was present.
+  // EPX-looking rows sharing a date are therefore also tried as a group.
+  const groups = {};
+  rows.forEach(r => {
+    if (!epxLooksLikeEpx(r.t)) return;
+    const d = String(r.t.date || '');
+    (groups[d] = groups[d] || []).push(r);
+  });
+
   parsed.days.forEach(day => {
     if (!day.date || Math.abs(day.net) < EPX_CENT) return;
-    const want = day.net;
-    const wantType = want >= 0 ? 'in' : 'out';
+    // The monthly service charge is netted on the statement but is often taken
+    // from the bank as its own debit, so the credit that arrives is the release
+    // plus that charge. Both readings are accepted.
+    const wants = [day.net];
+    if (day.billing) wants.push(day.net + day.billing);
     const until = epxAddDays(day.date, EPX_MATCH_WINDOW_DAYS);
-    const hits = rows.filter(r => {
-      const t = r.t;
-      if (used[r.key + ':' + r.i]) return false;
-      if ((t.type || '') !== wantType) return false;
-      if (Math.abs(Math.abs(t.amount) - Math.abs(want)) > EPX_CENT) return false;
-      const dt = String(t.date || '');
-      return dt >= day.date && dt <= until;
-    });
-    // An EPX-looking row is preferred, then the earliest -- a settlement lands
-    // as soon as it lands, and a same-amount coincidence later is not it.
-    hits.sort((a, b) => (epxLooksLikeEpx(b.t) - epxLooksLikeEpx(a.t)) ||
-                        String(a.t.date).localeCompare(String(b.t.date)));
-    if (hits.length) {
-      used[hits[0].key + ':' + hits[0].i] = 1;
-      matched.push({ day, tx: hits[0].t, guessed: !epxLooksLikeEpx(hits[0].t) });
+    const inWindow = dt => dt >= day.date && dt <= until;
+    const free = r => !used[r.key + ':' + r.i];
+
+    let hit = null, note = '';
+    for (const want of wants) {
+      const wantType = want >= 0 ? 'in' : 'out';
+      const singles = rows.filter(r => free(r) && (r.t.type || '') === wantType &&
+        Math.abs(Math.abs(r.t.amount) - Math.abs(want)) <= EPX_CENT && inWindow(String(r.t.date || '')));
+      // An EPX-looking row is preferred, then the earliest -- a settlement lands
+      // as soon as it lands, and a same-amount coincidence later is not it.
+      singles.sort((a, b) => (epxLooksLikeEpx(b.t) - epxLooksLikeEpx(a.t)) ||
+                             String(a.t.date).localeCompare(String(b.t.date)));
+      if (singles.length) { hit = [singles[0]]; break; }
+
+      const amt = r => (r.t.type === 'out' ? -r.t.amount : r.t.amount);
+      const dates = Object.keys(groups).filter(inWindow).sort();
+      for (const dt of dates) {
+        const g = groups[dt].filter(free);
+        if (g.length < 2) continue;
+        // Pairs first -- a sale and its tax. Two settlements can land on one
+        // date (03/23 carried four rows for two batches), so taking the whole
+        // day's total would match neither of them.
+        for (let a = 0; a < g.length && !hit; a++) {
+          for (let b = a + 1; b < g.length && !hit; b++) {
+            if (Math.abs(amt(g[a]) + amt(g[b]) - want) <= EPX_CENT) hit = [g[a], g[b]];
+          }
+        }
+        if (hit) { note = 'split'; break; }
+        const sum = g.reduce((s, r) => s + amt(r), 0);
+        if (Math.abs(sum - want) <= EPX_CENT) { hit = g; note = 'split'; break; }
+      }
+      if (hit) break;
+    }
+
+    if (hit) {
+      hit.forEach(r => { used[r.key + ':' + r.i] = 1; });
+      matched.push({ day, tx: hit[0].t, rows: hit, split: note === 'split',
+                     guessed: !epxLooksLikeEpx(hit[0].t) });
     } else if (booksThrough && day.date > booksThrough) {
       pending.push(day);          // the bank simply is not entered this far yet
     } else {
@@ -279,8 +332,11 @@ function epxSalesCheck(parsed) {
   const rows = [];
 
   parsed.days.forEach(day => {
-    if (!day.date || day.net <= EPX_CENT) return;     // billing-only days have no sale
-    const implied = day.net / (1 + rate);
+    if (!day.date || day.gross <= EPX_CENT) return;   // billing-only days have no sale
+    // The monthly service charge comes out of this day's release but is not a
+    // refund of the sale, so it is added back before dividing the tax out.
+    const released = day.net + (day.billing || 0);
+    const implied = released / (1 + rate);
     // The nearest sale on or before the settlement date. Paired by DATE, not by
     // amount, so a mis-keyed figure still pairs and shows as a difference --
     // matching on amount would quietly drop exactly the rows worth seeing.
