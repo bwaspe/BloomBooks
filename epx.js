@@ -322,6 +322,14 @@ function epxReportHtml() {
     return `<div style="font-size:0.8rem;color:var(--red);margin-top:10px">
       ${escHtml(epxStatement.error)}</div>`;
   }
+  // The "reading…" placeholder is not a parsed statement and has no days. It
+  // used to fall straight through to the table below, where p.days.map threw
+  // before the file had even been opened -- so clicking Upload did nothing at
+  // all, with the real error lost inside a handler that had already thrown.
+  if (epxStatement.loading || !Array.isArray(epxStatement.days)) {
+    return `<div style="font-size:0.8rem;color:var(--mist);margin-top:10px">
+      ${escHtml(epxStatement.label || 'Reading the statement…')}</div>`;
+  }
   const p = epxStatement;
   const rec = epxReconcile(p);
   const num = n => fmt(Math.abs(n));
@@ -540,7 +548,7 @@ async function epxHandleFile(event) {
   const file = event.target.files && event.target.files[0];
   event.target.value = '';
   if (!file) return;
-  epxStatement = { error: '', label: 'Reading ' + file.name + '…' };
+  epxStatement = { loading: true, label: 'Reading ' + file.name + '…' };
   epxRender();
   try {
     const text = await epxPdfText(file);
@@ -549,7 +557,11 @@ async function epxHandleFile(event) {
       'No daily totals found in that PDF. Is it an EPX merchant statement?');
     epxStatement = parsed;
   } catch (err) {
-    epxStatement = { error: getErrorMessage ? getErrorMessage(err) : (err.message || String(err)) };
+    // A bare `getErrorMessage ? ...` was a ReferenceError here -- that helper
+    // belongs to another project and does not exist in this one -- so the
+    // handler threw while handling, and the real failure was never shown.
+    console.error('EPX statement:', err);
+    epxStatement = { error: (err && err.message) || String(err) };
   }
   epxRender();
 }
