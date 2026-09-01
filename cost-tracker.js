@@ -1182,6 +1182,114 @@ function ctSetHolidayBuyStart(year, month, val) {
 }
 
 // Which holiday a purchase date belongs to, if any.
+// ---------------------------------------------------------------------------
+// How many flowers, of what, and (for roses) what colour.
+//
+// Stems, not line counts: "how many roses did Mother's Day take" is a stem
+// question. A bunch with no stem count on file is therefore an UNKNOWN, never
+// one stem -- counting it as one understates a rose buy tenfold, which is the
+// very number the table exists to give.
+function ctLineStems(item) {
+  const qty = Number(item.qty) || 0;
+  const uom = String(item.uom || '').toLowerCase();
+  const per = Number(item.stemsPerBu) || 0;
+  if (!qty) return { stems: 0, bunches: 0 };
+  // Priced singly: the quantity is the stem count.
+  if (uom === 'stem' || uom === 'each') return { stems: qty, bunches: 0 };
+  if (uom === 'bunch') {
+    return per > 1 ? { stems: qty * per, bunches: 0 } : { stems: 0, bunches: qty };
+  }
+  // A pack. stemsPerBu on a Box or Case counts BUNCHES to the box, not stems
+  // to the bunch -- the field carries both meanings -- so a box resolves to
+  // bunches and stops there. This is why the owner's rule is to enter these as
+  // bunches in the first place.
+  if (CT_PACK_UNITS.test(uom)) return { stems: 0, bunches: qty * (per > 1 ? per : 1) };
+  return { stems: 0, bunches: qty };
+}
+
+// Longest first: "light pink" must win over "pink".
+const CT_ROSE_COLORS = [
+  ['light pink','Light Pink'], ['hot pink','Hot Pink'], ['burgundy','Burgundy'],
+  ['lavender','Lavender'], ['assorted','Mixed'], ['bicolor','Bicolor'],
+  ['white','White'], ['cream','Cream'], ['ivory','Ivory'], ['yellow','Yellow'],
+  ['orange','Orange'], ['peach','Peach'], ['purple','Purple'], ['green','Green'],
+  ['pink','Pink'], ['red','Red'], ['mix','Mixed'],
+];
+const CT_COLOR_ABBR = { wht:'white', rd:'red', pk:'pink', brg:'burgundy',
+                        lav:'lavender', yel:'yellow', org:'orange', pch:'peach', lt:'light' };
+// Varieties the shop's own invoices never spell a colour for, supplied by the
+// owner. Everything else is LEARNED from the invoices themselves -- see below.
+const CT_ROSE_SEED = { flamingo:'Pink', brighton:'Yellow', vendela:'White' };
+const CT_ROSE_NOISE = /\b(spray|sprose|standard|garden|roses?|premium|prem|pr|rosa\s*prima|rosaprima|x-?pression|\d+\s*\/?\s*\d*\s*cm|\d+c)\b/g;
+
+// Whole-word swap and removal on the space-padded, normalised name. Written
+// without a regex built from a string on purpose: '\b' assembled that way is
+// one backslash away from the BACKSPACE character, which matches nothing and
+// fails silently. It did exactly that here -- every colour stayed glued to its
+// variety ("white mondial") and no lookup ever hit.
+function ctSwapWord(s, word, to) { return s.split(' ' + word + ' ').join(' ' + to + ' '); }
+function ctStripWord(s, word) {
+  const pad = ' ' + word + ' ';
+  // Twice, so two of the same word side by side cannot leave one behind.
+  return s.split(pad).join(' ').split(pad).join(' ');
+}
+
+function ctRoseNorm(name) {
+  let s = ' ' + String(name || '').toLowerCase().replace(/[^a-z0-9/ ]/g, ' ') + ' ';
+  s = s.replace(/\s+/g, ' ');
+  Object.keys(CT_COLOR_ABBR).forEach(a => { s = ctSwapWord(s, a, CT_COLOR_ABBR[a]); });
+  return s.replace(/\s+/g, ' ');
+}
+
+function ctExplicitColor(name) {
+  const s = ctRoseNorm(name);
+  let best = null, at = Infinity;
+  CT_ROSE_COLORS.forEach(([k, v]) => {
+    const i = s.indexOf(' ' + k + ' ');
+    if (i >= 0 && i < at) { at = i; best = v; }
+  });
+  return best;
+}
+
+function ctRoseVariety(name) {
+  let s = ctRoseNorm(name);
+  CT_ROSE_COLORS.forEach(([k]) => { s = ctStripWord(s, k); });
+  s = s.replace(CT_ROSE_NOISE, ' ').replace(/\b\d+\b/g, ' ');
+  return s.split(/\s+/).filter(w => w.length > 2).join(' ');
+}
+
+// The shop names most roses with the colour in them -- "Roses Pink Geraldine".
+// So the variety-to-colour table is READ OFF THE INVOICES rather than written
+// out here: it covers whatever the shop actually buys, and grows on its own as
+// new varieties arrive. Only what the invoices never say needs seeding.
+function ctRoseColorMap() {
+  const votes = {};
+  (ctData.invoices || []).forEach(inv => (inv.items || []).forEach(it => {
+    if (!/\brose/i.test(it.name || '')) return;
+    const c = ctExplicitColor(it.name), v = ctRoseVariety(it.name);
+    if (!c || !v || c === 'Mixed') return;
+    votes[v] = votes[v] || {};
+    votes[v][c] = (votes[v][c] || 0) + 1;
+  }));
+  const map = {};
+  Object.keys(votes).forEach(v => {
+    map[v] = Object.keys(votes[v]).sort((a, b) => votes[v][b] - votes[v][a])[0];
+  });
+  Object.keys(CT_ROSE_SEED).forEach(v => { if (!map[v]) map[v] = CT_ROSE_SEED[v]; });
+  return map;
+}
+
+function ctRoseColor(name, map) {
+  const explicit = ctExplicitColor(name);
+  if (explicit) return explicit;
+  const v = ctRoseVariety(name);
+  if (!v) return null;
+  if (map[v]) return map[v];
+  // Longest matching variety wins, so "star blush" beats "star".
+  const keys = Object.keys(map).filter(k => v.indexOf(k) >= 0).sort((a, b) => b.length - a.length);
+  return keys.length ? map[keys[0]] : null;
+}
+
 function ctHolidayOf(iso) {
   if (!iso || iso.length < 10) return null;
   const y = +iso.slice(0, 4);

@@ -219,6 +219,100 @@ function hcPaidInWindow(year, month) {
 }
 
 let hcOpen = null;
+// What was actually bought, counted in stems and grouped by flower -- with
+// roses broken out by colour, which is the way a florist thinks about a
+// Valentine's or Mother's Day buy.
+//
+// Only flowers and greens are counted. Plants, containers, ribbon and hard
+// goods are real money but are not stems, and folding them in would make the
+// column meaningless; they are reported as one line underneath instead.
+function hcQtyByType(year, month) {
+  const w = hcWindow(year, month);
+  if (!w || typeof ctData === 'undefined' || !ctData.invoices) return null;
+  const eff = i => (i.deliveryDate || i.date || '');
+  const map = ctRoseColorMap();
+  const types = {};
+  let otherCost = 0;
+
+  ctData.invoices.filter(i => eff(i) >= w.from && eff(i) <= w.to).forEach(inv => {
+    (inv.items || []).forEach(it => {
+      const cost = ctLineTotal(it);
+      const cat = it.category || '';
+      if (cat !== 'Flowers' && cat !== 'Greens') { otherCost += cost; return; }
+      const fam = it.family || (typeof ctGuessFamily === 'function' ? ctGuessFamily(it.name) : '') || it.name;
+      const { stems, bunches } = ctLineStems(it);
+      const t = types[fam] || (types[fam] = { type: fam, stems: 0, bunches: 0, cost: 0, colors: {} });
+      t.stems += stems; t.bunches += bunches; t.cost += cost;
+      if (/rose/i.test(fam)) {
+        const c = ctRoseColor(it.name, map) || 'Colour not recorded';
+        const b = t.colors[c] || (t.colors[c] = { color: c, stems: 0, bunches: 0, cost: 0, names: {} });
+        b.stems += stems; b.bunches += bunches; b.cost += cost;
+        if (c === 'Colour not recorded') b.names[ctRoseVariety(it.name) || it.name] = 1;
+      }
+    });
+  });
+
+  const rows = Object.keys(types).map(k => {
+    const t = types[k];
+    t.colors = Object.keys(t.colors).map(c => t.colors[c]).sort((a, b) => b.cost - a.cost);
+    t.colors.forEach(c => { c.names = Object.keys(c.names); });
+    return t;
+  }).sort((a, b) => b.cost - a.cost);
+
+  return {
+    rows, otherCost, window: w,
+    stems: rows.reduce((n, r) => n + r.stems, 0),
+    bunches: rows.reduce((n, r) => n + r.bunches, 0),
+    cost: rows.reduce((n, r) => n + r.cost, 0),
+  };
+}
+
+function hcQtyHtml(year, month) {
+  const q = hcQtyByType(year, month);
+  if (!q || !q.rows.length) return '';
+  const num = n => n.toLocaleString('en-US');
+  const cell = (stems, bunches) => stems
+    ? num(stems) + (bunches ? ` <span style="color:var(--mist)">+ ${num(bunches)} bu</span>` : '')
+    : (bunches ? `<span style="color:var(--mist)">${num(bunches)} bu</span>` : '—');
+
+  const row = (label, r, indent) => `
+    <tr${indent ? ' style="color:var(--mist)"' : ''}>
+      <td style="padding-left:${indent ? 18 : 0}px">${escHtml(label)}</td>
+      <td style="text-align:right">${cell(r.stems, r.bunches)}</td>
+      <td style="text-align:right">${fmt(r.cost)}</td>
+      <td style="text-align:right">${r.stems ? '$' + (r.cost / r.stems).toFixed(2) : '—'}</td>
+    </tr>`;
+
+  return `
+    <strong style="font-size:0.75rem;display:block;margin-top:14px">
+      How many flowers, by type</strong>
+    <div style="max-height:340px;overflow:auto;margin-top:4px">
+      <table style="width:100%;font-size:0.74rem">
+        <thead><tr style="color:var(--mist)">
+          <th style="text-align:left">Type</th><th style="text-align:right">Stems</th>
+          <th style="text-align:right">Cost</th><th style="text-align:right">Per stem</th>
+        </tr></thead>
+        <tbody>
+          ${q.rows.map(r => row(r.type, r, false) +
+              r.colors.map(c => row(
+                c.color + (c.names && c.names.length ? ' (' + c.names.slice(0, 3).join(', ') + ')' : ''),
+                c, true)).join('')).join('')}
+          <tr style="font-weight:600;border-top:1px solid var(--border)">
+            <td>Total</td><td style="text-align:right">${cell(q.stems, q.bunches)}</td>
+            <td style="text-align:right">${fmt(q.cost)}</td>
+            <td style="text-align:right">${q.stems ? '$' + (q.cost / q.stems).toFixed(2) : '—'}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    ${q.bunches ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:6px">
+      ${num(q.bunches)} bunches have no stem count on file, so they are shown as bunches
+      rather than counted as stems — a bunch counted as one stem would understate this
+      badly. Add the count on the invoice to fold them in.</div>` : ''}
+    ${q.otherCost > 0.005 ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">
+      Plus ${fmt(q.otherCost)} of plants, containers and supplies, which are not stems
+      and are not counted above.</div>` : ''}`;
+}
+
 function hcToggle(key) { hcOpen = (hcOpen === key ? null : key); renderHolidayPanel(); }
 
 function hcCostHtml() {
@@ -309,6 +403,7 @@ function hcCostHtml() {
                       </table>
                     </div>` : ''}
                   </div>
+                  ${hcQtyHtml(r.yr, r.h.month)}
                   ${r.inv && r.inv.items.length ? `
                     <strong style="font-size:0.75rem;display:block;margin-top:12px">
                       What was bought — ${r.inv.items.length} lines</strong>
