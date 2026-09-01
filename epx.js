@@ -226,6 +226,87 @@ function epxReconcile(parsed) {
 }
 
 // ---------------------------------------------------------------------------
+// Against the day book
+//
+// EPX IS ALWAYS A COUNTER SALE -- the card machine on the counter, nothing
+// else. That is what makes this check possible at all: one channel in the day
+// book maps to one merchant account, so every batch on the statement should
+// have a counter sale behind it.
+//
+// Two facts, both confirmed against the August 2026 statement day by day:
+//
+//   The surcharge exactly funds the processing fee, so what EPX RELEASES is
+//   the sale including tax. gross - fees = net = sale x (1 + tax rate).
+//
+//   The statement's date is the SETTLEMENT date, a day or so after the sale.
+//   Six of nine August batches sat exactly one day after their day-book entry,
+//   and a Saturday sale settles on the Sunday, so the pairing walks backwards
+//   from the statement date rather than assuming a fixed offset.
+//
+// A difference here is a counter sale keyed wrong, or not keyed at all --
+// which nothing else in the books would ever surface.
+// ---------------------------------------------------------------------------
+const EPX_SALE_LOOKBACK_DAYS = 4;
+const EPX_CHANNEL = 'epx';
+
+function epxTaxRate() {
+  return typeof DS_TAX_RATE === 'number' ? DS_TAX_RATE : 0.08375;
+}
+
+// Day-book entries for the EPX channel over a date range. Day keys carry no
+// leading zero and the month is zero-based, which is the shape the rest of the
+// day book uses.
+function epxDayBookSales(fromIso, toIso) {
+  const out = [];
+  if (typeof appData === 'undefined' || !appData.dailySales) return out;
+  const start = new Date(fromIso + 'T00:00:00Z'), end = new Date(toIso + 'T00:00:00Z');
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
+    const month = appData.dailySales[`${y}-${m}`];
+    const rec = month && month[String(day)] && month[String(day)][EPX_CHANNEL];
+    if (!rec) continue;
+    const s = typeof rec === 'object' ? Number(rec.s) || 0 : Number(rec) || 0;
+    if (s) out.push({ date: d.toISOString().slice(0, 10), sales: s });
+  }
+  return out;
+}
+
+function epxSalesCheck(parsed) {
+  if (!parsed || !parsed.from) return null;
+  const rate = epxTaxRate();
+  const entries = epxDayBookSales(epxAddDays(parsed.from, -EPX_SALE_LOOKBACK_DAYS), parsed.to);
+  const used = {};
+  const rows = [];
+
+  parsed.days.forEach(day => {
+    if (!day.date || day.net <= EPX_CENT) return;     // billing-only days have no sale
+    const implied = day.net / (1 + rate);
+    // The nearest sale on or before the settlement date. Paired by DATE, not by
+    // amount, so a mis-keyed figure still pairs and shows as a difference --
+    // matching on amount would quietly drop exactly the rows worth seeing.
+    let best = null;
+    entries.forEach(e => {
+      if (used[e.date]) return;
+      // STRICTLY before: the machine batches at close of day, so a sale never
+      // settles on its own date. Allowing same-day let the 1st claim its own
+      // takings and shunted every later batch onto the wrong day's sale.
+      if (e.date >= day.date || e.date < epxAddDays(day.date, -EPX_SALE_LOOKBACK_DAYS)) return;
+      if (!best || e.date > best.date) best = e;
+    });
+    if (best) used[best.date] = 1;
+    rows.push({ day, implied, entry: best,
+                diff: best ? best.sales - implied : null });
+  });
+
+  const orphans = entries.filter(e => !used[e.date] && e.date >= parsed.from);
+  const off = rows.filter(r => r.entry && Math.abs(r.diff) > 0.5);
+  const absent = rows.filter(r => !r.entry);
+  return { rows, orphans, off, absent, rate,
+           recorded: rows.reduce((s, r) => s + (r.entry ? r.entry.sales : 0), 0),
+           implied: rows.reduce((s, r) => s + r.implied, 0) };
+}
+
+// ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
 let epxStatement = null;
@@ -329,9 +410,69 @@ function epxReportHtml() {
         ${rec.extra.slice(0, 6).map(t => `${escHtml(t.date)} ${fmt(t.amount)}`).join(', ')}.
         Usually a batch from the previous month landing late.</div>` : ''}
 
+      ${epxSalesHtml(p)}
+
       ${p.notices.map(n => `<div style="margin-top:8px;font-size:0.73rem;color:var(--amber, #b8860b)">
         ${escHtml(n)}</div>`).join('')}
     </div>`;
+}
+
+function epxSalesHtml(p) {
+  const chk = epxSalesCheck(p);
+  if (!chk || !chk.rows.length) return '';
+  const bad = chk.off.length + chk.absent.length;
+
+  return `
+    <details style="margin-top:12px" ${bad ? 'open' : ''}>
+      <summary style="font-size:0.8rem;cursor:pointer">
+        <strong>Against the day book</strong>
+        <span style="color:${bad ? 'var(--red)' : 'var(--mist)'};font-size:0.75rem">
+          ${bad ? `— ${bad} day${bad === 1 ? '' : 's'} to look at`
+                : '— every batch has a counter sale behind it'}</span>
+      </summary>
+      <div style="font-size:0.72rem;color:var(--mist);margin-top:6px">
+        EPX is the counter card machine, so every batch should have a counter sale behind it.
+        The surcharge funds the fee, so what EPX released is the sale including tax —
+        divided back out at ${(chk.rate * 100).toFixed(3)}% below. A batch settles the next
+        open day, so it is paired with the sale before it.
+      </div>
+      <div style="max-height:260px;overflow:auto;margin-top:6px">
+        <table style="width:100%;font-size:0.73rem">
+          <thead><tr style="color:var(--mist)">
+            <th style="text-align:left">Settled</th><th style="text-align:right">Released</th>
+            <th style="text-align:right">Sale it implies</th><th style="text-align:left">Day book</th>
+            <th style="text-align:right">Recorded</th><th style="text-align:right">Difference</th>
+          </tr></thead>
+          <tbody>
+            ${chk.rows.map(r => {
+              const wrong = r.entry && Math.abs(r.diff) > 0.5;
+              const colour = !r.entry ? 'var(--red)' : (wrong ? 'var(--amber, #b8860b)' : 'var(--mist)');
+              return `<tr>
+                <td>${escHtml(r.day.mmdd)}</td>
+                <td style="text-align:right">${fmt(r.day.net)}</td>
+                <td style="text-align:right">${fmt(r.implied)}</td>
+                <td style="color:${colour}">${r.entry ? escHtml(r.entry.date.slice(5))
+                                                      : 'no counter sale recorded'}</td>
+                <td style="text-align:right">${r.entry ? fmt(r.entry.sales) : '—'}</td>
+                <td style="text-align:right;color:${colour}">${
+                  r.entry ? (Math.abs(r.diff) < 0.005 ? '—'
+                            : (r.diff > 0 ? '+' : '') + fmt(r.diff)) : '—'}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="font-weight:600;border-top:1px solid var(--border)">
+              <td>Total</td><td></td>
+              <td style="text-align:right">${fmt(chk.implied)}</td>
+              <td></td><td style="text-align:right">${fmt(chk.recorded)}</td>
+              <td style="text-align:right">${fmt(chk.recorded - chk.implied)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      ${chk.orphans.length ? `<div style="font-size:0.72rem;color:var(--mist);margin-top:6px">
+        ${chk.orphans.length} counter sale${chk.orphans.length === 1 ? '' : 's'} recorded on the EPX
+        channel with no batch on this statement:
+        ${chk.orphans.slice(0, 6).map(o => `${escHtml(o.date.slice(5))} ${fmt(o.sales)}`).join(', ')}.
+        The last day or two of the month settle on the next statement.</div>` : ''}
+    </details>`;
 }
 
 function epxPanelHtml() {
