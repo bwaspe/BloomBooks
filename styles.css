@@ -684,3 +684,46 @@ th.sortable:hover { background: var(--border); }
 @media (prefers-reduced-motion: reduce) {
   #sidebar, #sidebar-backdrop { transition: none; }
 }
+
+/* ============================================================
+   PRINT
+   The app is a single page with a sidebar and one visible panel, so printing
+   it raw put the whole navigation on page one and clipped every wide table.
+   Only the open panel prints, and controls are dropped -- a button rendered
+   on paper is a grey box that means nothing to whoever reads the printout.
+   ============================================================ */
+@media print {
+  #sidebar, #sidebar-backdrop, .sidebar-tab, .no-print,
+  button, .btn { display: none !important; }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* The panel is the page. Anything scrolling on screen has to open up on
+     paper, or the printout stops mid-table with no sign it was cut. */
+  .panel { display: none !important; }
+  .panel.active { display: block !important; }
+  .staging-table-wrap, .ds-table-wrap, .ledger-wrap {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* A row split across a page break is unreadable in a figures table. */
+  table { page-break-inside: auto; }
+  tr, .trap, figure { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+
+  /* Screen greys wash out on paper; a detail element that is shut on screen
+     still holds the numbers, so it is forced open. */
+  .ct-flag, td, th, .amount-in, .amount-out { color: #000 !important; }
+  details { display: block !important; }
+  details > summary { display: none !important; }
+  details > *:not(summary) { display: block !important; }
+
+  a[href]:after { content: ""; }
+  @page { margin: 12mm; }
+}

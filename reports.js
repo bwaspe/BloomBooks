@@ -282,6 +282,159 @@ function hcQtyByType(year, month) {
   };
 }
 
+// Year over year for one holiday. The question actually asked in January is
+// "what did we buy last Valentine's, and what did it cost" -- which needs the
+// same holiday across years side by side, not one year alone.
+//
+// Only years with invoices in the window appear. A year with none is omitted
+// rather than shown as zero: zero would read as "we bought nothing", when the
+// truth is that nobody uploaded the paperwork.
+function hcCompareByType(month) {
+  const years = ((typeof appData !== 'undefined' && appData.years) || []).slice().sort();
+  const per = {}, have = [];
+  years.forEach(y => {
+    const q = hcQtyByType(y, month);
+    if (!q || !q.rows.length) return;
+    have.push(y);
+    per[y] = q;
+  });
+  if (!have.length) return null;
+
+  const rows = {};
+  have.forEach(y => {
+    per[y].rows.forEach(r => {
+      const t = rows[r.type] || (rows[r.type] = { type: r.type, per: {}, colors: {} });
+      t.per[y] = { stems: r.stems, bunches: r.bunches, cost: r.cost, stemCost: r.stemCost };
+      r.colors.forEach(c => {
+        const cc = t.colors[c.color] || (t.colors[c.color] = { color: c.color, per: {} });
+        cc.per[y] = { stems: c.stems, bunches: c.bunches, cost: c.cost, stemCost: c.stemCost };
+      });
+    });
+  });
+  const latest = have[have.length - 1];
+  const cost = (o, y) => ((o.per[y] || {}).cost || 0);
+  const list = Object.keys(rows).map(k => {
+    const t = rows[k];
+    t.colors = Object.keys(t.colors).map(c => t.colors[c])
+      .sort((a, b) => cost(b, latest) - cost(a, latest));
+    return t;
+  }).sort((a, b) => cost(b, latest) - cost(a, latest));
+
+  const totals = {};
+  have.forEach(y => {
+    totals[y] = { stems: per[y].stems, bunches: per[y].bunches,
+                  cost: per[y].cost, stemCost: per[y].stemCost };
+  });
+  return { years: have, rows: list, totals, latest };
+}
+
+function hcHolidayLabel(month) {
+  const h = HOLIDAYS.filter(x => x.month === month)[0];
+  return h ? h.label.replace(/[^\x20-\x7E]/g, '').trim() : 'Holiday';
+}
+
+// One flat row per type and per colour, per year -- the shape a spreadsheet
+// wants. Every text field is quoted, so a flower name containing a comma
+// cannot shift every column to its right.
+function hcExportQty(month) {
+  const cmp = hcCompareByType(month);
+  if (!cmp) { notify('No invoices in that buying window yet'); return; }
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const label = hcHolidayLabel(month);
+  let csv = 'Holiday,Year,Buying window,Type,Colour,Stems,Bunches with no stem count,Cost,Cost per stem\n';
+  cmp.years.forEach(y => {
+    const w = hcWindow(y, month) || {};
+    const win = (w.from || '') + ' to ' + (w.to || '');
+    const line = (type, colour, d) => {
+      if (!d) return;
+      csv += [q(label), y, q(win), q(type), q(colour), d.stems, d.bunches,
+              d.cost.toFixed(2), d.stems ? (d.stemCost / d.stems).toFixed(4) : ''].join(',') + '\n';
+    };
+    cmp.rows.forEach(r => {
+      line(r.type, '', r.per[y]);
+      r.colors.forEach(c => line(r.type, c.color, c.per[y]));
+    });
+    line('TOTAL', '', cmp.totals[y]);
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `bloom-books-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-buying.csv`;
+  a.click();
+  notify('Holiday buying exported');
+}
+
+function hcCompareHtml(month) {
+  const cmp = hcCompareByType(month);
+  if (!cmp) return '';
+  const num = n => (n || 0).toLocaleString('en-US');
+  const ys = cmp.years;
+  const a = ys[ys.length - 2], b = ys[ys.length - 1];
+
+  // Change is shown only between the two most recent years, and only where both
+  // carry a figure. A percentage against a year with no invoices would measure
+  // the paperwork, not the buying.
+  const change = (pa, pb, key) => {
+    if (ys.length < 2 || !pa || !pb || !pa[key] || !pb[key]) return '<span style="color:var(--mist)">—</span>';
+    const pct = (pb[key] - pa[key]) / pa[key] * 100;
+    if (Math.abs(pct) < 0.5) return '<span style="color:var(--mist)">level</span>';
+    return `<span style="color:${pct > 0 ? 'var(--red)' : 'var(--green)'}">${pct > 0 ? '+' : ''}${pct.toFixed(0)}%</span>`;
+  };
+  const cell = d => d
+    ? `${d.stems ? num(d.stems) : '—'}${d.bunches ? ` <span style="color:var(--mist)">+${num(d.bunches)} bu</span>` : ''}`
+    : '<span style="color:var(--mist)">—</span>';
+  const row = (label, per, indent) => `
+    <tr${indent ? ' style="color:var(--mist)"' : ''}>
+      <td style="padding-left:${indent ? 18 : 0}px">${escHtml(label)}</td>
+      ${ys.map(y => `<td style="text-align:right">${cell(per[y])}</td>`).join('')}
+      <td style="text-align:right">${change(per[a], per[b], 'stems')}</td>
+      ${ys.map(y => `<td style="text-align:right">${per[y] ? fmt(per[y].cost) : '—'}</td>`).join('')}
+      <td style="text-align:right">${change(per[a], per[b], 'cost')}</td>
+    </tr>`;
+
+  return `
+    <div class="hc-compare" style="margin-top:16px">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <strong style="font-size:0.8rem">${escHtml(hcHolidayLabel(month))} — what was bought${
+          ys.length > 1 ? ', year over year' : ''}</strong>
+        <span style="font-size:0.7rem;color:var(--mist)">
+          only years with invoices appear${ys.length < 2 ? ' — one so far' : ''}</span>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm no-print" onclick="hcExportQty(${month})">Export CSV</button>
+          <button class="btn btn-outline btn-sm no-print" onclick="window.print()">Print</button>
+        </span>
+      </div>
+      <div class="staging-table-wrap" style="margin-top:6px">
+        <table style="width:100%;font-size:0.74rem">
+          <thead>
+            <tr style="color:var(--mist)">
+              <th style="text-align:left" rowspan="2">Type</th>
+              <th colspan="${ys.length + 1}" style="text-align:center">Stems</th>
+              <th colspan="${ys.length + 1}" style="text-align:center">Cost</th>
+            </tr>
+            <tr style="color:var(--mist)">
+              ${ys.map(y => `<th style="text-align:right">${y}</th>`).join('')}
+              <th style="text-align:right">chg</th>
+              ${ys.map(y => `<th style="text-align:right">${y}</th>`).join('')}
+              <th style="text-align:right">chg</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${cmp.rows.map(r => row(r.type, r.per, false) +
+                r.colors.map(c => row(c.color, c.per, true)).join('')).join('')}
+            <tr style="font-weight:600;border-top:1px solid var(--border)">
+              <td>Total</td>
+              ${ys.map(y => `<td style="text-align:right">${cell(cmp.totals[y])}</td>`).join('')}
+              <td style="text-align:right">${change(cmp.totals[a], cmp.totals[b], 'stems')}</td>
+              ${ys.map(y => `<td style="text-align:right">${fmt(cmp.totals[y].cost)}</td>`).join('')}
+              <td style="text-align:right">${change(cmp.totals[a], cmp.totals[b], 'cost')}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function hcQtyHtml(year, month) {
   const q = hcQtyByType(year, month);
   if (!q || !q.rows.length) return '';
@@ -460,6 +613,7 @@ function hcCostHtml() {
                     </div>` : ''}
                   </div>
                   ${hcQtyHtml(r.yr, r.h.month)}
+                  ${hcCompareHtml(r.h.month)}
                   ${r.inv && r.inv.items.length ? `
                     <strong style="font-size:0.75rem;display:block;margin-top:12px">
                       What was bought — ${r.inv.items.length} lines</strong>
