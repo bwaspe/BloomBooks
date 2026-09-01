@@ -1276,7 +1276,35 @@ function ctRoseColorMap() {
     map[v] = Object.keys(votes[v]).sort((a, b) => votes[v][b] - votes[v][a])[0];
   });
   Object.keys(CT_ROSE_SEED).forEach(v => { if (!map[v]) map[v] = CT_ROSE_SEED[v]; });
+  // What the owner has told us outright wins over both -- a new variety whose
+  // colour no invoice ever states is answered once and then known.
+  const said = ctData.roseColors || {};
+  Object.keys(said).forEach(v => { map[v] = said[v]; });
   return map;
+}
+
+// Asked for, not guessed. A variety nobody has named a colour for shows in the
+// holiday table as unrecorded with this behind it, rather than being quietly
+// filed under the nearest match.
+function ctSetRoseColor(variety) {
+  const v = String(variety || '').trim().toLowerCase();
+  if (!v) return;
+  const known = CT_ROSE_COLORS.map(c => c[1]).filter((c, i, a) => a.indexOf(c) === i);
+  const cur = (ctData.roseColors || {})[v] || '';
+  const answer = prompt(`What colour is "${v}"?\n\n${known.join(', ')}`, cur);
+  if (answer === null) return;
+  ctData.roseColors = ctData.roseColors || {};
+  const clean = answer.trim();
+  if (!clean) delete ctData.roseColors[v];
+  // Matched case-insensitively against the known list so "light pink" and
+  // "Light Pink" cannot become two different colours in the table.
+  else {
+    const hit = known.filter(k => k.toLowerCase() === clean.toLowerCase())[0];
+    ctData.roseColors[v] = hit || clean;
+  }
+  ctSave();
+  notify(clean ? `${v} is ${ctData.roseColors[v]}` : `Cleared the colour for ${v}`);
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
 }
 
 function ctRoseColor(name, map) {

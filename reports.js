@@ -275,13 +275,26 @@ function hcQtyHtml(year, month) {
     ? num(stems) + (bunches ? ` <span style="color:var(--mist)">+ ${num(bunches)} bu</span>` : '')
     : (bunches ? `<span style="color:var(--mist)">${num(bunches)} bu</span>` : '—');
 
-  const row = (label, r, indent) => `
+  const row = (label, r, indent, isHtml) => `
     <tr${indent ? ' style="color:var(--mist)"' : ''}>
-      <td style="padding-left:${indent ? 18 : 0}px">${escHtml(label)}</td>
+      <td style="padding-left:${indent ? 18 : 0}px">${isHtml ? label : escHtml(label)}</td>
       <td style="text-align:right">${cell(r.stems, r.bunches)}</td>
       <td style="text-align:right">${fmt(r.cost)}</td>
       <td style="text-align:right">${r.stems ? '$' + (r.cost / r.stems).toFixed(2) : '—'}</td>
     </tr>`;
+
+  // A variety no invoice ever names a colour for is asked about rather than
+  // filed under the nearest guess. Answering once teaches it for good.
+  const colorLabel = c => {
+    if (!c.names || !c.names.length) return escHtml(c.color);
+    const links = c.names.slice(0, 6).map(n => {
+      const safe = String(n).replace(/[^a-z0-9 ]/gi, '');
+      return `<a href="#" onclick="ctSetRoseColor('${safe}');return false"
+                 style="color:var(--blue-light)" title="Tell BloomBooks what colour this is">
+                ${escHtml(n)}</a>`;
+    }).join(', ');
+    return escHtml(c.color) + ' — ' + links;
+  };
 
   return `
     <strong style="font-size:0.75rem;display:block;margin-top:14px">
@@ -294,9 +307,7 @@ function hcQtyHtml(year, month) {
         </tr></thead>
         <tbody>
           ${q.rows.map(r => row(r.type, r, false) +
-              r.colors.map(c => row(
-                c.color + (c.names && c.names.length ? ' (' + c.names.slice(0, 3).join(', ') + ')' : ''),
-                c, true)).join('')).join('')}
+              r.colors.map(c => row(colorLabel(c), c, true, true)).join('')).join('')}
           <tr style="font-weight:600;border-top:1px solid var(--border)">
             <td>Total</td><td style="text-align:right">${cell(q.stems, q.bunches)}</td>
             <td style="text-align:right">${fmt(q.cost)}</td>
