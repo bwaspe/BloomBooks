@@ -16,7 +16,10 @@ let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords
 let ctCharts = {};
 
 function ctSave() {
-  try { localStorage.setItem('bb_ctdata', JSON.stringify(ctData)); } catch(e) {}
+  try { localStorage.setItem('bb_ctdata',
+      // Underscore-prefixed keys are working state -- the alternative reading of
+      // a quantity edit, and anything like it -- and must not be persisted.
+      JSON.stringify(ctData, (k, v) => (k.charAt(0) === '_' ? undefined : v))); } catch(e) {}
 }
 function ctLoad() {
   try {
@@ -317,6 +320,7 @@ function ctBuildUploadCardHtml(p, idx) {
         $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctUpdateUploadItemTotal(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:72px;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
         ${ctLineWorking(item)}
+        ${ctAltNote(item, `ctTakeAltUpload(${idx}, ${i})`)}
       </div>
     </div>`;
   });
@@ -869,6 +873,110 @@ function ctDroppedDiscountHtml() {
     </div>`;
 }
 
+// Quantity and unit DESCRIBE what the money bought; they do not decide it.
+// Re-expressing one box as eight bunches is the same flowers and the same
+// money -- but rescaling the total by the new quantity turned $63.92 of
+// alstroemeria into $511.36 of cost, silently, and carried that on into COGS,
+// margin and price history.
+//
+// So a quantity edit HOLDS THE LINE TOTAL and re-derives the unit price from
+// it. The total is what the paper says. Even where the quantity really was
+// misread -- "2 Box ... $255.68" parsed as 1 -- the total was read correctly
+// off that same line, so holding it is right there too. The one case it is
+// wrong for is a total the parser computed from the bad quantity rather than
+// read, and the header-versus-lines check already catches that. The way to say
+// "the cost itself was different" is the unit price field, which does move the
+// total; that split is the whole model -- quantity re-describes, price re-prices.
+function ctPriceKey(item) {
+  return Object.prototype.hasOwnProperty.call(item, 'unit_price') ? 'unit_price' : 'unitPrice';
+}
+
+function ctSetLineQty(item, qty) {
+  const total = ctLineTotal(item);
+  const disc = ctLineDiscount(item);          // read before anything moves
+  const oldPrice = ctUnitPrice(item);
+  item.qty = qty;
+  // The OTHER reading: the quantity was misread, so the money moves with it.
+  // Five roses that should have said two hundred is $160, not $4 -- that case
+  // was reported too, and nothing in the numbers separates it from the box.
+  // So it is offered on the line instead of guessed at.
+  const alt = qty * oldPrice * (1 - disc / 100);
+  const units = qty * ctPackUnits(item) * (1 - disc / 100);
+  if (total > 0 && units > 0) item[ctPriceKey(item)] = total / units;
+  item.total = total;
+  if (Math.abs(alt - total) > 0.005) { item._altTotal = alt; item._altPrice = oldPrice; }
+  else { item._altTotal = null; item._altPrice = null; }
+  return total;
+}
+
+// Take the other reading. Underscore-prefixed keys are transient and are
+// dropped on save, so this never reaches storage.
+function ctTakeAltTotal(item) {
+  if (!item || !item._altTotal) return;
+  item[ctPriceKey(item)] = item._altPrice;
+  item.total = item._altTotal;
+  item._altTotal = null;
+  item._altPrice = null;
+}
+
+function ctAltNote(item, action) {
+  if (!item || !item._altTotal) return '';
+  return `<div style="font-size:0.65rem;text-align:right;margin-top:2px">
+    <a href="#" onclick="${action};return false" style="color:var(--blue-light)"
+       title="Use this when the quantity itself was misread, rather than the unit being re-expressed">
+      was the quantity wrong? make it ${fmt(item._altTotal)}</a></div>`;
+}
+
+function ctTakeAltUpload(idx, itemIdx) {
+  ctTakeAltTotal(window._ctUploadPending[idx]?.enriched[itemIdx]);
+  ctRenderUploadArea();
+}
+
+function ctTakeAltEditing(itemIdx) {
+  ctTakeAltTotal(window._ctEditingInvoice?.items[itemIdx]);
+  ctRenderEditInvoice();
+}
+
+// The price-history rows are a flat list with no invoice in scope, so the
+// offer is looked up rather than passed in.
+function ctAltNoteSaved(invoiceId, itemIndex) {
+  const inv = (ctData.invoices || []).find(i => i.id === invoiceId);
+  return ctAltNote(inv && inv.items[itemIndex],
+                   `ctTakeAltSaved('${invoiceId}', ${itemIndex})`);
+}
+
+function ctTakeAltSaved(invoiceId, itemIndex) {
+  const inv = ctData.invoices.find(i => i.id === invoiceId);
+  if (!inv || !inv.items[itemIndex]) return;
+  const before = inv.items.reduce((sum, i) => sum + ctLineTotal(i), 0);
+  ctTakeAltTotal(inv.items[itemIndex]);
+  inv.total = (inv.total || 0) + (inv.items.reduce((sum, i) => sum + ctLineTotal(i), 0) - before);
+  ctSave();
+  notify('Quantity treated as a correction — the line and the invoice total both moved');
+  renderCtPrices();
+  renderCtDashboard();
+}
+
+// The unit is the other half of the description, and it decides what a "unit"
+// MEANS: on a Box with 16 to the box the stored price is per bunch and the line
+// holds 16 of them, on a Bunch it holds one. So changing it re-anchors the
+// price on the held total exactly as a quantity change does -- otherwise the
+// stored price is left describing the old unit, and a box re-expressed as its
+// bunches priced them at $0.50 instead of $7.99 even though the money was right.
+function ctSetLineUom(item, val) {
+  const total = ctLineTotal(item);
+  const disc = ctLineDiscount(item);
+  item.uom = val;
+  // The count means stems on a Bunch line and units-per-pack on a Box or Case,
+  // so it survives either. It is only meaningless on a Stem, Each or Roll --
+  // clearing it whenever the unit was not Bunch threw away the pack count that
+  // made a Box line worth anything.
+  if (val !== 'Bunch' && !CT_PACK_UNITS.test(String(val || ''))) item.stemsPerBu = null;
+  const units = (item.qty || 0) * ctPackUnits(item) * (1 - disc / 100);
+  if (total > 0 && units > 0) item[ctPriceKey(item)] = total / units;
+  item.total = total;
+}
+
 function ctLineRatio(item) {
   const gross = (item.qty || 0) * ctUnitPrice(item);
   if (!gross || item.total == null) return 1;
@@ -890,6 +998,7 @@ function ctUpdateUploadItemPrice(idx, itemIdx, val) {
   const ratio = ctLineRatio(item);            // read before the price moves
   item.unit_price = n;
   item.total = item.qty * n * ratio;
+  item._altTotal = null;
   ctRenderUploadArea();
 }
 
@@ -898,9 +1007,7 @@ function ctUpdateUploadItemQty(idx, itemIdx, val) {
   if (!item) return;
   const n = parseFloat(val);
   if (!Number.isFinite(n) || n < 0) return;
-  const disc = ctLineDiscount(item);
-  item.qty = n;
-  item.total = n * item.unit_price * (1 - disc / 100);
+  ctSetLineQty(item, n);
   ctRenderUploadArea();
 }
 
@@ -927,7 +1034,7 @@ function ctLineWorking(item) {
 function ctUpdateUploadItemUom(idx, itemIdx, val) {
   const item = window._ctUploadPending[idx]?.enriched[itemIdx];
   if (!item) return;
-  item.uom = val;
+  ctSetLineUom(item, val);
   ctRenderUploadArea();
 }
 
@@ -2808,6 +2915,7 @@ function ctRenderEditInvoice() {
         </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
+        ${ctAltNote(item, `ctTakeAltEditing(${i})`)}
         <select onchange="ctEditUpdateItemField(${i}, 'uom', this.value)" style="font-size:0.75rem">
           ${CT_UOMS.map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
         </select>
@@ -2879,14 +2987,19 @@ function ctEditUpdateItemField(idx, field, val) {
   if (field === 'qty' || field === 'unitPrice') {
     const n = parseFloat(val);
     if (!Number.isFinite(n) || n < 0) return;
-    // A price change preserves whatever the total-to-gross ratio was, discount
-    // or pack multiplier alike. A quantity change preserves only a discount,
-    // because correcting a quantity is usually correcting an error and should
-    // land on the printed figure rather than multiplying the mistake again.
-    const keep = field === 'unitPrice' ? ctLineRatio(item)
-                                       : 1 - ctLineDiscount(item) / 100;
-    item[field] = n;
-    item.total = (item.qty || 0) * ctUnitPrice(item) * keep;
+    // A price change moves the money, preserving whatever the total-to-gross
+    // ratio was -- discount or pack multiplier alike. A quantity change does
+    // not move it at all; see ctSetLineQty.
+    if (field === 'qty') {
+      ctSetLineQty(item, n);
+    } else {
+      const ratio = ctLineRatio(item);
+      item.unitPrice = n;
+      item.total = (item.qty || 0) * n * ratio;
+      item._altTotal = null;
+    }
+  } else if (field === 'uom') {
+    ctSetLineUom(item, val);
   } else {
     item[field] = val;
     if (field === 'category') ctLearnCategory(item.name, val);
@@ -3132,6 +3245,7 @@ function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
   const linesBefore = inv.items.reduce((sum, i) => sum + ctLineTotal(i), 0);
   const derived = Math.abs((inv.total || 0) - (linesBefore + (inv.deliveryFee || 0))) < 0.02;
 
+  let qtyNote = '';
   if (field === 'unitPrice') {
     const num = parseFloat(val);
     if (isNaN(num) || num < 0) return;
@@ -3143,19 +3257,12 @@ function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
   } else if (field === 'qty') {
     const num = parseFloat(val);
     if (isNaN(num) || num <= 0) return;
-    // A quantity correction keeps a discount but drops an above-1 ratio: the
-    // reason to retype a quantity is usually that it was wrong, and 1 -> 25
-    // should land on the printed total rather than multiply the error again.
-    const keep = 1 - ctLineDiscount(item) / 100;
-    item.qty = num;
-    item.total = num * ctUnitPrice(item) * keep;
+    // Holds the line total and re-derives the price; see ctSetLineQty.
+    ctSetLineQty(item, num);
+    qtyNote = `${num} × ${fmt(ctUnitPrice(item))} — the line still totals ` +
+              `${fmt(ctLineTotal(item))}. Change the unit price if the cost itself differs.`;
   } else if (field === 'uom') {
-    item.uom = val;
-    // The count means stems on a Bunch line and units-per-pack on a Box or
-    // Case, so it survives either. It is only meaningless on a Stem, Each or
-    // Roll -- clearing it whenever the unit was not Bunch threw away the pack
-    // count that made a Box line worth anything.
-    if (val !== 'Bunch' && !CT_PACK_UNITS.test(String(val || ''))) item.stemsPerBu = null;
+    ctSetLineUom(item, val);
   } else if (field === 'stemsPerBu') {
     const num = parseInt(val);
     item.stemsPerBu = (num && num > 0) ? num : null;
@@ -3166,7 +3273,7 @@ function ctEditPriceHistoryRecord(invoiceId, itemIndex, field, val) {
   else inv.total = (inv.total || 0) + (linesAfter - linesBefore);
 
   ctSave();
-  notify('Updated — this changes the original invoice, so it affects margin/history calculations too');
+  notify(qtyNote || 'Updated — this changes the original invoice, so it affects margin/history calculations too');
   renderCtPrices();
   renderCtDashboard();
 }
@@ -3393,6 +3500,7 @@ function renderCtPrices() {
       return `<div style="display:flex;gap:8px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft);align-items:center">
         <span style="min-width:90px">${r.date}</span>
         <span style="flex:1">${escHtml(r.supplier)}</span>
+        ${ctAltNoteSaved(r.invoiceId, r.itemIndex)}
         <input type="number" step="0.01" min="0" value="${r.qty}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'qty', this.value)"
           style="width:48px;font-size:0.72rem;padding:1px 4px">
         <select onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'uom', this.value)" style="font-size:0.7rem;padding:1px 2px">
