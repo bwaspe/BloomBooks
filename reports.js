@@ -233,7 +233,7 @@ function hcQtyByType(year, month) {
   const map = ctRoseColorMap();
   const types = {};
   const unresolved = [];
-  let otherCost = 0;
+  let otherCost = 0, byBunch = 0;
 
   ctData.invoices.filter(i => eff(i) >= w.from && eff(i) <= w.to).forEach(inv => {
     (inv.items || []).forEach(it => {
@@ -250,9 +250,15 @@ function hcQtyByType(year, month) {
       // reported roses at $3.77 a stem against a real figure near $2 -- the
       // unresolved lines brought cost with them and no stems to carry it.
       if (stems) t.stemCost += cost;
-      if (bunches) {
+      // A family sold by the bunch is settled, not unresolved. Leaving greens in
+      // the unresolved pile buried the handful of lines that genuinely were
+      // missing a count under 259 bunches of ruscus and gyp.
+      const { byDesign } = ctLineStems(it);
+      if (bunches && byDesign) byBunch += bunches;
+      else if (bunches) {
         unresolved.push({ name: it.name, qty: it.qty, uom: it.uom, per: it.stemsPerBu || null,
-                          bunches, cost, type: fam, supplier: inv.supplier, date: eff(inv) });
+                          bunches, cost, type: fam, family: it.family || fam,
+                          supplier: inv.supplier, date: eff(inv) });
       }
       if (/rose/i.test(fam)) {
         const c = ctRoseColor(it.name, map) || 'Colour not recorded';
@@ -274,7 +280,7 @@ function hcQtyByType(year, month) {
 
   unresolved.sort((a, b) => b.cost - a.cost);
   return {
-    rows, otherCost, unresolved, window: w,
+    rows, otherCost, unresolved, byBunch, window: w,
     stems: rows.reduce((n, r) => n + r.stems, 0),
     bunches: rows.reduce((n, r) => n + r.bunches, 0),
     cost: rows.reduce((n, r) => n + r.cost, 0),
@@ -487,8 +493,10 @@ function hcQtyHtml(year, month) {
     ${q.bunches ? `
       <div style="font-size:0.7rem;color:var(--mist);margin-top:6px">
         * Cost per stem covers only the lines whose stem count is known.
-        ${num(q.bunches)} units below have none on file, so they carry cost but no stems and
-        are left out of that figure rather than skewing it.
+        ${num(q.unresolved.reduce((n, u) => n + u.bunches, 0))} units below have none on file,
+        so they carry cost but no stems and are left out of that figure rather than skewing it.${
+          q.byBunch ? ` A further ${num(q.byBunch)} bunches are families you count by the
+          bunch, which are settled rather than missing.` : ''}
       </div>
       <details style="margin-top:6px">
         <summary style="font-size:0.72rem;color:var(--blue-light);cursor:pointer">
@@ -500,6 +508,7 @@ function hcQtyHtml(year, month) {
               <th style="text-align:left">Item</th><th style="text-align:right">Qty</th>
               <th style="text-align:left">Unit</th><th style="text-align:right">Counted as</th>
               <th style="text-align:right">Cost</th><th style="text-align:left">Date</th>
+              <th></th>
             </tr></thead>
             <tbody>
               ${q.unresolved.map(u => `
@@ -508,13 +517,18 @@ function hcQtyHtml(year, month) {
                     <td>${escHtml(u.uom || '')}${u.per ? ' ×' + u.per : ''}</td>
                     <td style="text-align:right">${num(u.bunches)} bu</td>
                     <td style="text-align:right">${fmt(u.cost)}</td>
-                    <td>${escHtml(u.date || '')}</td></tr>`).join('')}
+                    <td>${escHtml(u.date || '')}</td>
+                    <td>${u.family ? `<a href="#" style="color:var(--blue-light);font-size:0.68rem"
+                          onclick="ctSetByTheBunch('${escHtml(u.family).replace(/'/g, '')}', true);return false"
+                          title="Stop asking for a stem count on ${escHtml(u.family)}">sold by the bunch</a>` : ''}</td>
+                </tr>`).join('')}
             </tbody>
           </table>
         </div>
         <div style="font-size:0.7rem;color:var(--mist);margin-top:4px">
           If the quantity here is really a stem count, the unit on that line is wrong —
-          fix it on the invoice and these fold into the stem totals.
+          fix it on the invoice and these fold into the stem totals. If nobody counts
+          stems of it at all, say so once and the whole family stops asking.
         </div>
       </details>` : ''}
     ${q.otherCost > 0.005 ? `<div style="font-size:0.7rem;color:var(--mist);margin-top:4px">

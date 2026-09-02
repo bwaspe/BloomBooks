@@ -1039,6 +1039,19 @@ function ctLineWorking(item) {
   parts.push('$' + price.toFixed(2));
   let txt = parts.join(' \u00d7 ');
   if (disc) txt += ' less ' + disc.toFixed(1) + '%';
+
+  // A case of vases prices the case. The number wanted is the price of one
+  // vase, and the count is sitting in the item name where nothing was reading
+  // it. Shown for anything not counted in stems.
+  const pieces = ctPiecesPer(item);
+  const flower = item.category === 'Flowers' || item.category === 'Greens';
+  if (!flower && pieces > 1 && price) {
+    const each = ctLineTotal(item) / ((item.qty || 1) * pieces);
+    return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">
+      ${escHtml(txt)}${per > 1 || disc ? ' \u00b7 ' : ''}<strong style="color:var(--ink)">$${each.toFixed(2)} each</strong>
+      <span>(${pieces} per pack)</span></div>`;
+  }
+
   // Silent when it is just quantity times price with nothing else going on.
   if (per <= 1 && !disc) return '';
   return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">${escHtml(txt)}</div>`;
@@ -1221,6 +1234,76 @@ function ctCountsInBunches(item) {
   return three && !simple;
 }
 
+// ---------------------------------------------------------------------------
+// Families sold by the bunch
+//
+// Limonium, gypsophila, statice, ruscus, tree fern -- nobody counts stems of
+// these. The bunch IS the unit. Before this they sat in the "no stem count"
+// pile forever, which made a real omission indistinguishable from a category
+// that was never going to have one: 259 bunches of greens drowning the handful
+// of roses that genuinely were missing a count.
+//
+// Kept per family rather than per item, because the fact is about the flower.
+// ---------------------------------------------------------------------------
+function ctByTheBunchMap() {
+  if (!ctData.byTheBunch) ctData.byTheBunch = {};
+  return ctData.byTheBunch;
+}
+
+function ctIsByTheBunch(family) {
+  const f = String(family || '').trim().toLowerCase();
+  return !!(f && ctByTheBunchMap()[f]);
+}
+
+function ctSetByTheBunch(family, on) {
+  const f = String(family || '').trim().toLowerCase();
+  if (!f) return;
+  const map = ctByTheBunchMap();
+  if (on) map[f] = true; else delete map[f];
+  ctSave();
+  notify(on ? `${family} is counted by the bunch` : `${family} is counted in stems again`);
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+  if (typeof renderCtDashboard === 'function') renderCtDashboard();
+}
+
+// ---------------------------------------------------------------------------
+// Hard goods sold by the box
+//
+// A case of vases prices the case, and the count is written into the item name
+// rather than any field: "6-Piece per Pack", "12/cs", "(12PC)", "PK 250". What
+// is actually wanted is the price of one vase, so the count is read out of the
+// name rather than asked for again.
+// ---------------------------------------------------------------------------
+const CT_PACK_PATTERNS = [
+  /(\d+)\s*-?\s*(?:piece|pc|pcs)\b/i,      // 6-Piece per Pack, 12PC
+  /\(\s*(\d+)\s*pc[s]?\s*\)/i,             // (12PC)
+  /[-\s/](\d+)\s*\/\s*(?:cs|case)\b/i,     // - 12/cs
+  /(\d+)\s*\/\s*(?:cs|case)\b/i,           // 12/cs
+  /\bpk\s*(\d+)\b/i,                       // PK 250
+  /\b(?:case|box|pack)\s*of\s*(\d+)\b/i,   // case of 24
+];
+
+function ctPackFromName(name) {
+  const s = String(name || '');
+  for (const re of CT_PACK_PATTERNS) {
+    const m = re.exec(s);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    // A "1-Piece per Pack" is a single item dressed up as a pack, and a count
+    // in the thousands is a packet of flower food, which is still worth
+    // dividing. Only a count of one tells us nothing.
+    if (n > 1 && n <= 100000) return n;
+  }
+  return 0;
+}
+
+// How many sellable things one line holds, for anything not counted in stems.
+function ctPiecesPer(item) {
+  const override = Number(item.unitsPerPack) || 0;
+  if (override > 1) return override;
+  return ctPackFromName(item.name);
+}
+
 // The usual stems-per-bunch for a family, learned from the shop's own lines.
 // Same idea as the rose colours: what the book already says beats anything
 // written in here, and it grows as the shop buys.
@@ -1260,8 +1343,9 @@ function ctLineIssues(item) {
     out.push({ level: 'warn',
       text: `Counted in bunches, not ${uom}s — ${qty} × ${per} = ${qty * per} stems` });
   }
-  // No stem count where this family normally has one.
-  if (uom === 'bunch' && per <= 1) {
+  // No stem count where this family normally has one. A family sold by the
+  // bunch is exempt -- that is the whole point of the flag.
+  if (uom === 'bunch' && per <= 1 && !ctIsByTheBunch(item.family)) {
     const usual = ctUsualStemsPer(item.family);
     if (usual) out.push({ level: 'note',
       text: `No stems per bunch — ${escHtml(item.family)} is usually ${usual}` });
@@ -1289,6 +1373,9 @@ function ctLineStems(item) {
   // Priced singly: the quantity is the stem count.
   if (uom === 'stem' || uom === 'each') return { stems: qty, bunches: 0 };
   if (uom === 'bunch') {
+    // A family sold by the bunch is not missing anything, so its bunches are
+    // reported as settled rather than piling up as unresolved.
+    if (ctIsByTheBunch(item.family)) return { stems: 0, bunches: qty, byDesign: true };
     return per > 1 ? { stems: qty * per, bunches: 0 } : { stems: 0, bunches: qty };
   }
   // A pack. stemsPerBu on a Box or Case counts BUNCHES to the box, not stems
