@@ -4,6 +4,11 @@
 let stagingRows = [];
 let ignoredRows = [];
 
+// Set when a statement parsed with no Type column and rows landed as money in
+// -- the signature of an Amex export read as a bank file. Held rather than
+// toasted, because the toast fades and a statement booked backwards does not.
+let bankSignWarning = 0;
+
 // ============================================================
 // RULE RESOLUTION
 // ============================================================
@@ -121,6 +126,12 @@ function detectStatementSource(rows) {
   const has = re => head.some(h => re.test(h));
   if (!has(/description/) || !has(/amount/)) return null;   // no header to read
   if (has(/posting date/) || has(/^balance$/) || has(/^details$/) || has(/^type$/)) return 'bank';
+  // Amex names columns nothing else does. Counting them is not enough: the
+  // wide export is six columns and some are wider still, so a length test
+  // recognised only the narrow shape and let every wide one through as a bank
+  // file -- where its positive purchases all booked as revenue.
+  if (has(/card ?member/) || has(/^account ?#?$/) || has(/^receipt$/) ||
+      has(/appears on your statement/) || has(/extended details/)) return 'amex';
   if (has(/^date$/) && head.length <= 4) return 'amex';
   return null;
 }
@@ -368,14 +379,29 @@ function parseImport() {
   // on Bank, and the direction then comes from the sign alone. Amex writes
   // purchases as positive, so every one of them books as revenue. Uploading
   // detects the source from the file's own headers; this catches the paste.
+  // A toast is the wrong shape for this: it fades, and the damage is a whole
+  // statement booked backwards. It now sits above the staging table until the
+  // rows are dealt with, and carries the fix.
   const sawType = stagingRows.concat(ignoredRows).some(r => r._txType);
-  if (!sawType && stagingRows.some(r => r.type === 'in')) {
-    notify('No Type column found — direction was guessed from the sign. If this is an Amex export, switch the source to Amex and re-parse.', true);
+  const ins = stagingRows.filter(r => r.type === 'in').length;
+  bankSignWarning = (!sawType && ins) ? ins : 0;
+  if (bankSignWarning) {
+    renderStagingTable();
+    notify(`No Type column — ${ins} row${ins === 1 ? '' : 's'} booked as money IN from the sign alone. Check the banner above the table.`, true);
   }
 
   if (stagingRows.length === 0 && ignoredRows.length === 0) notify('No parseable transactions found', true);
   else if (stagingRows.length === 0) notify(`Every row matched an ignore rule — see below`, true);
   else notify(`${stagingRows.length} transactions staged for review`);
+}
+
+// One click from the banner: flip the source and read the same text again.
+function reparseAsAmex() {
+  const sel = document.getElementById('import-source-sel');
+  if (sel) sel.value = 'amex';
+  if (typeof updateImportPlaceholder === 'function') updateImportPlaceholder();
+  bankSignWarning = 0;
+  parseImport();
 }
 
 function renderStagingTable() {
@@ -389,6 +415,16 @@ function renderStagingTable() {
   const rows = stagingRows.filter(r => r.status !== 'saved');
 
   area.innerHTML = `
+    ${bankSignWarning ? `
+      <div style="margin-bottom:12px;padding:10px 14px;border-radius:6px;
+                  background:#fdecea;border:1px solid #e0a2a2;font-size:0.8rem">
+        <strong>${bankSignWarning} row${bankSignWarning === 1 ? '' : 's'} booked as money IN.</strong>
+        This file has no Type column, so the direction came from the sign alone.
+        Amex writes purchases as positive, so an Amex export read as a bank file
+        turns every charge into revenue.
+        <button class="btn btn-outline btn-sm" style="margin-left:8px"
+                onclick="reparseAsAmex()">Re-read as Amex</button>
+      </div>` : ''}
     ${rows.length === 0 ? '' : `
     <div class="ledger-wrap">
       <div class="ledger-header">
