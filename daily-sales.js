@@ -1506,37 +1506,120 @@ function dsWhen(iso) {
   return stamp + (d.getFullYear() !== now.getFullYear() ? ` ${d.getFullYear()}` : '');
 }
 
+// The five steps of the monthly routine. Two record themselves when the upload
+// happens, two are read straight off the ledger, and one has no artefact at all
+// and is ticked by hand. Detecting what can be detected matters: a checklist
+// where every line is ticked manually becomes a checklist that gets ticked
+// without being done.
+const DS_CLOSE_STEPS = [
+  { id: 'bank',    name: 'Bank imported to month end' },
+  { id: 'fn',      name: 'FloraNext report' },
+  { id: 'epx',     name: 'EPX statement' },
+  { id: 'fee',     name: 'Stripe fee entered' },
+  { id: 'payouts', name: 'Stripe payouts matched' },
+];
+
+// The last day any transaction is recorded, anywhere. Nothing else knows how
+// far the bank has actually been entered.
+function dsBankThrough() {
+  let last = '';
+  Object.keys(appData.transactions || {}).forEach(k => {
+    (appData.transactions[k] || []).forEach(t => {
+      const d = String(t.date || '');
+      if (d > last) last = d;
+    });
+  });
+  return last;
+}
+
+function dsMonthEnd(year, month) {
+  const d = new Date(year, month + 1, 0).getDate();
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// Read off the ledger rather than remembered. A remembered tick can be wrong;
+// the row either exists or it does not.
+function dsAutoStep(id, year, month) {
+  if (id === 'bank') {
+    const end = dsMonthEnd(year, month), through = dsBankThrough();
+    if (!through) return { done: false, detail: 'nothing entered yet' };
+    return through >= end
+      ? { done: true, detail: 'through ' + end.slice(5) }
+      : { done: false, detail: 'only to ' + through.slice(5) };
+  }
+  if (id === 'fee') {
+    const rows = (appData.transactions[`${year}-${month}`] || []).filter(t =>
+      t.type === 'out' && /stripe/i.test((t.vendor || '') + ' ' + (t.desc || '')));
+    if (!rows.length) return { done: false, detail: '' };
+    const total = rows.reduce((s, t) => s + t.amount, 0);
+    return { done: true, detail: fmt(total) + (rows.length > 1 ? ` across ${rows.length} rows` : '') };
+  }
+  return null;
+}
+
+function dsToggleDone(year, month, what) {
+  const key = `${year}-${month}`;
+  const log = dsCloseLog();
+  const rec = log[key] || (log[key] = {});
+  if (rec[what]) delete rec[what]; else rec[what] = { at: new Date().toISOString(), byHand: true };
+  saveData();
+  renderDailySalesPanel();
+}
+
 function dsMonthStatusHtml(year, month) {
   const done = dsDoneFor(year, month);
   const label = `${MONTHS_SHORT[month]} ${year}`;
-  const row = (name, rec, summary) => {
-    const ok = !!(rec && rec.at);
+
+  const summaryFor = (id, rec) => {
+    if (id === 'epx' && rec) {
+      return `${rec.batches || 0} batch${rec.batches === 1 ? '' : 'es'}` +
+             (rec.toCheck ? ` · <span style="color:var(--red)">${rec.toCheck} to look at</span>`
+                          : ' · all clear');
+    }
+    if (id === 'fn' && rec) {
+      return `${rec.days || 0} day${rec.days === 1 ? '' : 's'}` +
+             (rec.mode ? ' from the ' + escHtml(rec.mode) : '');
+    }
+    return '';
+  };
+
+  const rows = DS_CLOSE_STEPS.map(step => {
+    const auto = dsAutoStep(step.id, year, month);
+    const rec = done[step.id];
+    const ok = auto ? auto.done : !!(rec && rec.at);
+    const detail = auto
+      ? auto.detail
+      : (rec ? escHtml(dsWhen(rec.at)) + (summaryFor(step.id, rec) ? ' · ' + summaryFor(step.id, rec) : '') : '');
+    // Only a step with no artefact to read gets a by-hand toggle. The others
+    // would be lying if they could be ticked without the work behind them.
+    const toggle = auto ? '' : `
+      <a href="#" onclick="dsToggleDone(${year},${month},'${step.id}');return false"
+         style="font-size:0.68rem;color:var(--blue-light);margin-left:6px"
+         title="${ok ? 'Mark this as not done' : 'Mark this done'}">${ok ? 'undo' : 'mark done'}</a>`;
     return `
       <div style="display:flex;align-items:baseline;gap:8px;font-size:0.76rem;padding:3px 0">
         <span style="width:14px;color:${ok ? 'var(--green)' : 'var(--mist)'};font-weight:700">${ok ? '✓' : '–'}</span>
-        <span style="min-width:132px;font-weight:${ok ? 500 : 400}">${escHtml(name)}</span>
-        <span style="color:var(--mist)">${ok ? escHtml(dsWhen(rec.at)) + (summary ? ' · ' + summary : '') : 'not yet'}</span>
+        <span style="min-width:172px;font-weight:${ok ? 500 : 400}">${escHtml(step.name)}</span>
+        <span style="color:var(--mist)">${ok ? detail : (detail || 'not yet')}</span>
+        ${toggle}
       </div>`;
-  };
-  const epx = done.epx;
-  const epxSummary = epx
-    ? `${epx.batches || 0} batch${epx.batches === 1 ? '' : 'es'}` +
-      (epx.toCheck ? ` · <span style="color:var(--red)">${epx.toCheck} to look at</span>` : ' · all clear')
-    : '';
-  const fn = done.fn;
-  const fnSummary = fn ? `${fn.days || 0} day${fn.days === 1 ? '' : 's'}` +
-                         (fn.mode ? ' from the ' + escHtml(fn.mode) : '') : '';
+  }).join('');
+
+  const outstanding = DS_CLOSE_STEPS.filter(s => {
+    const a = dsAutoStep(s.id, year, month);
+    return a ? !a.done : !done[s.id];
+  }).length;
 
   return `
     <div class="ledger-wrap no-print" style="margin-top:14px">
       <div style="padding:12px 16px">
         <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px">
           <strong style="font-size:0.8rem">Month close &mdash; ${escHtml(label)}</strong>
-          <span style="font-size:0.7rem;color:var(--mist)">
-            what has been uploaded for this month, so you are not left wondering</span>
+          <span style="font-size:0.7rem;color:${outstanding ? 'var(--mist)' : 'var(--green)'}">
+            ${outstanding ? `${outstanding} of ${DS_CLOSE_STEPS.length} still to do`
+                          : 'all five done'}</span>
         </div>
-        ${row('FloraNext report', fn, fnSummary)}
-        ${row('EPX statement', epx, epxSummary)}
+        ${rows}
       </div>
     </div>`;
 }
