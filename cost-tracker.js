@@ -1349,6 +1349,22 @@ function ctLineIssues(item) {
     out.push({ level: 'warn',
       text: `Counted in bunches, not ${uom}s — ${qty} × ${per} = ${qty * per} stems` });
   }
+  // A pack count in the name against a unit of Each. This cannot be decided
+  // from the data: "Heart Open 24in Foam Mache -4/cs" at $36.50 is one frame
+  // out of a case, while "BALLON MYLAR 17\" PK5" at $5.49 is the pack of five.
+  // Each is also what the parser falls back to, so it is not evidence of
+  // anything. Asked rather than assumed -- guessing either way silently
+  // misprices half of them.
+  const flower = item.category === 'Flowers' || item.category === 'Greens';
+  const packName = flower ? 0 : ctPackFromName(item.name);
+  if (packName > 1 && ['each', 'stem', 'bunch'].includes(uom)) {
+    const price = ctUnitPrice(item);
+    out.push({ level: 'note',
+      text: `Name says ${packName} per pack, unit says ${item.uom} — is ` +
+            `$${price.toFixed(2)} the pack ($${(price / packName).toFixed(2)} each) or one? ` +
+            `Change the unit to Case if it is the pack.` });
+  }
+
   // No stem count where this family normally has one. A family sold by the
   // bunch is exempt -- that is the whole point of the flag.
   if (uom === 'bunch' && per <= 1 && !ctIsByTheBunch(item.family)) {
