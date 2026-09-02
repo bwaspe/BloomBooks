@@ -2519,6 +2519,24 @@ function ctPerStemCost(item) {
   return price / per;
 }
 
+// How many of the thing a retail price is set against this line yields.
+//
+// The margin panel had its own reading -- qty x stemsPerBu, but ONLY when the
+// unit was literally 'Bunch' -- and it disagreed with ctLineStems on 21 lines.
+// Perri records "Roses Lavender Moody Blues PR / 1 Stem / x25 / $34.75", which
+// that reading counted as ONE sellable stem costing $34.75: the row showed a
+// margin of -33% against a real 80%. A box of 12 cylinders was worse, -260%
+// against 70%. Book-wide it understated revenue by $4,886.
+//
+// ctLineStems already knows all of it -- a stem line carrying a bunch price, a
+// bunch with a stem count, a family sold by the bunch, a pack and what its
+// multiplier counts -- so it is the one that answers. Falling back to the raw
+// quantity keeps a line it cannot read counted once rather than not at all.
+function ctSellableUnits(item) {
+  const s = ctLineStems(item);
+  return s.stems || s.bunches || (Number(item.qty) || 0);
+}
+
 function ctSuggestedRetail(item) {
   const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
   const unitPrice = item.unit_price ?? item.unitPrice ?? 0;
@@ -3459,20 +3477,18 @@ function renderCtMargin(invoices) {
       const retail = ctData.retail[key];
       if (retail !== undefined) {
         itemsWithRetail++;
-        // When stems-per-bunch is known, retail is priced per stem — so the sellable
-        // quantity is qty × stems, not just qty bunches
-        const effectiveUnits = ctIsPerStem(item) ? item.qty * item.stemsPerBu : item.qty;
+        const effectiveUnits = ctSellableUnits(item);
         const rev = retail * effectiveUnits;
-        costWithRetail += item.total;
+        costWithRetail += ctLineTotal(item);
         revenueWithRetail += rev;
         if (!byCat[item.category]) byCat[item.category] = { cost: 0, revenue: 0 };
-        byCat[item.category].cost += item.total;
+        byCat[item.category].cost += ctLineTotal(item);
         byCat[item.category].revenue += rev;
         if (!byItem[key]) byItem[key] = { name: item.name, category: item.category, cost: 0, revenue: 0 };
-        byItem[key].cost += item.total;
+        byItem[key].cost += ctLineTotal(item);
         byItem[key].revenue += rev;
       } else {
-        costWithoutRetail += item.total;
+        costWithoutRetail += ctLineTotal(item);
       }
     });
   });
