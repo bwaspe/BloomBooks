@@ -1050,7 +1050,12 @@ function ctLineWorking(item) {
   // Other mean it is for the pack.
   const pieces = ctPiecesPer(item);
   const flower = item.category === 'Flowers' || item.category === 'Greens';
-  const pricedPerPack = !['each', 'stem', 'bunch'].includes(String(item.uom || '').toLowerCase());
+  const answer = ctPackAnswer(item);
+  // A remembered answer beats the unit, since Each is often just the parser's
+  // fallback rather than anything the invoice said.
+  const pricedPerPack = answer
+    ? answer === 'pack'
+    : !['each', 'stem', 'bunch'].includes(String(item.uom || '').toLowerCase());
   if (!flower && pricedPerPack && pieces > 1 && price) {
     const each = ctLineTotal(item) / ((item.qty || 1) * pieces);
     return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">
@@ -1289,6 +1294,38 @@ const CT_PACK_PATTERNS = [
   /\b(?:case|box|pack)\s*of\s*(\d+)\b/i,   // case of 24
 ];
 
+// Answered once, remembered for good. Without this the same box of balloons
+// asks the same question on every invoice, which is how a prompt becomes
+// something to click past rather than read.
+//
+// Keyed on the catalogue name, because the fact is about the product: "is
+// $5.49 five balloons or one". Not on the line, which is gone next month.
+function ctPackAnswers() {
+  if (!ctData.packAnswers) ctData.packAnswers = {};
+  return ctData.packAnswers;
+}
+
+function ctPackAnswer(item) {
+  const k = ctCatalogKey(item.name || '');
+  return k ? (ctPackAnswers()[k] || null) : null;
+}
+
+function ctSetPackAnswer(name, answer) {
+  const k = ctCatalogKey(name || '');
+  if (!k) return;
+  const map = ctPackAnswers();
+  if (answer) map[k] = answer; else delete map[k];
+  ctSave();
+  const n = ctPackFromName(name);
+  notify(answer === 'pack'
+    ? `Noted — that price is for the pack of ${n}. Won't ask again.`
+    : answer === 'each' ? "Noted — that price is for one. Won't ask again."
+    : 'Cleared');
+  ctRenderUploadArea();
+  if (typeof renderCtPrices === 'function') renderCtPrices();
+  if (typeof renderCtDashboard === 'function') renderCtDashboard();
+}
+
 function ctPackFromName(name) {
   const s = String(name || '');
   for (const re of CT_PACK_PATTERNS) {
@@ -1357,12 +1394,11 @@ function ctLineIssues(item) {
   // misprices half of them.
   const flower = item.category === 'Flowers' || item.category === 'Greens';
   const packName = flower ? 0 : ctPackFromName(item.name);
-  if (packName > 1 && ['each', 'stem', 'bunch'].includes(uom)) {
+  if (packName > 1 && ['each', 'stem', 'bunch'].includes(uom) && !ctPackAnswer(item)) {
     const price = ctUnitPrice(item);
-    out.push({ level: 'note',
-      text: `Name says ${packName} per pack, unit says ${item.uom} — is ` +
-            `$${price.toFixed(2)} the pack ($${(price / packName).toFixed(2)} each) or one? ` +
-            `Change the unit to Case if it is the pack.` });
+    out.push({ level: 'note', ask: item.name, per: packName,
+      text: `Name says ${packName} per pack — is $${price.toFixed(2)} the pack ` +
+            `($${(price / packName).toFixed(2)} each), or one?` });
   }
 
   // No stem count where this family normally has one. A family sold by the
@@ -1378,10 +1414,21 @@ function ctLineIssues(item) {
 function ctIssuesHtml(item) {
   const issues = ctLineIssues(item);
   if (!issues.length) return '';
-  return issues.map(i => `
-    <div style="font-size:0.66rem;margin-top:2px;text-align:right;
-                color:${i.level === 'warn' ? 'var(--red)' : 'var(--amber, #b8860b)'}">
-      ${i.text}</div>`).join('');
+  return issues.map(i => {
+    // The answer is stored against the product, so it is given once here and
+    // never asked again -- on this invoice or any later one.
+    const ask = i.ask ? `
+      <a href="#" style="color:var(--blue-light);margin-left:6px"
+         onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'pack');return false"
+         >it's the pack of ${i.per}</a> ·
+      <a href="#" style="color:var(--blue-light)"
+         onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'each');return false"
+         >it's one</a>` : '';
+    return `
+      <div style="font-size:0.66rem;margin-top:2px;text-align:right;
+                  color:${i.level === 'warn' ? 'var(--red)' : 'var(--amber, #b8860b)'}">
+        ${i.text}${ask}</div>`;
+  }).join('');
 }
 
 function ctLineStems(item) {
