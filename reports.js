@@ -67,6 +67,9 @@ function salesTaxCollected(year) {
       const d = days[day] || {};
       Object.keys(d).forEach(k => {
         if (k.startsWith('_')) return;
+        // Cash is kept out of every sales-tax figure -- see
+        // DS_TAX_EXCLUDED_CHANNELS. Excluded, not treated as exempt.
+        if (typeof dsExcludedFromTax === 'function' && dsExcludedFromTax(k)) return;
         const rec = d[k] || {};
         const s = Number(rec.s) || 0, t = Number(rec.t) || 0;
         if (!s && !t) return;
@@ -143,7 +146,8 @@ function renderTaxPanel() {
                   so it is the number that reconciles the forms to revenue — revenue itself
                   excludes it.${coll.derived > 0.5 ? ` Includes ${fmt(coll.derived)} derived
                   from taxable sales on channels where the tax is not keyed in.` : ''}
-                  The filed New York returns are the authority.</div></td>
+                  Cash is excluded from this figure. The filed New York returns are the
+                  authority.</div></td>
                 <td class="amount-in">${fmt(coll.total)}</td></tr>`;
           })()}
           <tr><td><span class="badge">Sales Tax remitted</span>${

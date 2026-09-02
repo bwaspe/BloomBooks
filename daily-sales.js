@@ -210,6 +210,17 @@ const DS_TAX_RATE = 0.08375;          // NY state + Westchester
 
 const dsFnIds = () => new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
 
+// Channels kept out of every sales-tax figure Bloom Books produces, at the
+// owner's instruction. Deliberately NOT done by marking the channel "exempt":
+// exempt asserts the sales were not taxed, which is a different claim. This
+// says only that these figures are reported elsewhere and are not counted
+// here. The filed New York returns are unaffected -- they come from the POS.
+const DS_TAX_EXCLUDED_CHANNELS = ['cash'];
+
+function dsExcludedFromTax(id) {
+  return DS_TAX_EXCLUDED_CHANNELS.indexOf(String(id || '').toLowerCase()) >= 0;
+}
+
 function dsTaxMode(ch) {
   if (ch && (ch.taxMode === 'all' || ch.taxMode === 'detail' || ch.taxMode === 'exempt')) return ch.taxMode;
   return dsFnIds().has((ch || {}).id) ? 'detail' : 'all';
@@ -242,6 +253,7 @@ function dsTaxReport(year, quarter) {
   const byChannel = {};
   const byMonth = {};
   let tips = 0;
+  let excluded = 0;      // cash, kept out of every figure in this report
 
   months.forEach(({ y, m }) => {
     const mt = byMonth[`${y}-${m}`] = { y, m, sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0 };
@@ -253,6 +265,10 @@ function dsTaxReport(year, quarter) {
       mt.sales += dayTips; mt.exempt += dayTips;
       Object.keys(d).forEach(k => {
         if (k.startsWith('_')) return;
+        // Excluded outright, not counted as exempt: an exempt sale still belongs
+        // in the taxable-versus-exempt split, and this one is not being reported
+        // here at all.
+        if (dsExcludedFromTax(k)) { excluded += dsNum((d[k] || {}).s); return; }
         const rec = d[k] || {};
         const s = dsNum(rec.s), t = dsNum(rec.t);
         const mode = dsTaxMode(dsChannels().find(c => c.id === k) || { id: k });
@@ -280,7 +296,8 @@ function dsTaxReport(year, quarter) {
   // of exactly the tax on them -- a warning that fires every quarter and means
   // nothing. Their taxable sales are reported separately as unchecked instead.
   const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0,
-                checkedTaxable: 0, uncheckedTaxable: 0, uncheckedChannels: [] };
+                checkedTaxable: 0, uncheckedTaxable: 0, uncheckedChannels: [],
+                excluded };
   Object.values(byChannel).forEach(b => {
     tot.sales += b.sales; tot.taxable += b.taxable;
     tot.exempt += b.exempt; tot.tax += b.tax; tot.unknown += b.unknown;
