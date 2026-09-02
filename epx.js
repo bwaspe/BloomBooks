@@ -600,6 +600,30 @@ async function epxPdfText(file) {
   return pages.join('\n');
 }
 
+// A statement is read and then thrown away -- nothing about it is stored. So
+// the fact that it was read is recorded against its own month, along with
+// enough of the outcome to be worth reading the next morning: how many batches,
+// and whether anything wanted looking at. The month is taken from the statement
+// period, not from today, or a statement uploaded on the 3rd files itself under
+// the wrong month.
+function epxRecordUpload(p) {
+  if (typeof dsMarkDone !== 'function' || !p || !p.from) return;
+  try {
+    const year = +p.from.slice(0, 4), month = +p.from.slice(5, 7) - 1;
+    const chk = epxSalesCheck(p), dep = epxReconcile(p);
+    dsMarkDone(`${year}-${month}`, 'epx', {
+      label: p.label || '',
+      batches: p.days.length,
+      gross: p.gross,
+      net: p.net,
+      toCheck: (chk ? chk.off.length + chk.absent.length : 0) + (dep ? dep.missing.length : 0),
+    });
+  } catch (err) {
+    // Recording that it happened must never cost the reading of it.
+    console.error('EPX month-close record:', err);
+  }
+}
+
 async function epxHandleFile(event) {
   const file = event.target.files && event.target.files[0];
   event.target.value = '';
@@ -612,6 +636,7 @@ async function epxHandleFile(event) {
     if (!parsed.days.length) throw new Error(
       'No daily totals found in that PDF. Is it an EPX merchant statement?');
     epxStatement = parsed;
+    epxRecordUpload(parsed);
   } catch (err) {
     // A bare `getErrorMessage ? ...` was a ReferenceError here -- that helper
     // belongs to another project and does not exist in this one -- so the

@@ -321,6 +321,10 @@ async function pushToSheet() {
       // When holiday buying started, per holiday per year. Same allowlist rule:
       // a top-level key missing from this list is dropped on every sync.
       holidayBuy: appData.holidayBuy || {},
+      // Which month-end uploads have been done, and when. Same allowlist rule:
+      // omit it here and the record is dropped on every sync, which is exactly
+      // the forgetting it exists to prevent.
+      monthClose: appData.monthClose || {},
       dailyRevenueFrom: appData.dailyRevenueFrom || null,
       rules: appData.rules || [],
       _savedAt: appData._savedAt || Date.now()

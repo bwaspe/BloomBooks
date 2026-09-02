@@ -853,6 +853,13 @@ function fnApplyImport() {
   const fn = dsChannels().find(c => c.id === 'fn');
   if (fn && !daily) fn.active = false;
 
+  // Recorded per month, not per import: one export can span several, and the
+  // question the next morning is about a month, not about a file.
+  Object.keys(fnImport.days).forEach(key => {
+    dsMarkDone(key, 'fn', { days: Object.keys(fnImport.days[key]).length,
+                            mode: daily ? 'pasted report' : 'export' });
+  });
+
   fnImport = null;
   saveData();
   renderDailySalesPanel();
@@ -1456,6 +1463,84 @@ function dsDrawRevChart(year) {
   });
 }
 
+// ============================================================
+// MONTH CLOSE — what has been uploaded, and when
+//
+// The month-end uploads leave no trace once the toast fades: the FloraNext
+// import writes into the day book and the EPX statement is read and thrown
+// away. The next morning there is no way to tell a month that was done from
+// one that was forgotten, so it gets done twice or not at all.
+//
+// Kept in appData rather than localStorage because losing the record is the
+// whole failure being fixed -- it has to survive a cleared browser and follow
+// the shop to another machine. NOTE: a top-level appData key missing from
+// sync.js's allowlist is silently dropped on every sync; `monthClose` is in it.
+// ============================================================
+function dsCloseLog() {
+  if (!appData.monthClose) appData.monthClose = {};
+  return appData.monthClose;
+}
+
+function dsMarkDone(key, what, detail) {
+  const log = dsCloseLog();
+  const rec = log[key] || (log[key] = {});
+  rec[what] = Object.assign({ at: new Date().toISOString() }, detail || {});
+  saveData();
+}
+
+function dsDoneFor(year, month) { return (appData.monthClose || {})[`${year}-${month}`] || {}; }
+
+// "today" and "yesterday" are what actually answer the question being asked --
+// did I do this already? An exact timestamp does not, at a glance.
+function dsWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((today - day) / 864e5);
+  const stamp = `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`;
+  if (diff === 0) return `today, ${stamp}`;
+  if (diff === 1) return `yesterday, ${stamp}`;
+  if (diff > 1 && diff < 30) return `${stamp} — ${diff} days ago`;
+  return stamp + (d.getFullYear() !== now.getFullYear() ? ` ${d.getFullYear()}` : '');
+}
+
+function dsMonthStatusHtml(year, month) {
+  const done = dsDoneFor(year, month);
+  const label = `${MONTHS_SHORT[month]} ${year}`;
+  const row = (name, rec, summary) => {
+    const ok = !!(rec && rec.at);
+    return `
+      <div style="display:flex;align-items:baseline;gap:8px;font-size:0.76rem;padding:3px 0">
+        <span style="width:14px;color:${ok ? 'var(--green)' : 'var(--mist)'};font-weight:700">${ok ? '✓' : '–'}</span>
+        <span style="min-width:132px;font-weight:${ok ? 500 : 400}">${escHtml(name)}</span>
+        <span style="color:var(--mist)">${ok ? escHtml(dsWhen(rec.at)) + (summary ? ' · ' + summary : '') : 'not yet'}</span>
+      </div>`;
+  };
+  const epx = done.epx;
+  const epxSummary = epx
+    ? `${epx.batches || 0} batch${epx.batches === 1 ? '' : 'es'}` +
+      (epx.toCheck ? ` · <span style="color:var(--red)">${epx.toCheck} to look at</span>` : ' · all clear')
+    : '';
+  const fn = done.fn;
+  const fnSummary = fn ? `${fn.days || 0} day${fn.days === 1 ? '' : 's'}` +
+                         (fn.mode ? ' from the ' + escHtml(fn.mode) : '') : '';
+
+  return `
+    <div class="ledger-wrap no-print" style="margin-top:14px">
+      <div style="padding:12px 16px">
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <strong style="font-size:0.8rem">Month close &mdash; ${escHtml(label)}</strong>
+          <span style="font-size:0.7rem;color:var(--mist)">
+            what has been uploaded for this month, so you are not left wondering</span>
+        </div>
+        ${row('FloraNext report', fn, fnSummary)}
+        ${row('EPX statement', epx, epxSummary)}
+      </div>
+    </div>`;
+}
+
 function renderDailySalesPanel() {
   const el = document.getElementById('daily-sales-content');
   if (!el) return;
@@ -1526,6 +1611,8 @@ function renderDailySalesPanel() {
         </div>
       </div>
     </div>
+
+    ${dsMonthStatusHtml(year, month)}
 
     ${dsChartHtml(year)}
 
