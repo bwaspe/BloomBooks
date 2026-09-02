@@ -1309,8 +1309,15 @@ function ctCountingReview() {
       const into = s.byDesign ? settled : pending;
       const key = fam.toLowerCase();
       const r = into[key] || (into[key] =
-        { family: fam, bunches: 0, lines: 0, cost: 0, example: it.name, last: date, cat });
+        { family: fam, bunches: 0, lines: 0, cost: 0, example: it.name, last: date, cat,
+          bunchLines: 0, rows: [] });
       r.bunches += s.bunches; r.lines += 1; r.cost += ctLineTotal(it);
+      if (String(it.uom || '').toLowerCase() === 'bunch') r.bunchLines += 1;
+      if (r.rows.length < 40) {
+        r.rows.push({ invId: inv.id, name: it.name, qty: it.qty, uom: it.uom,
+                      per: it.stemsPerBu || null, bunches: s.bunches,
+                      supplier: inv.supplier || '', date });
+      }
       if (date > r.last) { r.last = date; r.example = it.name; }
     });
   });
@@ -1318,9 +1325,63 @@ function ctCountingReview() {
   // A family already flagged shows even with no bunches left to count, so the
   // answer stays visible -- and undoable -- rather than vanishing once it works.
   Object.keys(ctByTheBunchMap()).forEach(f => {
-    if (!settled[f]) settled[f] = { family: f, bunches: 0, lines: 0, cost: 0, example: '', last: '', cat: '' };
+    if (!settled[f]) settled[f] = { family: f, bunches: 0, lines: 0, cost: 0, example: '',
+                                    last: '', cat: '', bunchLines: 0, rows: [] };
   });
   return { pending: sort(pending), settled: sort(settled) };
+}
+
+// The other answer. "Sold by the bunch" was the only button on the screen, so a
+// family that DOES count stems -- and whose lines are simply missing the count --
+// had nowhere to go: the row said "usually 25/bu, fix the line instead?" and then
+// offered no way to fix it.
+//
+// Only Bunch lines are touched. On a Box or Case line, stemsPerBu means bunches
+// per box (see ctPackUnits), so writing a stem count there would silently
+// multiply the bunch count instead of resolving it into stems.
+//
+// Only blanks are filled. A line where somebody already recorded 10 stems is an
+// answer, and a family-wide 25 written over it would destroy a real one.
+//
+// No money moves: ctPackUnits only multiplies for pack units, so a Bunch line's
+// unit price and total are untouched -- this changes counting, nothing else.
+function ctSetFamilyStemsPerBu(family, per) {
+  const n = Math.round(Number(per));
+  const fam = String(family || '').trim().toLowerCase();
+  if (!fam || !Number.isFinite(n) || n <= 1) {
+    notify('Enter how many stems are in one bunch (2 or more)');
+    return 0;
+  }
+  let touched = 0, skipped = 0;
+  ((ctData && ctData.invoices) || []).forEach(inv => {
+    (inv.items || []).forEach(it => {
+      const cat = it.category || '';
+      if (cat !== 'Flowers' && cat !== 'Greens') return;
+      if (String(it.uom || '').toLowerCase() !== 'bunch') return;
+      const f = String(it.family || '').trim().toLowerCase() ||
+                String(ctGuessFamily(it.name) || '').toLowerCase();
+      if (f !== fam) return;
+      if (Number(it.stemsPerBu) > 1) { skipped += 1; return; }
+      it.stemsPerBu = n;
+      touched += 1;
+    });
+  });
+  ctSave();
+  notify(touched
+    ? `${family}: ${n} stems per bunch on ${touched} line${touched === 1 ? '' : 's'}` +
+      (skipped ? ` (${skipped} already had a count and were left alone)` : '')
+    : `No ${family} bunch lines were missing a stem count`);
+  if (typeof renderCtDashboard === 'function') renderCtDashboard();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+  return touched;
+}
+
+// Read the number out of the row's own input rather than passing it through an
+// onclick argument, so a family name and a quantity never share an escape.
+function ctApplyFamilyStems(family, inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  ctSetFamilyStemsPerBu(family, el.value);
 }
 
 function ctCountingHtml() {
@@ -1338,11 +1399,46 @@ function ctCountingHtml() {
       already answered.</div>`;
   }
 
-  const rows = r.pending.map(p => {
+  const rows = r.pending.map((p, i) => {
     const usual = ctUsualStemsPer(p.family);
+    const inputId = 'ct-spb-' + i;
+    // A stem count is only meaningful where there are Bunch lines to write it
+    // to. A family that reaches this list entirely through Box lines needs its
+    // lines looked at, not a number typed at the family.
+    const stemAnswer = p.bunchLines ? `
+      <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:4px">
+        <input type="number" min="2" step="1" id="${inputId}" value="${usual || ''}"
+          placeholder="stems" style="width:58px;font-size:0.68rem;padding:2px 4px"
+          title="How many stems in one bunch of ${esc(p.family)}">
+        <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px"
+          onclick="ctApplyFamilyStems('${arg(p.family)}', '${inputId}')"
+          title="Write this stem count onto every ${esc(p.family)} bunch line that has none">
+          stems/bunch</button>
+      </div>
+      ${usual ? `<div style="font-size:0.66rem;color:var(--mist);margin-top:2px">
+        other invoices say ${usual}/bu</div>` : ''}`
+      : `<div style="font-size:0.66rem;color:var(--mist);margin-top:4px">
+          counted by the box — open a line below</div>`;
+
     return `<tr>
       <td><strong>${esc(p.family)}</strong>
-        <div style="font-size:0.68rem;color:var(--mist)">${esc(String(p.example).slice(0, 44))}</div></td>
+        <div style="font-size:0.68rem;color:var(--mist)">${esc(String(p.example).slice(0, 44))}</div>
+        <details style="margin-top:2px">
+          <summary style="font-size:0.66rem;color:var(--blue-light);cursor:pointer">
+            ${p.lines} line${p.lines === 1 ? '' : 's'}</summary>
+          <table style="width:100%;font-size:0.66rem;margin-top:2px">
+            ${p.rows.map(l => `<tr>
+              <td style="color:var(--mist)">${esc(l.date)}</td>
+              <td>${esc(String(l.name).slice(0, 30))}</td>
+              <td style="text-align:right;white-space:nowrap">${l.qty} ${esc(l.uom)}${
+                l.per ? ' ×' + l.per : ''}</td>
+              <td style="text-align:right">${l.invId ? `<button class="btn btn-outline btn-sm"
+                style="font-size:0.62rem;padding:1px 6px"
+                onclick="ctOpenInvoice('${arg(l.invId)}')"
+                title="Fix the unit or the count on this line">open</button>` : ''}</td>
+            </tr>`).join('')}
+          </table>
+        </details></td>
       <td style="text-align:right">${num(p.bunches)}</td>
       <td style="text-align:right;color:var(--mist)">${p.lines}</td>
       <td style="text-align:right">${fmt(p.cost)}</td>
@@ -1350,8 +1446,7 @@ function ctCountingHtml() {
         <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px"
           onclick="ctSetByTheBunch('${arg(p.family)}', true)"
           title="Stop asking for a stem count on ${esc(p.family)}">sold by the bunch</button>
-        ${usual ? `<div style="font-size:0.66rem;color:var(--mist);margin-top:2px">
-          usually ${usual}/bu — fix the line instead?</div>` : ''}</td>
+        ${stemAnswer}</td>
     </tr>`;
   }).join('');
 
@@ -1367,9 +1462,10 @@ function ctCountingHtml() {
       <div style="font-size:0.75rem;color:var(--mist);margin-bottom:8px">
         ${r.pending.length} famil${r.pending.length === 1 ? 'y' : 'ies'} —
         ${num(r.pending.reduce((n, p) => n + p.bunches, 0))} bunches — carry cost but no stem
-        count. Say once that a family is sold by the bunch and it stops being reported as
-        missing everywhere. If the quantity really is a stem count, the unit on that line is
-        wrong: fix it on the invoice instead.
+        count. Three ways to settle one: say it is <strong>sold by the bunch</strong> if nobody
+        counts stems of it, give it a <strong>stems/bunch</strong> count if they do, or open a
+        line and fix it there if the unit itself is wrong. A stem count is written only to
+        lines that have none, and moves no money.
       </div>
       <div style="max-height:340px;overflow:auto">
         <table style="width:100%;font-size:0.74rem">
