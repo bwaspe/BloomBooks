@@ -2131,12 +2131,36 @@ function ctShowGmailResults(candidates) {
   </div>`;
 }
 
+// An invoice date that sits a long way from its own delivery date is a misread,
+// not a late delivery -- a Perri Farms invoice scanned in September 2026 came
+// through dated July 2025 with the delivery date correct, which is what a
+// scanner reading a replied-to thread's FIRST message looks like. It matters
+// because ctEffDate falls back to this date, so a wrong one files the cost in
+// the wrong month and compares its prices against the wrong season.
+//
+// Only fires when there IS a delivery date to disagree with: an old invoice
+// scanned on purpose during a backfill is legitimate, and flagging every one of
+// those on age alone would be noise.
+const CT_DATE_DRIFT_DAYS = 30;
+
+function ctInvoiceDateWarning(inv) {
+  if (!inv || !inv.date || !inv.deliveryDate) return null;
+  const a = Date.parse(inv.date + 'T00:00:00Z'), b = Date.parse(inv.deliveryDate + 'T00:00:00Z');
+  if (isNaN(a) || isNaN(b)) return null;
+  const days = Math.round((b - a) / 86400000);
+  if (Math.abs(days) <= CT_DATE_DRIFT_DAYS) return null;
+  return days > 0
+    ? `Invoice date is ${days} days before the delivery date — check it`
+    : `Invoice date is ${-days} days after the delivery date — check it`;
+}
+
 function ctBuildGmailCardHtml(inv, invIdx) {
   const activeItems = inv.items.filter(i=>!i.removed);
   const itemsTotal = activeItems.reduce((s,i)=>s+(i.total||i.qty*i.unit_price),0);
   const deliveryFee = inv.deliveryFee || 0;
   const activeTotal = itemsTotal + deliveryFee;
   const removedCount = inv.items.length - activeItems.length;
+  const dateWarning = ctInvoiceDateWarning(inv);
 
   const rows = inv.items.map((item, itemIdx) => {
     if (item.removed) {
@@ -2151,7 +2175,16 @@ function ctBuildGmailCardHtml(inv, invIdx) {
       `ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)`);
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
-      <div class="ct-item-meta">${item.qty} ${item.uom}${stemsInput ? ' '+stemsInput : ''}</div>
+      <div class="ct-item-meta">
+        <input type="number" step="0.01" min="0" value="${item.qty}"
+               onchange="ctUpdateGmailItemQty(${invIdx}, ${itemIdx}, this.value)"
+               style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
+        <select onchange="ctUpdateGmailItemUom(${invIdx}, ${itemIdx}, this.value)"
+                style="font-size:0.72rem"
+                title="Unit — pick a pack unit like Box or Case to record how many are in one">
+          ${CT_UOMS.map(u => `<option value="${u}" ${u === item.uom ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>${stemsInput ? ' ' + stemsInput : ''}
+        ${ctIssuesHtml(item)}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -2170,8 +2203,13 @@ function ctBuildGmailCardHtml(inv, invIdx) {
   return `<div class="ct-parse-result" style="margin-bottom:14px" data-gmail-inv="${invIdx}">
     <div class="ct-parse-header">
       <div>
-        <h3>${escHtml(inv.supplier)} — ${escHtml(inv.date)}</h3>
+        <h3>${escHtml(inv.supplier)}</h3>
         <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">${activeItems.length} items${removedCount?` (${removedCount} removed)`:''} · ${escHtml(inv.vendor)}${inv.invoiceNumber ? ' · #'+escHtml(inv.invoiceNumber) : ''}</div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <label style="font-size:0.7rem;color:var(--mist)">Invoice date:</label>
+          <input type="date" value="${escHtml(inv.date||'')}" onchange="ctUpdateGmailDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
+          ${dateWarning ? `<span class="ct-flag up" title="The scanner reads this off the email — correct it here">⚠️ ${escHtml(dateWarning)}</span>` : ''}
+        </div>
         <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <label style="font-size:0.7rem;color:var(--mist)">Delivery/charge date${inv.deliveryDate?' (auto-detected)':' (not found — edit if charged on delivery)'}:</label>
           <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctUpdateGmailDeliveryDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
@@ -2202,6 +2240,30 @@ function ctUpdateGmailStemsPerBu(invIdx, itemIdx, val) {
   if (!window._ctGmailPending) return;
   const num = parseInt(val);
   window._ctGmailPending[invIdx].items[itemIdx].stemsPerBu = (num && num > 0) ? num : null;
+  ctRerenderGmailCard(invIdx);
+}
+
+// Quantity and unit were plain text on a scanned invoice while the upload card
+// had a box and a dropdown for both -- so a line the parser read as "1 Each"
+// when the paper says bunches could not be corrected at all, and the stems
+// field never appeared because that only shows on a Bunch or a pack.
+//
+// Both go through the same helpers the other paths use, so a quantity edit
+// holds the line total here too and a unit change re-anchors the price.
+function ctUpdateGmailItemQty(invIdx, itemIdx, val) {
+  const item = window._ctGmailPending?.[invIdx]?.items?.[itemIdx];
+  if (!item) return;
+  const n = parseFloat(val);
+  if (!Number.isFinite(n) || n < 0) return;
+  ctSetLineQty(item, n);
+  ctRerenderGmailCard(invIdx);
+}
+
+function ctUpdateGmailItemUom(invIdx, itemIdx, val) {
+  const item = window._ctGmailPending?.[invIdx]?.items?.[itemIdx];
+  if (!item) return;
+  ctSetLineUom(item, val);
+  ctRerenderGmailCard(invIdx);
 }
 
 function ctRerenderGmailCard(invIdx) {
@@ -2212,9 +2274,17 @@ function ctRerenderGmailCard(invIdx) {
   existing.outerHTML = ctBuildGmailCardHtml(inv, invIdx);
 }
 
+function ctUpdateGmailDate(invIdx, dateVal) {
+  if (!window._ctGmailPending || !window._ctGmailPending[invIdx]) return;
+  if (!dateVal) return; // an invoice with no date at all files nowhere
+  window._ctGmailPending[invIdx].date = dateVal;
+  ctRerenderGmailCard(invIdx);
+}
+
 function ctUpdateGmailDeliveryDate(invIdx, dateVal) {
   if (!window._ctGmailPending) return;
   window._ctGmailPending[invIdx].deliveryDate = dateVal || null;
+  ctRerenderGmailCard(invIdx);
 }
 
 function ctUpdateGmailItemCat(invIdx, itemIdx, category) {
