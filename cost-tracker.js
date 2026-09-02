@@ -2492,11 +2492,38 @@ function ctIsPerStem(item) {
   return item.uom === 'Bunch' && item.stemsPerBu && item.stemsPerBu > 0;
 }
 
+// What one stem of this line cost.
+//
+// Dividing the price column by the stem count assumes that column holds the
+// price of a BUNCH -- and Perri prices carnations and roses PER STEM while
+// recording one bunch, which is the very case ctCountsInBunches exists to spot.
+// On "Carnations Pink Sun Touched / 1 Bunch / x25 / $0.59 / $14.75" that
+// division ran twice: $0.59 a stem became $0.0236, and the suggested retail
+// came out at $0.09 instead of $2.36.
+//
+// So it comes off the TOTAL, which is what the invoice actually charged and is
+// therefore sound whichever convention the price column follows. Both readings
+// agree on a genuinely per-bunch line ($8.50/bunch of 10 gives $0.85 either
+// way); only the per-stem-priced ones differ, and there the old reading was
+// wrong. The price column is the fallback when there is no total, where the
+// convention is genuinely unknowable.
+function ctPerStemCost(item) {
+  const per = Number(item.stemsPerBu) || 0;
+  const qty = Number(item.qty) || 0;
+  const price = ctUnitPrice(item);
+  if (per <= 0) return price;
+  if (item.total != null && qty > 0) {
+    const c = item.total / (qty * per);
+    if (Number.isFinite(c) && c > 0) return c;
+  }
+  return price / per;
+}
+
 function ctSuggestedRetail(item) {
   const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
   const unitPrice = item.unit_price ?? item.unitPrice ?? 0;
   if (ctIsPerStem(item)) {
-    return (unitPrice / item.stemsPerBu) * markup; // per-stem suggested retail
+    return ctPerStemCost(item) * markup; // per-stem suggested retail
   }
   return unitPrice * markup; // per-bunch/each/etc, as invoiced
 }
