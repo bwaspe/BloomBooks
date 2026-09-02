@@ -1043,9 +1043,15 @@ function ctLineWorking(item) {
   // A case of vases prices the case. The number wanted is the price of one
   // vase, and the count is sitting in the item name where nothing was reading
   // it. Shown for anything not counted in stems.
+  // Only where the price is FOR the pack. A count in the name does not mean
+  // one is being bought: "Heart Open 24in Foam Mache OASIS -4/cs" at $36.50 is
+  // one wreath frame at $36.50, with the supplier's case size printed after it.
+  // The unit settles it -- Each means the price is already per item, Box and
+  // Other mean it is for the pack.
   const pieces = ctPiecesPer(item);
   const flower = item.category === 'Flowers' || item.category === 'Greens';
-  if (!flower && pieces > 1 && price) {
+  const pricedPerPack = !['each', 'stem', 'bunch'].includes(String(item.uom || '').toLowerCase());
+  if (!flower && pricedPerPack && pieces > 1 && price) {
     const each = ctLineTotal(item) / ((item.qty || 1) * pieces);
     return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">
       ${escHtml(txt)}${per > 1 || disc ? ' \u00b7 ' : ''}<strong style="color:var(--ink)">$${each.toFixed(2)} each</strong>
