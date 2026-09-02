@@ -2644,9 +2644,23 @@ function ctShowGmailResults(candidates) {
 const CT_DATE_DRIFT_DAYS = 30;
 
 function ctInvoiceDateWarning(inv) {
-  if (!inv || !inv.date || !inv.deliveryDate) return null;
-  const a = Date.parse(inv.date + 'T00:00:00Z'), b = Date.parse(inv.deliveryDate + 'T00:00:00Z');
-  if (isNaN(a) || isNaN(b)) return null;
+  if (!inv || !inv.date) return null;
+  const a = Date.parse(inv.date + 'T00:00:00Z');
+  if (isNaN(a)) return null;
+
+  // A date on its own can be obviously wrong. Fall River came through as
+  // 1986-04-08 with no delivery date at all, so the drift check below had
+  // nothing to compare against and said nothing -- while the invoice sat forty
+  // years out of every report. The book starts in 2024, and no invoice arrives
+  // before it is issued.
+  const year = Number(String(inv.date).slice(0, 4));
+  const future = Date.now() + 30 * 86400000;
+  if (year < 2000) return `Invoice date reads ${inv.date} — that cannot be right`;
+  if (a > future) return `Invoice date ${inv.date} is in the future — check it`;
+
+  if (!inv.deliveryDate) return null;
+  const b = Date.parse(inv.deliveryDate + 'T00:00:00Z');
+  if (isNaN(b)) return null;
   const days = Math.round((b - a) / 86400000);
   if (Math.abs(days) <= CT_DATE_DRIFT_DAYS) return null;
   return days > 0
@@ -3846,6 +3860,7 @@ function ctEditSavedDeliveryDate(id, dateVal) {
   notify(dateVal ? `Delivery date set to ${dateVal}` : 'Delivery date cleared — using invoice date');
   renderCtDashboard();
   renderCtPrices();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
 }
 
 function ctEditInvoice(id) {
@@ -3917,8 +3932,13 @@ function ctRenderEditInvoice() {
     <div class="ct-parse-result" style="margin-bottom:14px;border:2px solid var(--ink)">
       <div class="ct-parse-header">
         <div>
-          <h3>✏️ Editing: <input type="text" value="${escHtml(inv.supplier)}" onchange="ctEditUpdateField('supplier', this.value)" style="font-size:0.95rem;font-weight:600;border:1px solid var(--border);border-radius:4px;padding:2px 6px;width:200px"> — ${inv.date}</h3>
+          <h3>✏️ Editing: <input type="text" value="${escHtml(inv.supplier)}" onchange="ctEditUpdateField('supplier', this.value)" style="font-size:0.95rem;font-weight:600;border:1px solid var(--border);border-radius:4px;padding:2px 6px;width:200px"></h3>
           <div style="font-size:0.72rem;color:var(--mist);margin-top:2px">Invoice ${escHtml(inv.invoiceNumber||'—')}</div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <label style="font-size:0.7rem;color:var(--mist)">Invoice date:</label>
+            <input type="date" value="${escHtml(inv.date||'')}" onchange="ctEditUpdateField('date', this.value)" style="font-size:0.72rem;padding:3px 6px">
+            ${ctInvoiceDateWarning(inv) ? `<span class="ct-flag up">⚠️ ${escHtml(ctInvoiceDateWarning(inv))}</span>` : ''}
+          </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="font-size:0.7rem;color:var(--mist)">Delivery date:</label>
             <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctEditUpdateField('deliveryDate', this.value)" style="font-size:0.72rem;padding:3px 6px">
@@ -3944,6 +3964,9 @@ function ctRenderEditInvoice() {
 
 function ctEditUpdateField(field, val) {
   if (!window._ctEditingInvoice) return;
+  // An invoice with no date at all files nowhere, so a cleared box is ignored
+  // rather than blanking it. Every other field may legitimately be emptied.
+  if (field === 'date' && !val) return;
   window._ctEditingInvoice[field] = field === 'deliveryFee' ? (parseFloat(val)||0) : (val || null);
   ctRenderEditInvoice();
 }
@@ -4066,6 +4089,7 @@ function ctSaveEditedInvoice() {
   notify('Invoice updated');
   renderCtDashboard();
   renderCtPrices();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
 }
 
 function ctCancelEditInvoice() {
@@ -4130,15 +4154,16 @@ function ctRenderInvoiceList() {
     <div class="ct-item-row">
       <div class="ct-item-name">${escHtml(inv.supplier)}</div>
       <div class="ct-item-meta">
-        Invoiced ${escHtml(inv.date)}
-        <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctEditSavedDeliveryDate('${inv.id}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
+        Invoiced ${escHtml(inv.date)}${ctInvoiceDateWarning(inv) ? `
+        <span class="ct-flag up" style="margin-left:4px" title="${escHtml(ctInvoiceDateWarning(inv))} — press Edit to correct it">⚠️</span>` : ''}
+        <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctEditSavedDeliveryDate('${ctJsArg(inv.id)}', this.value)" title="Delivery/charge date, if different" style="font-size:0.68rem;padding:1px 4px;margin-left:4px;width:118px">
         · ${inv.items.length} items
       </div>
       <div class="ct-item-cat"><span class="badge">${escHtml(inv.invoiceNumber||'—')}</span></div>
       <div class="ct-item-price" style="margin-left:auto">$${inv.total.toFixed(2)}</div>
       <div class="ct-item-total">
-        <button class="btn btn-outline btn-xs" onclick="ctEditInvoice('${inv.id}')">Edit</button>
-        <button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${inv.id}')">Del</button>
+        <button class="btn btn-outline btn-xs" onclick="ctEditInvoice('${ctJsArg(inv.id)}')">Edit</button>
+        <button class="btn btn-danger btn-xs" onclick="ctDeleteInvoice('${ctJsArg(inv.id)}')">Del</button>
       </div>
     </div>`).join('');
 
