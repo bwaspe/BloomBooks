@@ -1189,11 +1189,33 @@ function ctSetHolidayBuyStart(year, month, val) {
 // question. A bunch with no stem count on file is therefore an UNKNOWN, never
 // one stem -- counting it as one understates a rose buy tenfold, which is the
 // very number the table exists to give.
+// Some lines price PER STEM while counting in BUNCHES: "1 x $1.39, 25 to the
+// bunch, $34.75". The unit says Stem, the quantity says one, and the truth is
+// twenty-five -- read literally it understates a rose buy twenty-five-fold.
+//
+// The line settles it itself. Where the total only reconciles as
+// qty x per x price, the quantity cannot be stems, because then the total would
+// be qty x price. 21 lines in the book are this shape and nothing else is, so
+// the test is decisive rather than a guess.
+function ctCountsInBunches(item) {
+  const qty = Number(item.qty) || 0;
+  const per = Number(item.stemsPerBu) || 0;
+  const price = ctUnitPrice(item);
+  const total = item.total;
+  if (total == null || per <= 1 || !qty || !price) return false;
+  const three = Math.abs(total - qty * per * price) < 0.02;
+  const simple = Math.abs(total - qty * price) < 0.02;
+  return three && !simple;
+}
+
 function ctLineStems(item) {
   const qty = Number(item.qty) || 0;
   const uom = String(item.uom || '').toLowerCase();
   const per = Number(item.stemsPerBu) || 0;
   if (!qty) return { stems: 0, bunches: 0 };
+  if ((uom === 'stem' || uom === 'each') && ctCountsInBunches(item)) {
+    return { stems: qty * per, bunches: 0 };
+  }
   // Priced singly: the quantity is the stem count.
   if (uom === 'stem' || uom === 'each') return { stems: qty, bunches: 0 };
   if (uom === 'bunch') {
