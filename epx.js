@@ -481,6 +481,32 @@ function epxReportHtml() {
     </div>`;
 }
 
+// Writing the figure the statement implies straight into the day book. The
+// report named the discrepancy and then left you to go and find the day
+// yourself, which is most of the work and all of the chance to mistype it.
+//
+// The statement is the authority here: EPX released that money, so the counter
+// sale behind it was that amount. Only the EPX channel of that one day is
+// touched -- nothing else on the day, and no other channel.
+function epxSetDayBook(dateIso, amount) {
+  if (typeof appData === 'undefined' || !dateIso) return;
+  const d = new Date(dateIso + 'T00:00:00Z');
+  const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+  const day = String(d.getUTCDate());
+  const val = Math.round(amount * 100) / 100;
+  if (!appData.dailySales) appData.dailySales = {};
+  if (!appData.dailySales[key]) appData.dailySales[key] = {};
+  const rec = appData.dailySales[key][day] || (appData.dailySales[key][day] = {});
+  const prev = rec[EPX_CHANNEL] && typeof rec[EPX_CHANNEL] === 'object' ? rec[EPX_CHANNEL] : {};
+  // Tax on this channel is derived from the sale, not keyed, so it is left as
+  // it was rather than invented.
+  rec[EPX_CHANNEL] = { s: val, t: prev.t || 0, x: val };
+  saveData();
+  notify(`${dateIso} counter card set to ${fmt(val)}`);
+  epxRender();
+  if (typeof renderDailySalesPanel === 'function') renderDailySalesPanel();
+}
+
 function epxSalesHtml(p) {
   const chk = epxSalesCheck(p);
   if (!chk || !chk.rows.length) return '';
@@ -506,11 +532,23 @@ function epxSalesHtml(p) {
             <th style="text-align:left">Settled</th><th style="text-align:right">Released</th>
             <th style="text-align:right">Sale it implies</th><th style="text-align:left">Day book</th>
             <th style="text-align:right">Recorded</th><th style="text-align:right">Difference</th>
+            <th></th>
           </tr></thead>
           <tbody>
             ${chk.rows.map(r => {
               const wrong = r.entry && Math.abs(r.diff) > 0.5;
               const colour = !r.entry ? 'var(--red)' : (wrong ? 'var(--amber, #b8860b)' : 'var(--mist)');
+              // With no entry to correct, the sale is written to the day before
+              // the batch settled -- which is where every matched day in 2026
+              // sat. It is a starting point, and the day book stays editable.
+              const target = r.entry ? r.entry.date : epxAddDays(r.day.date, -1);
+              const fix = (wrong || !r.entry)
+                ? `<button class="btn btn-outline btn-sm no-print"
+                     style="font-size:0.65rem;padding:1px 6px"
+                     onclick="epxSetDayBook('${target}', ${r.implied.toFixed(2)})"
+                     title="Write ${fmt(r.implied)} to the EPX channel on ${target}">${
+                       r.entry ? 'use ' + fmt(r.implied) : 'add on ' + target.slice(5)}</button>`
+                : '';
               return `<tr>
                 <td>${escHtml(r.day.mmdd)}</td>
                 <td style="text-align:right">${fmt(r.day.net)}</td>
@@ -521,13 +559,15 @@ function epxSalesHtml(p) {
                 <td style="text-align:right;color:${colour}">${
                   r.entry ? (Math.abs(r.diff) < 0.005 ? '—'
                             : (r.diff > 0 ? '+' : '') + fmt(r.diff)) : '—'}</td>
+                <td style="text-align:right">${fix}</td>
               </tr>`;
             }).join('')}
             <tr style="font-weight:600;border-top:1px solid var(--border)">
               <td>Total</td><td></td>
               <td style="text-align:right">${fmt(chk.implied)}</td>
               <td></td><td style="text-align:right">${fmt(chk.recorded)}</td>
-              <td style="text-align:right">${fmt(chk.recorded - chk.implied)}</td></tr>
+              <td style="text-align:right">${fmt(chk.recorded - chk.implied)}</td>
+              <td></td></tr>
           </tbody>
         </table>
       </div>
