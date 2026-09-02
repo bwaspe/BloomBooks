@@ -764,10 +764,24 @@ function ctApplyOneRepair(kind, invId, name) {
 //
 // One helper so they render the same control and there is one place to change
 // it. Silent when there is no id rather than drawing a dead button.
+// A string landing inside a JS string literal inside an HTML attribute needs
+// BOTH layers of escaping. 72 item names in this book carry a double quote --
+// every inch measurement, `5" X 10" Clear Cylinder` and the like -- and
+// escaping only the apostrophe left the double quote to end the attribute
+// early. The handler became ctJumpToPriceHistory('5 and silently did nothing,
+// which is why some rows in Potential Margin could be clicked and others could
+// not.
+//
+// Order matters: backslash, then apostrophe, then HTML. The name survives
+// intact, which it must, because it is looked up by it.
+function ctJsArg(s) {
+  return escHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
 function ctOpenLineBtn(invId, title) {
   if (!invId) return '';
   return `<button class="btn btn-outline btn-sm" style="font-size:0.62rem;padding:1px 6px"
-    onclick="event.stopPropagation();ctOpenInvoice('${escHtml(String(invId).replace(/'/g, ''))}')"
+    onclick="event.stopPropagation();ctOpenInvoice('${ctJsArg(invId)}')"
     title="${escHtml(title || 'Open the invoice this line is on')}">open</button>`;
 }
 
@@ -1445,10 +1459,9 @@ function ctCountingHtml() {
   const r = ctCountingReview();
   const num = n => n.toLocaleString('en-US');
   const esc = s => escHtml(String(s || ''));
-  // Two layers, because this string lands inside a JS string inside an HTML
-  // attribute: strip what would close the JS quote, escape what would close the
-  // attribute. A family typed as: O'Hara " onerror=x  gets out of both otherwise.
-  const arg = s => escHtml(String(s).replace(/\\/g, '').replace(/'/g, ''));
+  // The shared two-layer escaper. It escapes rather than strips, so a family
+  // or item with an apostrophe keys on its real name instead of a mangled one.
+  const arg = ctJsArg;
 
   if (!r.pending.length && !r.settled.length && !r.packAnswered.length) {
     return `<div style="font-size:0.78rem;color:var(--mist)">
@@ -2537,6 +2550,52 @@ function ctSellableUnits(item) {
   return s.stems || s.bunches || (Number(item.qty) || 0);
 }
 
+// What a price alert compares. Two purchases of the same flower have to be
+// measured the same way or the alert is about the paperwork rather than the
+// price.
+//
+// ctEffectiveUnit divides by ctPackUnits, which is 1 for a Bunch -- so the same
+// $34.75 of roses reads $1.39 written as "25 Stem" and $34.75 written as "1
+// Bunch x25". Re-entering a line the second way, which is the correct way,
+// raised a 2400% price alert on four rose varieties at once. The stem count was
+// on the line the whole time; nothing was consulting it.
+//
+// Per sellable unit, same as the margin panel, which resolves every shape to
+// the same basis.
+// Which of the three a line's price is quoted per, so two purchases are only
+// ever compared against each other when they mean the same thing.
+function ctPriceBasis(item) {
+  const s = ctLineStems(item);
+  if (s.stems) return 'stem';
+  if (s.bunches) return 'bunch';
+  return 'unit';
+}
+
+// A Stem or Each line has no bunches in it, so a stems-per-bunch on one
+// describes nothing: either the unit is wrong or the count does not belong.
+// ctCountsInBunches settles the case where the TOTAL corroborates a per-stem
+// price. What is left is the other kind, where the price column is per BUNCH:
+//
+//   Roses Red Freedom Premium 70C  4 Stem  x25  $128.00
+//   Iconfetti Dotty Pink           3 Each  x10  $17.97
+//
+// Four bunches of 25 at $32.00, and three bunches of 10 at $5.99 -- recorded as
+// four stems and three. Nothing can compute around that; the line has to be
+// corrected. Reported as a unit to check rather than as a 1678% price rise,
+// because it is not one.
+function ctSuspectStemUnit(item) {
+  const uom = String(item.uom || '').toLowerCase();
+  if (uom !== 'stem' && uom !== 'each') return false;
+  return Number(item.stemsPerBu) > 1 && !ctCountsInBunches(item);
+}
+
+function ctComparablePrice(item) {
+  const units = ctSellableUnits(item);
+  if (!units) return ctEffectiveUnit(item);
+  const p = ctLineTotal(item) / units;
+  return (Number.isFinite(p) && p > 0) ? p : ctEffectiveUnit(item);
+}
+
 function ctSuggestedRetail(item) {
   const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
   const unitPrice = item.unit_price ?? item.unitPrice ?? 0;
@@ -3448,7 +3507,9 @@ function renderCtDashboard() {
           <div class="ct-item-name">${escHtml(a.name)}</div>
           <div class="ct-item-meta">${escHtml(a.supplier)}</div>
           <div class="ct-item-cat"><span class="badge">${escHtml(a.category)}</span></div>
-          <div class="ct-item-price">$${a.current.toFixed(2)} <span class="ct-flag ${a.dir}">${a.dir==='up'?'▲':'▼'}${Math.abs(a.pct).toFixed(0)}%</span> ${ctOpenLineBtn(a.invoiceId, 'Open the invoice with the new price')}</div>
+          <div class="ct-item-price">$${a.current.toFixed(2)} ${a.suspect
+            ? `<span class="ct-flag new" title="A Stem or Each line carrying a stems-per-bunch — the quantity is probably bunches. Fix the unit and this becomes a real comparison.">check the unit</span>`
+            : `<span class="ct-flag ${a.dir}">${a.dir==='up'?'▲':'▼'}${Math.abs(a.pct).toFixed(0)}%</span>`} ${ctOpenLineBtn(a.suspect ? (a.suspectInvoiceId || a.invoiceId) : a.invoiceId, a.suspect ? 'Open the line whose unit looks wrong' : 'Open the invoice with the new price')}</div>
           <div class="ct-item-total" style="color:var(--mist)">was $${a.prior.toFixed(2)} ${ctOpenLineBtn(a.priorInvoiceId, 'Open the invoice with the previous price')}</div>
         </div>`).join('');
     }
@@ -3518,7 +3579,7 @@ function renderCtMargin(invoices) {
     .map(v => ({ ...v, margin: v.revenue - v.cost, pct: v.revenue>0 ? (v.revenue-v.cost)/v.revenue*100 : 0 }))
     .sort((a,b)=>b.pct-a.pct);
 
-  const rankRow = it => `<div style="display:flex;gap:12px;font-size:0.78rem;padding:5px 0;align-items:center;cursor:pointer" onclick="ctJumpToPriceHistory('${it.name.replace(/'/g,"\\'")}')" title="Click to view/edit in Price History">
+  const rankRow = it => `<div style="display:flex;gap:12px;font-size:0.78rem;padding:5px 0;align-items:center;cursor:pointer" onclick="ctJumpToPriceHistory('${ctJsArg(it.name)}')" title="Click to view/edit in Price History">
     <span style="flex:1;text-decoration:underline;text-decoration-style:dotted">${escHtml(it.name)} <span class="badge" style="font-size:0.62rem">${escHtml(it.category)}</span></span>
     <span style="color:var(--mist);min-width:70px;text-align:right">cost $${it.cost.toFixed(0)}</span>
     <span style="min-width:80px;text-align:right;font-weight:600;color:${it.margin>=0?'var(--green)':'var(--red)'}">${it.pct.toFixed(0)}%</span>
@@ -3640,7 +3701,7 @@ function renderCtStaleMargin() {
 
   el.innerHTML = stale.map(s => `
     <div style="display:flex;gap:12px;font-size:0.78rem;padding:6px 0;align-items:center;border-bottom:1px solid var(--border-soft)">
-      <span style="flex:1;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="ctJumpToPriceHistory('${s.name.replace(/'/g,"\\'")}')" title="Click to view/edit in Price History">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
+      <span style="flex:1;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="ctJumpToPriceHistory('${ctJsArg(s.name)}')" title="Click to view/edit in Price History">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
       <span style="color:var(--mist)">retail $${s.retailPrice.toFixed(2)}</span>
       <span class="ct-flag ${s.direction}">${s.direction==='up'?'▲':'▼'} suggests $${s.suggested.toFixed(2)}</span>
       ${ctOpenLineBtn(s.invoiceId, 'Open the invoice this cost came from')}
@@ -3744,24 +3805,37 @@ function ctBuildAlerts() {
     inv.items.forEach(item => {
       const key = ctCatalogKey(item.name);
       if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, records:[] };
-      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctEffectiveUnit(item), invoiceId:inv.id });
+      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctComparablePrice(item), invoiceId:inv.id, basis:ctPriceBasis(item), suspect:ctSuspectStemUnit(item) });
     });
   });
   const alerts = [];
+  let incomparable = 0;
   Object.values(itemMap).forEach(entry => {
     if (entry.records.length < 2) return;
     const recs = entry.records;
     const latest = recs[recs.length-1];
-    const prior = recs[recs.length-2];
+    // The most recent EARLIER purchase measured the same way. Comparing a
+    // per-stem price against a per-bunch one is a fact about the paperwork, not
+    // the price: it produced a 1678% jump on Red Freedom, where one invoice
+    // says $1.80 a stem and the next says $32.00 a bunch with no stem count on
+    // it. Walking back for a same-basis record keeps the real alerts that a
+    // simple "last two" would throw away.
+    let prior = null;
+    for (let i = recs.length - 2; i >= 0; i--) {
+      if (recs[i].basis === latest.basis) { prior = recs[i]; break; }
+    }
+    if (!prior) { incomparable += 1; return; }
     const pct = ((latest.price - prior.price) / prior.price) * 100;
     if (Math.abs(pct) >= 5) {
       // Both ids: an alert is a comparison of two purchases, and the question
       // it raises ("is that new price right?") is as often answered on the
       // earlier invoice as the later one.
-      alerts.push({ name:entry.name, category:entry.category, supplier:latest.supplier, current:latest.price, prior:prior.price, pct, dir: pct>0?'up':'down', invoiceId:latest.invoiceId, priorInvoiceId:prior.invoiceId });
+      alerts.push({ name:entry.name, category:entry.category, supplier:latest.supplier, current:latest.price, prior:prior.price, pct, dir: pct>0?'up':'down', invoiceId:latest.invoiceId, priorInvoiceId:prior.invoiceId, suspect: !!(latest.suspect || prior.suspect), suspectInvoiceId: latest.suspect ? latest.invoiceId : (prior.suspect ? prior.invoiceId : null) });
     }
   });
-  return alerts.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
+  const sorted = alerts.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
+  sorted.incomparable = incomparable;
+  return sorted;
 }
 
 function ctEditSavedDeliveryDate(id, dateVal) {

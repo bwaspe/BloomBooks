@@ -307,6 +307,11 @@ let hcOpen = null;
 // the same way ctLineTotal and ctEffectiveUnit already are. Renders nothing when
 // the cost tracker is absent, which is the honest outcome -- there would be no
 // invoice to open.
+function hcArg(v) {
+  return (typeof ctJsArg === 'function') ? ctJsArg(v)
+       : String(v == null ? '' : v).replace(/['"\<>&]/g, '');
+}
+
 function hcOpenBtn(invId, title) {
   return (typeof ctOpenLineBtn === 'function') ? ctOpenLineBtn(invId, title) : '';
 }
@@ -551,8 +556,7 @@ function hcQtyHtml(year, month) {
   const colorLabel = c => {
     if (!c.names || !c.names.length) return escHtml(c.color);
     const links = c.names.slice(0, 6).map(n => {
-      const safe = String(n).replace(/[^a-z0-9 ]/gi, '');
-      return `<a href="#" onclick="ctSetRoseColor('${safe}');return false"
+      return `<a href="#" onclick="ctSetRoseColor('${hcArg(n)}');return false"
                  style="color:var(--link)" title="Tell BloomBooks what colour this is">
                 ${escHtml(n)}</a>`;
     }).join(', ');
@@ -608,7 +612,7 @@ function hcQtyHtml(year, month) {
                     <td>${escHtml(u.date || '')}</td>
                     <td style="text-align:right">${hcOpenBtn(u.invId, 'Fix the unit or the stem count on this line')}</td>
                     <td>${u.family ? `<a href="#" style="color:var(--link);font-size:0.68rem"
-                          onclick="ctSetByTheBunch('${escHtml(u.family).replace(/'/g, '')}', true);return false"
+                          onclick="ctSetByTheBunch('${hcArg(u.family)}', true);return false"
                           title="Stop asking for a stem count on ${escHtml(u.family)}">sold by the bunch</a>` : ''}</td>
                 </tr>`).join('')}
             </tbody>
