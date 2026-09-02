@@ -27,11 +27,25 @@ function isPayrollTax(t) {
   return v.includes('gusto') && (v.includes('payroll tax') || d.includes('9138864001'));
 }
 
+// Sales tax has lived in two places. Through 2025 it was an expense under
+// Taxes; from January 2026 it has its own pass-through category, excluded from
+// the profit and loss because the money was never the shop's.
+//
+// This function feeds the accountant's tax breakdown, which has to show the
+// remittance whichever way it is filed -- looking only under Taxes reported
+// $0.00 of sales tax for 2026 against $17,868.14 actually paid to New York.
 function isSalesTax(t) {
+  if (t.category === 'Sales Tax Remitted') return true;
   if (t.category !== 'Taxes') return false;
   const d = (t.desc || '').toLowerCase();
   const v = (t.vendor || '').toLowerCase();
   return d.includes('sales tax') || d.includes('sw2620818643') || v.includes('sales tax');
+}
+
+// Whether the year's sales tax sits outside the expense totals, which decides
+// what the breakdown must say about it.
+function salesTaxIsPassthrough(allTx) {
+  return allTx.some(t => t.category === 'Sales Tax Remitted');
 }
 
 function isPropertyTax(t) {
@@ -81,7 +95,14 @@ function renderTaxPanel() {
         <thead><tr><th>Tax Type</th><th>Annual Total</th></tr></thead>
         <tbody>
           <tr><td><span class="badge">Payroll Tax</span></td><td class="amount-out">${fmt(payrollTax)}</td></tr>
-          <tr><td><span class="badge">Sales Tax</span></td><td class="amount-out">${fmt(salesTax)}</td></tr>
+          <tr><td><span class="badge">Sales Tax</span>${
+            salesTaxIsPassthrough(allTx)
+              ? `<div style="font-size:0.68rem;color:var(--mist);margin-top:2px">
+                   Remitted to New York — a pass-through, already excluded from the
+                   category totals below. Do not deduct it again.</div>`
+              : `<div style="font-size:0.68rem;color:var(--mist);margin-top:2px">
+                   Booked as an expense this year, and inside the Taxes total below.</div>`
+            }</td><td class="amount-out">${fmt(salesTax)}</td></tr>
           <tr><td><span class="badge">Property Tax</span></td><td class="amount-out">${fmt(propertyTax)}</td></tr>
         </tbody>
       </table>
