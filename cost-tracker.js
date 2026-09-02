@@ -320,6 +320,7 @@ function ctBuildUploadCardHtml(p, idx) {
         $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctUpdateUploadItemTotal(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:72px;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
         ${ctLineWorking(item)}
+        ${ctIssuesHtml(item)}
         ${ctAltNote(item, `ctTakeAltUpload(${idx}, ${i})`)}
       </div>
     </div>`;
@@ -344,6 +345,18 @@ function ctBuildUploadCardHtml(p, idx) {
         <button class="btn btn-outline btn-sm" onclick="ctDismissUpload(${idx})">Discard</button>
       </div>
     </div>
+    ${(() => {
+      // At the top, because a flag beside line 34 of an invoice being skimmed at
+      // seven in the morning is a flag nobody sees.
+      const n = activeItems.reduce((s, it) => s + ctLineIssues(it).length, 0);
+      return n ? `
+        <div style="padding:8px 18px;background:#fdecea;border-bottom:1px solid #e0a2a2;
+                    font-size:0.75rem;color:var(--ink)">
+          <strong>${n} line${n === 1 ? '' : 's'} below want${n === 1 ? 's' : ''} a look</strong>
+          — a quantity that contradicts its unit, or a stem count this flower usually has.
+          They are marked in red and amber against the line.
+        </div>` : '';
+    })()}
     ${headerGap !== 0 ? `
       <div style="padding:8px 18px;background:#fff3cd;border-bottom:1px solid #ffc107;font-size:0.75rem;color:var(--ink)">
         The invoice header says <strong>$${parsed.total.toFixed(2)}</strong>, the lines come to
@@ -1206,6 +1219,63 @@ function ctCountsInBunches(item) {
   const three = Math.abs(total - qty * per * price) < 0.02;
   const simple = Math.abs(total - qty * price) < 0.02;
   return three && !simple;
+}
+
+// The usual stems-per-bunch for a family, learned from the shop's own lines.
+// Same idea as the rose colours: what the book already says beats anything
+// written in here, and it grows as the shop buys.
+function ctUsualStemsPer(family) {
+  const fam = String(family || '').trim().toLowerCase();
+  if (!fam) return 0;
+  const votes = {};
+  (ctData.invoices || []).forEach(inv => (inv.items || []).forEach(it => {
+    if (String(it.family || '').trim().toLowerCase() !== fam) return;
+    if (String(it.uom || '').toLowerCase() !== 'bunch') return;
+    const per = Number(it.stemsPerBu) || 0;
+    if (per > 1) votes[per] = (votes[per] || 0) + 1;
+  }));
+  const keys = Object.keys(votes);
+  if (!keys.length) return 0;
+  keys.sort((a, b) => votes[b] - votes[a]);
+  // One sighting is an anecdote, not a convention.
+  return votes[keys[0]] >= 2 ? Number(keys[0]) : 0;
+}
+
+// What is worth stopping a rushed reviewer for. Deliberately narrow: a flag on
+// every line is a flag on none, so this fires only where the line contradicts
+// itself or the shop's own habit -- never on a line that is merely unusual.
+function ctLineIssues(item) {
+  const out = [];
+  const qty = Number(item.qty) || 0;
+  const per = Number(item.stemsPerBu) || 0;
+  const uom = String(item.uom || '').toLowerCase();
+
+  // A fractional bunch is a slip of the keyboard. "16.01" cost eight cents and
+  // a tenth of a stem, and nobody saw it.
+  if (qty && Math.abs(qty - Math.round(qty)) > 1e-9 && uom !== 'stem') {
+    out.push({ level: 'warn', text: `Quantity is ${qty} — a typo for ${Math.round(qty)}?` });
+  }
+  // Priced per stem, counted in bunches. Reads as one stem when it is 25.
+  if ((uom === 'stem' || uom === 'each') && ctCountsInBunches(item)) {
+    out.push({ level: 'warn',
+      text: `Counted in bunches, not ${uom}s — ${qty} × ${per} = ${qty * per} stems` });
+  }
+  // No stem count where this family normally has one.
+  if (uom === 'bunch' && per <= 1) {
+    const usual = ctUsualStemsPer(item.family);
+    if (usual) out.push({ level: 'note',
+      text: `No stems per bunch — ${escHtml(item.family)} is usually ${usual}` });
+  }
+  return out;
+}
+
+function ctIssuesHtml(item) {
+  const issues = ctLineIssues(item);
+  if (!issues.length) return '';
+  return issues.map(i => `
+    <div style="font-size:0.66rem;margin-top:2px;text-align:right;
+                color:${i.level === 'warn' ? 'var(--red)' : 'var(--amber, #b8860b)'}">
+      ${i.text}</div>`).join('');
 }
 
 function ctLineStems(item) {
