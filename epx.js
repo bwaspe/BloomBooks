@@ -488,6 +488,45 @@ function epxReportHtml() {
 // The statement is the authority here: EPX released that money, so the counter
 // sale behind it was that amount. Only the EPX channel of that one day is
 // touched -- nothing else on the day, and no other channel.
+function epxTaxOn(sale) {
+  return Math.round((Number(sale) || 0) * epxTaxRate() * 100) / 100;
+}
+
+// Fill the tax on every day this statement covers. Worth doing in one go: the
+// figure is the same arithmetic the sales-tax return applies, and recording it
+// means the return reads a number rather than recomputing one -- which is the
+// difference between a filing you can check and a filing you have to trust.
+function epxFillTax(overwrite) {
+  const p = epxStatement;
+  if (!p || !p.days) return;
+  const chk = epxSalesCheck(p);
+  if (!chk) return;
+  let filled = 0, already = 0;
+  chk.rows.forEach(r => {
+    if (!r.entry) return;
+    const d = new Date(r.entry.date + 'T00:00:00Z');
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    const day = String(d.getUTCDate());
+    const rec = ((appData.dailySales || {})[key] || {})[day];
+    const cell = rec && rec[EPX_CHANNEL];
+    if (!cell || typeof cell !== 'object') return;
+    const want = epxTaxOn(cell.s);
+    if (Math.abs((cell.t || 0) - want) < 0.005) { already++; return; }
+    // An existing figure is left unless asked, so a hand-corrected day is not
+    // quietly overwritten by the rate.
+    if ((cell.t || 0) > 0.005 && !overwrite) { already++; return; }
+    cell.t = want;
+    if (cell.x == null) cell.x = cell.s;
+    filled++;
+  });
+  if (filled) saveData();
+  notify(filled
+    ? `Tax entered on ${filled} day${filled === 1 ? '' : 's'} at ${(epxTaxRate() * 100).toFixed(3)}%`
+    : `Nothing to fill — ${already} day${already === 1 ? ' already has' : 's already have'} their tax`);
+  epxRender();
+  if (typeof renderDailySalesPanel === 'function') renderDailySalesPanel();
+}
+
 function epxSetDayBook(dateIso, amount) {
   if (typeof appData === 'undefined' || !dateIso) return;
   const d = new Date(dateIso + 'T00:00:00Z');
@@ -497,10 +536,12 @@ function epxSetDayBook(dateIso, amount) {
   if (!appData.dailySales) appData.dailySales = {};
   if (!appData.dailySales[key]) appData.dailySales[key] = {};
   const rec = appData.dailySales[key][day] || (appData.dailySales[key][day] = {});
-  const prev = rec[EPX_CHANNEL] && typeof rec[EPX_CHANNEL] === 'object' ? rec[EPX_CHANNEL] : {};
-  // Tax on this channel is derived from the sale, not keyed, so it is left as
-  // it was rather than invented.
-  rec[EPX_CHANNEL] = { s: val, t: prev.t || 0, x: val };
+  // The tax is written with the sale. Every counter card sale is taxable, and
+  // the statement proves the rate: what EPX releases is the sale including tax.
+  // Left blank it was derived at report time instead, which gave the same
+  // figure but made the sales-tax return rest on an assumption rather than a
+  // recorded number.
+  rec[EPX_CHANNEL] = { s: val, t: epxTaxOn(val), x: val };
   saveData();
   notify(`${dateIso} counter card set to ${fmt(val)}`);
   epxRender();
@@ -520,6 +561,12 @@ function epxSalesHtml(p) {
           ${bad ? `— ${bad} day${bad === 1 ? '' : 's'} to look at`
                 : '— every batch has a counter sale behind it'}</span>
       </summary>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button class="btn btn-outline btn-sm no-print" style="font-size:0.68rem"
+                onclick="epxFillTax(false)"
+                title="Write the tax on every day this statement covers, at ${(chk.rate * 100).toFixed(3)}%">
+          Enter the tax on these days</button>
+      </div>
       <div style="font-size:0.72rem;color:var(--mist);margin-top:6px">
         EPX is the counter card machine, so every batch should have a counter sale behind it.
         The surcharge funds the fee, so what EPX released is the sale including tax —
