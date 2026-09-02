@@ -1277,6 +1277,124 @@ function ctSetByTheBunch(family, on) {
   if (typeof renderCtDashboard === 'function') renderCtDashboard();
 }
 
+// The only way to set the by-the-bunch flag used to be a link inside a holiday
+// drill-down, on the list of lines with no stem count. That reached almost none
+// of the families that need it: limonium turns up on 36 invoices across the
+// year and gyp on 22, and a family is only offered there if one of its lines
+// happens to fall inside a holiday buying window. 84 families were waiting and
+// not one had ever been answered.
+//
+// So the question gets asked where the answer lives -- over every invoice, not
+// one window of them.
+//
+// Restricted to Flowers and Greens for the same reason the holiday table is: a
+// pack of bout pins is not a bunch of anything, and calling it "sold by the
+// bunch" would silence the question by giving the wrong answer. Hard goods have
+// their own question, and ctSetPackAnswer is where that one gets settled.
+function ctCountingReview() {
+  const invoices = (ctData && ctData.invoices) || [];
+  const pending = {}, settled = {};
+  // Keyed by the lowercase family, because that is what the flag itself is
+  // keyed by -- group on the invoice's own spelling and "Limonium" and
+  // "limonium" become two rows, one of them permanently unanswerable.
+  invoices.forEach(inv => {
+    const date = ctEffDate(inv) || '';
+    (inv.items || []).forEach(it => {
+      const cat = it.category || '';
+      if (cat !== 'Flowers' && cat !== 'Greens') return;
+      const s = ctLineStems(it);
+      if (!s.bunches) return;
+      const fam = String(it.family || '').trim() || ctGuessFamily(it.name) || '';
+      if (!fam) return; // nothing to hang a family-wide answer on
+      const into = s.byDesign ? settled : pending;
+      const key = fam.toLowerCase();
+      const r = into[key] || (into[key] =
+        { family: fam, bunches: 0, lines: 0, cost: 0, example: it.name, last: date, cat });
+      r.bunches += s.bunches; r.lines += 1; r.cost += ctLineTotal(it);
+      if (date > r.last) { r.last = date; r.example = it.name; }
+    });
+  });
+  const sort = o => Object.keys(o).map(k => o[k]).sort((a, b) => b.bunches - a.bunches);
+  // A family already flagged shows even with no bunches left to count, so the
+  // answer stays visible -- and undoable -- rather than vanishing once it works.
+  Object.keys(ctByTheBunchMap()).forEach(f => {
+    if (!settled[f]) settled[f] = { family: f, bunches: 0, lines: 0, cost: 0, example: '', last: '', cat: '' };
+  });
+  return { pending: sort(pending), settled: sort(settled) };
+}
+
+function ctCountingHtml() {
+  const r = ctCountingReview();
+  const num = n => n.toLocaleString('en-US');
+  const esc = s => escHtml(String(s || ''));
+  // Two layers, because this string lands inside a JS string inside an HTML
+  // attribute: strip what would close the JS quote, escape what would close the
+  // attribute. A family typed as: O'Hara " onerror=x  gets out of both otherwise.
+  const arg = s => escHtml(String(s).replace(/\\/g, '').replace(/'/g, ''));
+
+  if (!r.pending.length && !r.settled.length) {
+    return `<div style="font-size:0.78rem;color:var(--mist)">
+      Nothing to settle — every flower and green line either counts stems or is
+      already answered.</div>`;
+  }
+
+  const rows = r.pending.map(p => {
+    const usual = ctUsualStemsPer(p.family);
+    return `<tr>
+      <td><strong>${esc(p.family)}</strong>
+        <div style="font-size:0.68rem;color:var(--mist)">${esc(String(p.example).slice(0, 44))}</div></td>
+      <td style="text-align:right">${num(p.bunches)}</td>
+      <td style="text-align:right;color:var(--mist)">${p.lines}</td>
+      <td style="text-align:right">${fmt(p.cost)}</td>
+      <td style="text-align:right">
+        <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px"
+          onclick="ctSetByTheBunch('${arg(p.family)}', true)"
+          title="Stop asking for a stem count on ${esc(p.family)}">sold by the bunch</button>
+        ${usual ? `<div style="font-size:0.66rem;color:var(--mist);margin-top:2px">
+          usually ${usual}/bu — fix the line instead?</div>` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const done = r.settled.map(p => `<span style="display:inline-flex;align-items:center;gap:4px;
+      border:1px solid var(--border);border-radius:12px;padding:2px 4px 2px 10px;font-size:0.72rem">
+      ${esc(p.family)}${p.bunches ? `<span style="color:var(--mist)"> · ${num(p.bunches)} bu</span>` : ''}
+      <button onclick="ctSetByTheBunch('${arg(p.family)}', false)" title="Count ${esc(p.family)} in stems again"
+        style="border:none;background:none;color:var(--mist);cursor:pointer;padding:0 4px">✕</button>
+    </span>`).join(' ');
+
+  return `
+    ${r.pending.length ? `
+      <div style="font-size:0.75rem;color:var(--mist);margin-bottom:8px">
+        ${r.pending.length} famil${r.pending.length === 1 ? 'y' : 'ies'} —
+        ${num(r.pending.reduce((n, p) => n + p.bunches, 0))} bunches — carry cost but no stem
+        count. Say once that a family is sold by the bunch and it stops being reported as
+        missing everywhere. If the quantity really is a stem count, the unit on that line is
+        wrong: fix it on the invoice instead.
+      </div>
+      <div style="max-height:340px;overflow:auto">
+        <table style="width:100%;font-size:0.74rem">
+          <thead><tr style="color:var(--mist)">
+            <th style="text-align:left">Family</th><th style="text-align:right">Bunches</th>
+            <th style="text-align:right">Lines</th><th style="text-align:right">Cost</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : `
+      <div style="font-size:0.78rem;color:var(--mist)">
+        Nothing waiting — every flower and green line either counts stems or is already answered.
+      </div>`}
+    ${r.settled.length ? `<div style="margin-top:12px">
+      <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">
+        Counted by the bunch</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${done}</div>
+    </div>` : ''}`;
+}
+
+function renderCtCounting() {
+  const el = document.getElementById('ct-counting-body');
+  if (el) el.innerHTML = ctCountingHtml();
+}
+
 // ---------------------------------------------------------------------------
 // Hard goods sold by the box
 //
@@ -2888,6 +3006,7 @@ function renderCtMissingInvoices() {
 
 function renderCtDashboard() {
   renderCtMissingInvoices();
+  renderCtCounting();
   const invoices = ctGetFilteredInvoices();
 
   // Populate supplier filter

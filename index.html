@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=20260902q">
+<link rel="stylesheet" href="styles.css?v=20260902r">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -305,6 +305,11 @@ Upload the CSV straight from Chase or Amex — columns are matched by their head
 <p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Items where cost has moved since you last set a retail price, but the retail price hasn't been updated to match.</p>
 <div id="ct-stale-margin-body"></div>
 </div>
+<div class="chart-wrap">
+<h3>🌿 Stems or bunches</h3>
+<p style="font-size:0.75rem;color:var(--mist);margin-bottom:12px">Nobody counts stems of limonium, gyp, statice or ruscus — the bunch is the unit. Settle a family here once and it stops being reported as a missing stem count in the holiday purchase tables. Flowers and greens only; a case of vases is a pack count, which is a different question.</p>
+<div id="ct-counting-body"></div>
+</div>
 <div class="ct-invoice-history">
 <div class="ct-price-table-header">
 <h3>Invoice History</h3>
@@ -485,18 +490,18 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260902q"></script>
-<script src="utils.js?v=20260902q"></script>
-<script src="sync.js?v=20260902q"></script>
-<script src="ledger.js?v=20260902q"></script>
-<script src="reports.js?v=20260902q"></script>
-<script src="holiday-sync.js?v=20260902q"></script>
-<script src="epx.js?v=20260902q"></script>
-<script src="payouts.js?v=20260902q"></script>
-<script src="daily-sales.js?v=20260902q"></script>
-<script src="import-trainer.js?v=20260902q"></script>
-<script src="cost-tracker.js?v=20260902q"></script>
-<script src="init.js?v=20260902q"></script>
+<script src="config.js?v=20260902r"></script>
+<script src="utils.js?v=20260902r"></script>
+<script src="sync.js?v=20260902r"></script>
+<script src="ledger.js?v=20260902r"></script>
+<script src="reports.js?v=20260902r"></script>
+<script src="holiday-sync.js?v=20260902r"></script>
+<script src="epx.js?v=20260902r"></script>
+<script src="payouts.js?v=20260902r"></script>
+<script src="daily-sales.js?v=20260902r"></script>
+<script src="import-trainer.js?v=20260902r"></script>
+<script src="cost-tracker.js?v=20260902r"></script>
+<script src="init.js?v=20260902r"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
