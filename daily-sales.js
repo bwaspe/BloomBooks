@@ -581,7 +581,11 @@ function dsDeferrals() {
   return appData.deferrals;
 }
 
-// Which month a deferred sale belongs to, or null if it belongs where it is.
+// Which month a sale was DELIVERED in, when that differs from the month its
+// payment cleared -- null when they are the same. This measures the gap; it
+// never decides where the sale is booked. House-account work is delivered
+// weeks before the account settles, and the books follow FloraNext in counting
+// it when the payment cleared. The delivered basis is a view, not a move.
 function dsDeliveredMonth(orderIso, deliveryIso) {
   if (!deliveryIso || !orderIso || deliveryIso >= orderIso) return null;
   const from = appData.dailyRevenueFrom;
@@ -1112,8 +1116,12 @@ function fnImportHtml() {
 
       ${deferred ? `
         <div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:var(--blue-light);font-size:0.75rem">
-          ${deferred} deferred sale${deferred === 1 ? '' : 's'} dated by delivery rather than by
-          when the payment cleared — house-account work counted in the month it went out.
+          ${deferred} sale${deferred === 1 ? ' was' : 's were'} delivered in a different month
+          from the one the payment cleared in — house-account work, mostly.
+          ${deferred === 1 ? 'It stays' : 'They stay'} in the month the payment cleared, which is
+          how FloraNext reports ${deferred === 1 ? 'it' : 'them'} and how the books are kept.
+          The delivered-month toggle on the revenue chart measures the difference without
+          moving anything.
         </div>` : ''}
       ${checkHtml}
       ${collapseHtml}
