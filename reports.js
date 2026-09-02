@@ -325,7 +325,10 @@ function hcQtyByType(year, month) {
       const cost = ctLineTotal(it);
       const cat = it.category || '';
       if (cat !== 'Flowers' && cat !== 'Greens') { otherCost += cost; return; }
-      const fam = it.family || (typeof ctGuessFamily === 'function' ? ctGuessFamily(it.name) : '') || it.name;
+      // Same resolution the counting screen uses, or the two disagree about
+      // which family a blank-family line belongs to.
+      const fam = (typeof ctItemFamily === 'function' ? ctItemFamily(it) : '') ||
+                  it.family || it.name;
       const { stems, bunches } = ctLineStems(it);
       const t = types[fam] || (types[fam] =
         { type: fam, stems: 0, bunches: 0, cost: 0, stemCost: 0, colors: {} });

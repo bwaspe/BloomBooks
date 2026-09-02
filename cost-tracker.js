@@ -1272,16 +1272,45 @@ function ctCountsInBunches(item) {
 // ---------------------------------------------------------------------------
 function ctByTheBunchMap() {
   if (!ctData.byTheBunch) ctData.byTheBunch = {};
-  return ctData.byTheBunch;
+  // Keys written before the key was normalised would otherwise be unreachable
+  // -- a flag that is set, invisible, and cannot be cleared.
+  const map = ctData.byTheBunch;
+  Object.keys(map).forEach(k => {
+    const norm = String(k).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (norm !== k) { if (norm) map[norm] = map[k]; delete map[k]; }
+  });
+  return map;
+}
+
+// ONE resolution of "what family is this line", because the flag is stored
+// under whatever the counting screen groups by and read by ctLineStems -- and
+// when those two disagreed the answer silently did nothing. Three families sat
+// on the list clicking "sold by the bunch" with no effect:
+//
+//   Acacia Green Knifeblade and Explosion Grass carry family: "" on the line.
+//   The screen grouped them under ctGuessFamily's answer and stored the flag
+//   there, while ctLineStems read the blank field and matched nothing.
+//
+// And ONE normalisation of the key, because "Acacia  Knifeblade" is in the book
+// with two spaces and HTML renders it identically to one -- so the two are
+// indistinguishable on screen and were different keys underneath.
+function ctItemFamily(item) {
+  if (!item) return '';
+  return String(item.family || '').trim() ||
+         String(ctGuessFamily(item.name || '') || '').trim();
+}
+
+function ctFamilyKey(family) {
+  return String(family || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function ctIsByTheBunch(family) {
-  const f = String(family || '').trim().toLowerCase();
+  const f = ctFamilyKey(family);
   return !!(f && ctByTheBunchMap()[f]);
 }
 
 function ctSetByTheBunch(family, on) {
-  const f = String(family || '').trim().toLowerCase();
+  const f = ctFamilyKey(family);
   if (!f) return;
   const map = ctByTheBunchMap();
   if (on) map[f] = true; else delete map[f];
@@ -1318,18 +1347,21 @@ function ctCountingReview() {
       if (cat !== 'Flowers' && cat !== 'Greens') return;
       const s = ctLineStems(it);
       if (!s.bunches) return;
-      const fam = String(it.family || '').trim() || ctGuessFamily(it.name) || '';
+      const fam = ctItemFamily(it);
       if (!fam) return; // nothing to hang a family-wide answer on
       const into = s.byDesign ? settled : pending;
-      const key = fam.toLowerCase();
+      const key = ctFamilyKey(fam);
       const r = into[key] || (into[key] =
         { family: fam, bunches: 0, lines: 0, cost: 0, example: it.name, last: date, cat,
-          bunchLines: 0, rows: [] });
+          bunchLines: 0, packLines: 0, rows: [] });
       r.bunches += s.bunches; r.lines += 1; r.cost += ctLineTotal(it);
       if (String(it.uom || '').toLowerCase() === 'bunch') r.bunchLines += 1;
+      if (CT_PACK_UNITS.test(String(it.uom || '')) && Number(it.stemsPerBu) > 1) r.packLines += 1;
       if (r.rows.length < 40) {
         r.rows.push({ invId: inv.id, name: it.name, qty: it.qty, uom: it.uom,
                       per: it.stemsPerBu || null, bunches: s.bunches,
+                      isPack: CT_PACK_UNITS.test(String(it.uom || '')),
+                      counts: ctPackCountsFor(it),
                       supplier: inv.supplier || '', date });
       }
       if (date > r.last) { r.last = date; r.example = it.name; }
@@ -1340,9 +1372,22 @@ function ctCountingReview() {
   // answer stays visible -- and undoable -- rather than vanishing once it works.
   Object.keys(ctByTheBunchMap()).forEach(f => {
     if (!settled[f]) settled[f] = { family: f, bunches: 0, lines: 0, cost: 0, example: '',
-                                    last: '', cat: '', bunchLines: 0, rows: [] };
+                                    last: '', cat: '', bunchLines: 0, packLines: 0, rows: [] };
   });
-  return { pending: sort(pending), settled: sort(settled) };
+  // Answered pack items, so an answer stays visible and reversible after it
+  // makes the family disappear from the list above. The map is keyed on the
+  // catalog key, so a display name is recovered from the invoices.
+  const answers = ctPackCountsMap();
+  const names = {};
+  invoices.forEach(inv => (inv.items || []).forEach(it => {
+    const k = ctCatalogKey(it.name || '');
+    if (answers[k] && !names[k]) names[k] = it.name;
+  }));
+  const packAnswered = Object.keys(answers).map(k => (
+    { key: k, name: names[k] || k, counts: answers[k] }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  return { pending: sort(pending), settled: sort(settled), packAnswered };
 }
 
 // The other answer. "Sold by the bunch" was the only button on the screen, so a
@@ -1361,7 +1406,7 @@ function ctCountingReview() {
 // unit price and total are untouched -- this changes counting, nothing else.
 function ctSetFamilyStemsPerBu(family, per) {
   const n = Math.round(Number(per));
-  const fam = String(family || '').trim().toLowerCase();
+  const fam = ctFamilyKey(family);
   if (!fam || !Number.isFinite(n) || n <= 1) {
     notify('Enter how many stems are in one bunch (2 or more)');
     return 0;
@@ -1372,9 +1417,7 @@ function ctSetFamilyStemsPerBu(family, per) {
       const cat = it.category || '';
       if (cat !== 'Flowers' && cat !== 'Greens') return;
       if (String(it.uom || '').toLowerCase() !== 'bunch') return;
-      const f = String(it.family || '').trim().toLowerCase() ||
-                String(ctGuessFamily(it.name) || '').toLowerCase();
-      if (f !== fam) return;
+      if (ctFamilyKey(ctItemFamily(it)) !== fam) return;
       if (Number(it.stemsPerBu) > 1) { skipped += 1; return; }
       it.stemsPerBu = n;
       touched += 1;
@@ -1407,7 +1450,7 @@ function ctCountingHtml() {
   // attribute. A family typed as: O'Hara " onerror=x  gets out of both otherwise.
   const arg = s => escHtml(String(s).replace(/\\/g, '').replace(/'/g, ''));
 
-  if (!r.pending.length && !r.settled.length) {
+  if (!r.pending.length && !r.settled.length && !r.packAnswered.length) {
     return `<div style="font-size:0.78rem;color:var(--mist)">
       Nothing to settle — every flower and green line either counts stems or is
       already answered.</div>`;
@@ -1431,8 +1474,20 @@ function ctCountingHtml() {
       </div>
       ${usual ? `<div style="font-size:0.66rem;color:var(--mist);margin-top:2px">
         other invoices say ${usual}/bu</div>` : ''}`
-      : `<div style="font-size:0.66rem;color:var(--mist);margin-top:4px">
-          counted by the box — open a line below</div>`;
+      : '';
+
+    // Shown whenever the family has ANY pack line, not only when it has nothing
+    // else -- Alstroemeria arrives as both bunches and boxes and needs both.
+    const packAnswer = p.packLines ? `
+      <div style="font-size:0.66rem;color:var(--mist);margin-top:4px;white-space:nowrap">
+        ${p.packLines} by the box · ×N is
+        <button class="btn btn-outline btn-sm" style="font-size:0.6rem;padding:0 5px"
+          onclick="ctSetFamilyPackCounts('${arg(p.family)}', 'stems')"
+          title="Every ${esc(p.family)} box multiplier counts stems">stems</button>
+        <button class="btn btn-outline btn-sm" style="font-size:0.6rem;padding:0 5px"
+          onclick="ctSetFamilyPackCounts('${arg(p.family)}', 'bunches')"
+          title="Every ${esc(p.family)} box multiplier counts bunches">bunches</button>
+      </div>` : '';
 
     return `<tr>
       <td><strong>${esc(p.family)}</strong>
@@ -1445,7 +1500,13 @@ function ctCountingHtml() {
               <td style="color:var(--mist)">${esc(l.date)}</td>
               <td>${esc(String(l.name).slice(0, 30))}</td>
               <td style="text-align:right;white-space:nowrap">${l.qty} ${esc(l.uom)}${
-                l.per ? ' ×' + l.per : ''}</td>
+                l.per ? ' ×' + l.per : ''}${l.isPack && l.per > 1 ? `
+                <span style="margin-left:4px" title="Is ×${l.per} the stems in the box, or the bunches?">
+                  <button class="btn btn-outline btn-sm" style="font-size:0.6rem;padding:0 5px"
+                    onclick="ctSetPackCounts('${arg(l.name)}', 'stems')">stems</button>
+                  <button class="btn btn-outline btn-sm" style="font-size:0.6rem;padding:0 5px"
+                    onclick="ctSetPackCounts('${arg(l.name)}', 'bunches')">bunches</button>
+                </span>` : ''}</td>
               <td style="text-align:right">${l.invId ? `<button class="btn btn-outline btn-sm"
                 style="font-size:0.62rem;padding:1px 6px"
                 onclick="ctOpenInvoice('${arg(l.invId)}')"
@@ -1460,7 +1521,7 @@ function ctCountingHtml() {
         <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 8px"
           onclick="ctSetByTheBunch('${arg(p.family)}', true)"
           title="Stop asking for a stem count on ${esc(p.family)}">sold by the bunch</button>
-        ${stemAnswer}</td>
+        ${stemAnswer}${packAnswer}</td>
     </tr>`;
   }).join('');
 
@@ -1493,6 +1554,18 @@ function ctCountingHtml() {
       <div style="font-size:0.78rem;color:var(--mist)">
         Nothing waiting — every flower and green line either counts stems or is already answered.
       </div>`}
+    ${r.packAnswered.length ? `<div style="margin-top:12px">
+      <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">
+        Pack counts answered</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${r.packAnswered.map(a => `
+        <span style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);
+          border-radius:12px;padding:2px 4px 2px 10px;font-size:0.72rem">
+          ${esc(String(a.name).slice(0, 34))}<span style="color:var(--mist)"> · ${esc(a.counts)}</span>
+          <button onclick="ctSetPackCounts('${arg(a.name)}', '')"
+            title="Read its pack count as bunches again"
+            style="border:none;background:none;color:var(--mist);cursor:pointer;padding:0 4px">✕</button>
+        </span>`).join(' ')}</div>
+    </div>` : ''}
     ${r.settled.length ? `<div style="margin-top:12px">
       <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist);margin-bottom:6px">
         Counted by the bunch</div>
@@ -1659,6 +1732,85 @@ function ctIssuesHtml(item) {
   }).join('');
 }
 
+// ---------------------------------------------------------------------------
+// What a pack's multiplier counts
+//
+// Kept against the ITEM NAME, not the family and not the line. Not the family,
+// because "Roses" covers both a box of 100 stems and a box of 10 bunches, and
+// one answer for both would be wrong for one of them. Not the line, because the
+// same item arrives in the same box every time and answering it once should
+// settle every past and future purchase of it -- which is exactly how
+// ctPackAnswers already works for the hard-goods pack question.
+//
+// This changes COUNTING only. ctPackUnits is untouched, so a line's total, its
+// unit price and its effective unit all stay exactly as they were.
+// ---------------------------------------------------------------------------
+function ctPackCountsMap() {
+  if (!ctData.packCounts) ctData.packCounts = {};
+  return ctData.packCounts;
+}
+
+function ctPackCountsFor(item) {
+  const k = ctCatalogKey((item && item.name) || '');
+  return k ? (ctPackCountsMap()[k] || null) : null;
+}
+
+function ctSetPackCounts(name, value) {
+  const k = ctCatalogKey(name || '');
+  if (!k) return 0;
+  const map = ctPackCountsMap();
+  if (value === 'stems' || value === 'bunches') map[k] = value; else delete map[k];
+  ctSave();
+  // Say how many lines it settled, because the point of keying on the name is
+  // that one answer reaches every purchase of it.
+  let n = 0;
+  ((ctData && ctData.invoices) || []).forEach(inv => {
+    (inv.items || []).forEach(it => {
+      if (ctCatalogKey(it.name || '') === k && CT_PACK_UNITS.test(String(it.uom || ''))) n += 1;
+    });
+  });
+  notify(value
+    ? `Noted — that pack count is ${value}, on ${n} line${n === 1 ? '' : 's'}`
+    : 'Cleared — that pack count reads as bunches again');
+  if (typeof renderCtDashboard === 'function') renderCtDashboard();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+  if (typeof renderCtPrices === 'function') renderCtPrices();
+  return n;
+}
+
+// Roses arrive as eight varieties, every one "1-2 Box x100", every one meaning
+// 100 stems. Storage stays per item name -- that is the granularity the fact
+// actually has -- but answering it eight times for one obvious answer is how it
+// does not get answered. So the family row applies it to every pack item under
+// it at once, and the per-line buttons remain for a family that genuinely mixes.
+function ctSetFamilyPackCounts(family, value) {
+  const fam = ctFamilyKey(family);
+  if (!fam) return 0;
+  const names = {};
+  ((ctData && ctData.invoices) || []).forEach(inv => {
+    (inv.items || []).forEach(it => {
+      if (!CT_PACK_UNITS.test(String(it.uom || ''))) return;
+      if (!(Number(it.stemsPerBu) > 1)) return;
+      if (ctFamilyKey(ctItemFamily(it)) === fam) names[ctCatalogKey(it.name || '')] = it.name;
+    });
+  });
+  const map = ctPackCountsMap();
+  let n = 0;
+  Object.keys(names).forEach(k => {
+    if (value === 'stems' || value === 'bunches') map[k] = value; else delete map[k];
+    n += 1;
+  });
+  if (!n) { notify(`No ${family} pack lines to answer`); return 0; }
+  ctSave();
+  notify(value
+    ? `${family}: ${n} pack item${n === 1 ? '' : 's'} now count ${value}`
+    : `${family}: ${n} pack item${n === 1 ? '' : 's'} read as bunches again`);
+  if (typeof renderCtDashboard === 'function') renderCtDashboard();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+  if (typeof renderCtPrices === 'function') renderCtPrices();
+  return n;
+}
+
 function ctLineStems(item) {
   const qty = Number(item.qty) || 0;
   const uom = String(item.uom || '').toLowerCase();
@@ -1672,14 +1824,30 @@ function ctLineStems(item) {
   if (uom === 'bunch') {
     // A family sold by the bunch is not missing anything, so its bunches are
     // reported as settled rather than piling up as unresolved.
-    if (ctIsByTheBunch(item.family)) return { stems: 0, bunches: qty, byDesign: true };
+    if (ctIsByTheBunch(ctItemFamily(item))) return { stems: 0, bunches: qty, byDesign: true };
     return per > 1 ? { stems: qty * per, bunches: 0 } : { stems: 0, bunches: qty };
   }
-  // A pack. stemsPerBu on a Box or Case counts BUNCHES to the box, not stems
-  // to the bunch -- the field carries both meanings -- so a box resolves to
-  // bunches and stops there. This is why the owner's rule is to enter these as
-  // bunches in the first place.
-  if (CT_PACK_UNITS.test(uom)) return { stems: 0, bunches: qty * (per > 1 ? per : 1) };
+  // A pack. stemsPerBu on a Box or Case is "how many in one box", and across
+  // the 24 lines that carry it the thing being counted is different every
+  // time: 400 SHEETS to a case of tissue, 12 VASES to a box, 100 STEMS to a
+  // box of roses, 16 to a box of alstroemeria. Reading it as bunches every
+  // time is what reported "2 Box x100" as 200 bunches of roses when the box
+  // holds 4 bunches of 25 -- 200 stems.
+  //
+  // So the line is asked what its multiplier counts, and the answer is
+  // remembered against the item name. Unanswered still means bunches, so
+  // nothing already entered changes reading.
+  if (CT_PACK_UNITS.test(uom)) {
+    const n = qty * (per > 1 ? per : 1);
+    if (ctPackCountsFor(item) === 'stems') return { stems: n, bunches: 0 };
+    // A box of a family sold by the bunch holds bunches by design. Without
+    // this, answering "sold by the bunch" cleared a family's Bunch lines and
+    // left its one Other line behind -- which is what happened to Israeli
+    // Ruscus: nine lines settled, one stayed, and the family never left.
+    return ctIsByTheBunch(ctItemFamily(item))
+      ? { stems: 0, bunches: n, byDesign: true }
+      : { stems: 0, bunches: n };
+  }
   return { stems: 0, bunches: qty };
 }
 
