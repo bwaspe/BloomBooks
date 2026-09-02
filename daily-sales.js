@@ -1789,6 +1789,7 @@ function renderDailySalesPanel() {
     ${fnImportHtml()}
     ${dsImportHtml()}
     ${typeof epxPanelHtml === 'function' ? epxPanelHtml() : ''}
+    ${typeof poPanelHtml === 'function' ? poPanelHtml() : ''}
   `;
   // After innerHTML, or the canvas does not exist yet.
   dsDrawRevChart(year);
