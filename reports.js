@@ -48,6 +48,44 @@ function salesTaxIsPassthrough(allTx) {
   return allTx.some(t => t.category === 'Sales Tax Remitted');
 }
 
+// What customers were CHARGED, as opposed to what was handed over. The two are
+// different questions and the accountant needs both: collected is inside the
+// 1099-K gross, so it is what reconciles the forms to income; remitted is the
+// cash that left. They differ by a quarter's timing -- June to August is paid
+// in September -- so at any year end one quarter is collected and not yet sent.
+//
+// Only part of it is keyed. On EPX, cash and Venmo the tax is derived from the
+// taxable total rather than entered, so taking the day book's tax column alone
+// understates it. Derived here the same way the sales tax return does.
+function salesTaxCollected(year) {
+  if (typeof dsMonth !== 'function' || typeof dsTaxMode !== 'function') return null;
+  const rate = typeof DS_TAX_RATE === 'number' ? DS_TAX_RATE : 0.08375;
+  let entered = 0, derived = 0, sawAny = false;
+  for (let m = 0; m < 12; m++) {
+    const days = dsMonth(year, m) || {};
+    Object.keys(days).forEach(day => {
+      const d = days[day] || {};
+      Object.keys(d).forEach(k => {
+        if (k.startsWith('_')) return;
+        const rec = d[k] || {};
+        const s = Number(rec.s) || 0, t = Number(rec.t) || 0;
+        if (!s && !t) return;
+        sawAny = true;
+        if (Math.abs(t) > 0.005) { entered += t; return; }
+        const chan = (typeof dsChannels === 'function'
+          ? dsChannels().find(c => c.id === k) : null) || { id: k };
+        const mode = dsTaxMode(chan);
+        const taxable = mode === 'exempt' ? 0
+                      : mode === 'all' ? s
+                      : (rec.x != null ? Number(rec.x) || 0 : 0);
+        derived += taxable * rate;
+      });
+    });
+  }
+  if (!sawAny) return null;          // no day book for that year — nothing to derive from
+  return { entered, derived, total: entered + derived };
+}
+
 function isPropertyTax(t) {
   if (t.category !== 'Taxes') return false;
   const d = (t.desc || '').toLowerCase();
@@ -95,11 +133,25 @@ function renderTaxPanel() {
         <thead><tr><th>Tax Type</th><th>Annual Total</th></tr></thead>
         <tbody>
           <tr><td><span class="badge">Payroll Tax</span></td><td class="amount-out">${fmt(payrollTax)}</td></tr>
-          <tr><td><span class="badge">Sales Tax</span>${
+          ${(() => {
+            const coll = salesTaxCollected(yr);
+            if (!coll) return '';
+            return `
+              <tr><td><span class="badge">Sales Tax collected</span>
+                <div style="font-size:0.68rem;color:var(--mist);margin-top:2px">
+                  What customers were charged. This sits inside the 1099-K gross figures,
+                  so it is the number that reconciles the forms to revenue — revenue itself
+                  excludes it.${coll.derived > 0.5 ? ` Includes ${fmt(coll.derived)} derived
+                  from taxable sales on channels where the tax is not keyed in.` : ''}
+                  The filed New York returns are the authority.</div></td>
+                <td class="amount-in">${fmt(coll.total)}</td></tr>`;
+          })()}
+          <tr><td><span class="badge">Sales Tax remitted</span>${
             salesTaxIsPassthrough(allTx)
               ? `<div style="font-size:0.68rem;color:var(--mist);margin-top:2px">
-                   Remitted to New York — a pass-through, already excluded from the
-                   category totals below. Do not deduct it again.</div>`
+                   Paid to New York — a pass-through, already excluded from the category
+                   totals below. Do not deduct it again. It trails what was collected by a
+                   quarter: June to August is remitted in September.</div>`
               : `<div style="font-size:0.68rem;color:var(--mist);margin-top:2px">
                    Booked as an expense this year, and inside the Taxes total below.</div>`
             }</td><td class="amount-out">${fmt(salesTax)}</td></tr>
