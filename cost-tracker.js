@@ -296,7 +296,7 @@ function ctBuildUploadCardHtml(p, idx) {
       <div class="ct-item-name">${escHtml(item.name)}${pack ? `
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
           ${pack} per ${escHtml(item.uom)} — line should be $${((item.qty || 0) * pack * item.unit_price).toFixed(2)}
-          <button onclick="ctApplyPackMultiplier(${idx}, ${i})" style="border:none;background:none;color:var(--blue-light);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
+          <button onclick="ctApplyPackMultiplier(${idx}, ${i})" style="border:none;background:none;color:var(--link);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
         </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
@@ -757,6 +757,20 @@ function ctApplyOneRepair(kind, invId, name) {
   notify('Fixed');
 }
 
+// Every screen that names a line item should reach the invoice holding it,
+// because naming a line is how you find out it is wrong and the invoice is the
+// only place it can be put right. Six screens named one and five stopped there
+// -- worst of all Price History, which four other screens hand you off TO.
+//
+// One helper so they render the same control and there is one place to change
+// it. Silent when there is no id rather than drawing a dead button.
+function ctOpenLineBtn(invId, title) {
+  if (!invId) return '';
+  return `<button class="btn btn-outline btn-sm" style="font-size:0.62rem;padding:1px 6px"
+    onclick="event.stopPropagation();ctOpenInvoice('${escHtml(String(invId).replace(/'/g, ''))}')"
+    title="${escHtml(title || 'Open the invoice this line is on')}">open</button>`;
+}
+
 // The three little controls every repair row carries.
 function ctRowActions(kind, invId, name) {
   const q = v => String(v).replace(/'/g, "\\'");
@@ -805,7 +819,7 @@ function ctDismissedRepairHtml() {
   const n = Object.keys(ctData.dismissedRepairs || {}).length;
   if (!n) return '';
   return ` <a href="#" onclick="ctRestoreDismissedRepairs();return false"
-    style="color:var(--blue-light);font-size:0.72rem">Bring back ${n} left as-is</a>.`;
+    style="color:var(--link);font-size:0.72rem">Bring back ${n} left as-is</a>.`;
 }
 
 function renderCtRepairs() {
@@ -935,7 +949,7 @@ function ctTakeAltTotal(item) {
 function ctAltNote(item, action) {
   if (!item || !item._altTotal) return '';
   return `<div style="font-size:0.65rem;text-align:right;margin-top:2px">
-    <a href="#" onclick="${action};return false" style="color:var(--blue-light)"
+    <a href="#" onclick="${action};return false" style="color:var(--link)"
        title="Use this when the quantity itself was misread, rather than the unit being re-expressed">
       was the quantity wrong? make it ${fmt(item._altTotal)}</a></div>`;
 }
@@ -1424,7 +1438,7 @@ function ctCountingHtml() {
       <td><strong>${esc(p.family)}</strong>
         <div style="font-size:0.68rem;color:var(--mist)">${esc(String(p.example).slice(0, 44))}</div>
         <details style="margin-top:2px">
-          <summary style="font-size:0.66rem;color:var(--blue-light);cursor:pointer">
+          <summary style="font-size:0.66rem;color:var(--link);cursor:pointer">
             ${p.lines} line${p.lines === 1 ? '' : 's'}</summary>
           <table style="width:100%;font-size:0.66rem;margin-top:2px">
             ${p.rows.map(l => `<tr>
@@ -1632,10 +1646,10 @@ function ctIssuesHtml(item) {
     // The answer is stored against the product, so it is given once here and
     // never asked again -- on this invoice or any later one.
     const ask = i.ask ? `
-      <a href="#" style="color:var(--blue-light);margin-left:6px"
+      <a href="#" style="color:var(--link);margin-left:6px"
          onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'pack');return false"
          >it's the pack of ${i.per}</a> ·
-      <a href="#" style="color:var(--blue-light)"
+      <a href="#" style="color:var(--link)"
          onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'each');return false"
          >it's one</a>` : '';
     return `
@@ -2115,7 +2129,7 @@ function renderCtSupplierSuggestions() {
     ? `<div style="font-size:0.72rem;color:var(--mist);margin-top:8px">
          ${learned} pairing${learned === 1 ? '' : 's'} remembered — new invoices under those names are filed
          automatically. <a href="#" onclick="ctForgetSupplierAliases();return false"
-         style="color:var(--blue-light)">Forget them</a>.</div>`
+         style="color:var(--link)">Forget them</a>.</div>`
     : '';
 
   if (!pairs.length) {
@@ -3032,14 +3046,14 @@ function renderCtMissingInvoices() {
              title="Payments before this date are not checked. It moves back on its own only if you have never set it.">
       <span style="font-size:0.72rem;color:var(--mist)">
         ${pinned
-          ? `set by you — <a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--blue-light)">use the default instead</a>`
+          ? `set by you — <a href="#" onclick="ctSetReconcileFrom('');return false" style="color:var(--link)">use the default instead</a>`
           : 'the month after your first invoice, chosen automatically'}
       </span>
     </div>`;
   const ignored = Object.keys(ctData.noInvoiceVendors || {}).length;
   const restore =
-    (dismissed ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--blue-light)">Restore ${dismissed} dismissed</a>.` : '') +
-    (ignored ? ` <a href="#" onclick="ctExpectInvoicesAgain();return false" style="color:var(--blue-light)">Expect invoices from ${ignored} silenced vendor${ignored === 1 ? '' : 's'} again</a>.` : '');
+    (dismissed ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--link)">Restore ${dismissed} dismissed</a>.` : '') +
+    (ignored ? ` <a href="#" onclick="ctExpectInvoicesAgain();return false" style="color:var(--link)">Expect invoices from ${ignored} silenced vendor${ignored === 1 ? '' : 's'} again</a>.` : '');
   let missing = [];
   try { missing = ctUnmatchedPayments(); }
   catch (e) { el.innerHTML = ''; return; }   // never take the dashboard down with it
@@ -3221,8 +3235,8 @@ function renderCtDashboard() {
           <div class="ct-item-name">${escHtml(a.name)}</div>
           <div class="ct-item-meta">${escHtml(a.supplier)}</div>
           <div class="ct-item-cat"><span class="badge">${escHtml(a.category)}</span></div>
-          <div class="ct-item-price">$${a.current.toFixed(2)} <span class="ct-flag ${a.dir}">${a.dir==='up'?'▲':'▼'}${Math.abs(a.pct).toFixed(0)}%</span></div>
-          <div class="ct-item-total" style="color:var(--mist)">was $${a.prior.toFixed(2)}</div>
+          <div class="ct-item-price">$${a.current.toFixed(2)} <span class="ct-flag ${a.dir}">${a.dir==='up'?'▲':'▼'}${Math.abs(a.pct).toFixed(0)}%</span> ${ctOpenLineBtn(a.invoiceId, 'Open the invoice with the new price')}</div>
+          <div class="ct-item-total" style="color:var(--mist)">was $${a.prior.toFixed(2)} ${ctOpenLineBtn(a.priorInvoiceId, 'Open the invoice with the previous price')}</div>
         </div>`).join('');
     }
   }
@@ -3373,10 +3387,10 @@ function ctGetStaleMargins() {
   const stale = [];
   Object.entries(ctData.retail).forEach(([key, retailPrice]) => {
     // Find the most recent purchase of this item, across all invoices
-    let latest = null;
+    let latest = null, latestInvId = null;
     for (let i = ctData.invoices.length - 1; i >= 0; i--) {
       const match = ctData.invoices[i].items.find(it => ctCatalogKey(it.name) === key);
-      if (match) { latest = match; break; }
+      if (match) { latest = match; latestInvId = ctData.invoices[i].id; break; }
     }
     if (!latest) return;
     const suggested = ctSuggestedRetail(latest);
@@ -3390,7 +3404,7 @@ function ctGetStaleMargins() {
     const dismissedAt = ctData.dismissedStaleMargins?.[key];
     if (dismissedAt !== undefined && Math.abs(dismissedAt - suggested) < 0.01) return;
 
-    stale.push({ key, name: latest.name, category: latest.category, retailPrice, suggested, diffPct, direction: suggested > retailPrice ? 'up' : 'down' });
+    stale.push({ key, name: latest.name, category: latest.category, retailPrice, suggested, diffPct, invoiceId: latestInvId, direction: suggested > retailPrice ? 'up' : 'down' });
   });
   return stale.sort((a,b)=>b.diffPct-a.diffPct);
 }
@@ -3418,6 +3432,7 @@ function renderCtStaleMargin() {
       <span style="flex:1;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="ctJumpToPriceHistory('${s.name.replace(/'/g,"\\'")}')" title="Click to view/edit in Price History">${escHtml(s.name)} <span class="badge" style="font-size:0.65rem">${escHtml(s.category)}</span></span>
       <span style="color:var(--mist)">retail $${s.retailPrice.toFixed(2)}</span>
       <span class="ct-flag ${s.direction}">${s.direction==='up'?'▲':'▼'} suggests $${s.suggested.toFixed(2)}</span>
+      ${ctOpenLineBtn(s.invoiceId, 'Open the invoice this cost came from')}
       <button onclick="event.stopPropagation(); ctDismissStaleMargin('${s.key}', ${s.suggested})" title="Dismiss — reappears if the price gap changes again" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 2px">✕</button>
     </div>`).join('');
 }
@@ -3518,7 +3533,7 @@ function ctBuildAlerts() {
     inv.items.forEach(item => {
       const key = ctCatalogKey(item.name);
       if (!itemMap[key]) itemMap[key] = { name:item.name, category:item.category, records:[] };
-      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctEffectiveUnit(item) });
+      itemMap[key].records.push({ date:ctEffDate(inv), supplier:inv.supplier, price:ctEffectiveUnit(item), invoiceId:inv.id });
     });
   });
   const alerts = [];
@@ -3529,7 +3544,10 @@ function ctBuildAlerts() {
     const prior = recs[recs.length-2];
     const pct = ((latest.price - prior.price) / prior.price) * 100;
     if (Math.abs(pct) >= 5) {
-      alerts.push({ name:entry.name, category:entry.category, supplier:latest.supplier, current:latest.price, prior:prior.price, pct, dir: pct>0?'up':'down' });
+      // Both ids: an alert is a comparison of two purchases, and the question
+      // it raises ("is that new price right?") is as often answered on the
+      // earlier invoice as the later one.
+      alerts.push({ name:entry.name, category:entry.category, supplier:latest.supplier, current:latest.price, prior:prior.price, pct, dir: pct>0?'up':'down', invoiceId:latest.invoiceId, priorInvoiceId:prior.invoiceId });
     }
   });
   return alerts.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
@@ -3580,7 +3598,7 @@ function ctRenderEditInvoice() {
       <div class="ct-item-name"><input type="text" value="${escHtml(item.name)}" onchange="ctEditUpdateItemField(${i}, 'name', this.value)" style="font-size:0.82rem;border:none;background:transparent;width:100%">${ctPackMultiplier(item) ? `
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
           ${ctPackMultiplier(item)} per ${escHtml(item.uom)} — line should be $${((item.qty || 0) * ctPackMultiplier(item) * ctUnitPrice(item)).toFixed(2)}
-          <button onclick="ctEditApplyPack(${i})" style="border:none;background:none;color:var(--blue-light);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
+          <button onclick="ctEditApplyPack(${i})" style="border:none;background:none;color:var(--link);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
         </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
@@ -4178,6 +4196,7 @@ function renderCtPrices() {
         ${stemsField}
         <input type="number" step="0.01" min="0" value="${r.price.toFixed(2)}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'unitPrice', this.value)"
           style="font-weight:600;color:var(--ink);min-width:55px;width:65px;text-align:right;font-size:0.72rem;padding:1px 4px;margin-left:auto">
+        ${ctOpenLineBtn(r.invoiceId, 'Open this purchase’s invoice')}
       </div>`;
     }).join('');
 

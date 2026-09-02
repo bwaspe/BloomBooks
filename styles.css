@@ -12,7 +12,8 @@
   --red: #c0392b;
   --red-light: #fdf0ee;
   --blue: #1a5fa8;
-  --blue-light: #e8f0fb;
+  --blue-light: #e8f0fb;   /* a pale BACKGROUND tint -- never legible as text on white */
+  --link: #1a5fa8;         /* link text. see --blue-light above */
   --mist: #888899;
   --sidebar-w: 200px;
   --header-h: 60px;

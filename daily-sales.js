@@ -1619,7 +1619,7 @@ function dsMonthStatusHtml(year, month) {
     // would be lying if they could be ticked without the work behind them.
     const toggle = auto ? '' : `
       <a href="#" onclick="dsToggleDone(${year},${month},'${step.id}');return false"
-         style="font-size:0.68rem;color:var(--blue-light);margin-left:6px"
+         style="font-size:0.68rem;color:var(--link);margin-left:6px"
          title="${ok ? 'Mark this as not done' : 'Mark this done'}">${ok ? 'undo' : 'mark done'}</a>`;
     return `
       <div style="display:flex;align-items:baseline;gap:8px;font-size:0.76rem;padding:3px 0">

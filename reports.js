@@ -268,7 +268,7 @@ function hcInvoiceCost(year, month) {
       byCat[it.category || 'Other'] = (byCat[it.category || 'Other'] || 0) + line;
       items.push({ name: it.name, qty: it.qty, uom: it.uom,
                    unit: typeof ctEffectiveUnit === 'function' ? ctEffectiveUnit(it) : it.unitPrice,
-                   total: line, supplier: inv.supplier, date: eff(inv) });
+                   total: line, supplier: inv.supplier, date: eff(inv), invId: inv.id });
     });
   });
   items.sort((a, b) => b.total - a.total);
@@ -303,6 +303,14 @@ let hcOpen = null;
 // Only flowers and greens are counted. Plants, containers, ribbon and hard
 // goods are real money but are not stems, and folding them in would make the
 // column meaningless; they are reported as one line underneath instead.
+// cost-tracker.js loads AFTER this file, so cross-file calls are guarded here
+// the same way ctLineTotal and ctEffectiveUnit already are. Renders nothing when
+// the cost tracker is absent, which is the honest outcome -- there would be no
+// invoice to open.
+function hcOpenBtn(invId, title) {
+  return (typeof ctOpenLineBtn === 'function') ? ctOpenLineBtn(invId, title) : '';
+}
+
 function hcQtyByType(year, month) {
   const w = hcWindow(year, month);
   if (!w || typeof ctData === 'undefined' || !ctData.invoices) return null;
@@ -335,7 +343,7 @@ function hcQtyByType(year, month) {
       else if (bunches) {
         unresolved.push({ name: it.name, qty: it.qty, uom: it.uom, per: it.stemsPerBu || null,
                           bunches, cost, type: fam, family: it.family || fam,
-                          supplier: inv.supplier, date: eff(inv) });
+                          supplier: inv.supplier, date: eff(inv), invId: inv.id });
       }
       if (/rose/i.test(fam)) {
         const c = ctRoseColor(it.name, map) || 'Colour not recorded';
@@ -542,7 +550,7 @@ function hcQtyHtml(year, month) {
     const links = c.names.slice(0, 6).map(n => {
       const safe = String(n).replace(/[^a-z0-9 ]/gi, '');
       return `<a href="#" onclick="ctSetRoseColor('${safe}');return false"
-                 style="color:var(--blue-light)" title="Tell BloomBooks what colour this is">
+                 style="color:var(--link)" title="Tell BloomBooks what colour this is">
                 ${escHtml(n)}</a>`;
     }).join(', ');
     return escHtml(c.color) + ' — ' + links;
@@ -576,7 +584,7 @@ function hcQtyHtml(year, month) {
           bunch, which are settled rather than missing.` : ''}
       </div>
       <details style="margin-top:6px">
-        <summary style="font-size:0.72rem;color:var(--blue-light);cursor:pointer">
+        <summary style="font-size:0.72rem;color:var(--link);cursor:pointer">
           Show the ${q.unresolved.length} line${q.unresolved.length === 1 ? '' : 's'}
           with no stem count</summary>
         <div style="max-height:220px;overflow:auto;margin-top:4px">
@@ -585,7 +593,7 @@ function hcQtyHtml(year, month) {
               <th style="text-align:left">Item</th><th style="text-align:right">Qty</th>
               <th style="text-align:left">Unit</th><th style="text-align:right">Counted as</th>
               <th style="text-align:right">Cost</th><th style="text-align:left">Date</th>
-              <th></th>
+              <th></th><th></th>
             </tr></thead>
             <tbody>
               ${q.unresolved.map(u => `
@@ -595,7 +603,8 @@ function hcQtyHtml(year, month) {
                     <td style="text-align:right">${num(u.bunches)} bu</td>
                     <td style="text-align:right">${fmt(u.cost)}</td>
                     <td>${escHtml(u.date || '')}</td>
-                    <td>${u.family ? `<a href="#" style="color:var(--blue-light);font-size:0.68rem"
+                    <td style="text-align:right">${hcOpenBtn(u.invId, 'Fix the unit or the stem count on this line')}</td>
+                    <td>${u.family ? `<a href="#" style="color:var(--link);font-size:0.68rem"
                           onclick="ctSetByTheBunch('${escHtml(u.family).replace(/'/g, '')}', true);return false"
                           title="Stop asking for a stem count on ${escHtml(u.family)}">sold by the bunch</a>` : ''}</td>
                 </tr>`).join('')}
@@ -676,7 +685,7 @@ function hcCostHtml() {
                 <td style="text-align:right" class="amount-out">${fmt(r.paid.total)}
                   <div style="font-size:0.68rem;color:var(--mist)">${r.paid.count} payments</div></td>
                 <td style="text-align:right">${r.rev ? pct.toFixed(0) + '%' : '—'}</td>
-                <td style="text-align:right;font-size:0.75rem;color:var(--blue-light)">
+                <td style="text-align:right;font-size:0.75rem;color:var(--link)">
                   ${hcOpen === r.key ? 'hide' : 'detail'}</td>
               </tr>
               ${hcOpen === r.key ? `
@@ -714,6 +723,7 @@ function hcCostHtml() {
                           <th style="text-align:left">Item</th><th style="text-align:right">Qty</th>
                           <th style="text-align:right">Unit</th><th style="text-align:right">Total</th>
                           <th style="text-align:left">Supplier</th><th style="text-align:left">Date</th>
+                          <th></th>
                         </tr></thead>
                         <tbody>
                           ${r.inv.items.map(it => `
@@ -722,7 +732,8 @@ function hcCostHtml() {
                                 <td style="text-align:right">${fmt(it.unit || 0)}</td>
                                 <td style="text-align:right">${fmt(it.total)}</td>
                                 <td>${escHtml(String(it.supplier || '').slice(0, 20))}</td>
-                                <td>${escHtml(it.date)}</td></tr>`).join('')}
+                                <td>${escHtml(it.date)}</td>
+                                <td style="text-align:right">${hcOpenBtn(it.invId)}</td></tr>`).join('')}
                         </tbody>
                       </table>
                     </div>`
