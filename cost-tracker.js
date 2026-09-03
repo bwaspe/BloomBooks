@@ -500,7 +500,23 @@ function ctUpdateUploadStemsPerBu(idx, itemIdx, val) {
   ctRenderUploadArea();
 }
 
+// Chrome fires `change` on a date input as soon as its value is a COMPLETE
+// valid date -- and "0002-09-05" is complete and valid the instant the first
+// digit of the year is typed. Every handler below then stored it and
+// re-rendered, destroying the input mid-keystroke so the remaining three digits
+// went nowhere. The symptom was that a year could only ever be two digits.
+//
+// So nothing happens until the year is plausible. An empty value counts as
+// settled, because clearing a date is a real thing to do.
+function ctDateSettled(val) {
+  const s = String(val == null ? '' : val).trim();
+  if (!s) return true;
+  const y = Number(s.slice(0, 4));
+  return Number.isFinite(y) && y >= 1000;
+}
+
 function ctUpdateUploadDeliveryDate(idx, dateVal) {
+  if (!ctDateSettled(dateVal)) return;
   const p = window._ctUploadPending[idx];
   if (!p) return;
   p.deliveryDate = dateVal || null;
@@ -2915,6 +2931,7 @@ function ctRerenderGmailCard(invIdx) {
 }
 
 function ctUpdateGmailDate(invIdx, dateVal) {
+  if (!ctDateSettled(dateVal)) return;
   if (!window._ctGmailPending || !window._ctGmailPending[invIdx]) return;
   if (!dateVal) return; // an invoice with no date at all files nowhere
   window._ctGmailPending[invIdx].date = dateVal;
@@ -2922,6 +2939,7 @@ function ctUpdateGmailDate(invIdx, dateVal) {
 }
 
 function ctUpdateGmailDeliveryDate(invIdx, dateVal) {
+  if (!ctDateSettled(dateVal)) return;
   if (!window._ctGmailPending) return;
   window._ctGmailPending[invIdx].deliveryDate = dateVal || null;
   ctRerenderGmailCard(invIdx);
@@ -3414,6 +3432,7 @@ function ctApplyDeliveryFee(invoiceId, cents) {
 }
 
 function ctSetReconcileFrom(val) {
+  if (!ctDateSettled(val)) return;
   const v = String(val || '').trim();
   ctData.reconcileFrom = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
   ctSave();
@@ -4179,6 +4198,7 @@ function ctBuildAlerts() {
 }
 
 function ctEditSavedDeliveryDate(id, dateVal) {
+  if (!ctDateSettled(dateVal)) return;
   const inv = ctData.invoices.find(i => i.id === id);
   if (!inv) return;
   inv.deliveryDate = dateVal || null;
@@ -4290,6 +4310,7 @@ function ctRenderEditInvoice() {
 
 function ctEditUpdateField(field, val) {
   if (!window._ctEditingInvoice) return;
+  if ((field === 'date' || field === 'deliveryDate') && !ctDateSettled(val)) return;
   // An invoice with no date at all files nowhere, so a cleared box is ignored
   // rather than blanking it. Every other field may legitimately be emptied.
   if (field === 'date' && !val) return;
