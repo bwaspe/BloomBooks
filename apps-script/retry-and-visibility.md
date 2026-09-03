@@ -324,27 +324,32 @@ transcribe every line from the charges section into `other_charges`, and
 charge, none is recorded — which is right, because inventing a cost that is
 not on the paper is how books stop being trustworthy.
 
-The trouble is which document is being read. Splitting the same suppliers by
-where the invoice came from:
+The trouble is which document is being read — but the unit is the **delivery
+day, not the document**. Several orders placed for one day's delivery carry
+one charge between them and produce one acknowledgment each, so counting fees
+per document says nothing. Per day, across 29 Perri delivery days:
 
 ```
-                          invoices   with a delivery fee
-  Perri  via Gmail scan         39          3     (8%)
-  Perri  via manual upload      21         16    (76%)
-
-  Juliet via Gmail scan          7          0     (0%)
-  Juliet via manual upload       9          5    (56%)
+                                 days   carry a fee
+  gmail acknowledgments only       12       3   (25%)
+  at least one uploaded invoice    17      15   (88%)
 ```
 
-Same vendor, same period, opposite answers. The scanned mail is an **order
-acknowledgment** — "A. Perri Farms, Inc. Order #594619-0", sent when the
-order is placed. The uploaded document is the **invoice**, and that is where
-the $16.50 appears. An acknowledgment says what was ordered; an invoice says
-what is being billed, and freight only exists on the second.
+Only one day in 29 carries two fees, which confirms the rule: **one charge
+per delivery.** The scanned mail is an **order acknowledgment** — "A. Perri
+Farms, Inc. Order #594619-0", sent when the order is placed. The uploaded
+document is the **invoice**, and that is where the $16.50 appears. An
+acknowledgment says what was ordered; an invoice says what is being billed,
+and freight only exists on the second.
 
-It shows in the money. Matching each Perri payment to the invoices it covers,
-a gap of **exactly $16.50** turns up four separate times on cycles where a
-payment covers a single invoice — and $819.97 in total across the period.
+**11 delivery days carry no charge at all — roughly $180.** Not the $820 the
+raw payment gap suggests; most of that is payment timing. Small money, but it
+accrues on every delivery day where no invoice is uploaded alongside.
+
+Two oddities in the same data, both worth a look rather than a fix here:
+**$0.05 on 2 September**, which is a misread rather than a charge, and
+**$49.00 alongside $16.50 on 10 May**, which is Mother's Day and plausibly a
+real second delivery.
 
 **Do not have the script fill this in.** A default charge written onto a
 document that does not state one is a guess recorded as a fact, and it would
@@ -355,12 +360,16 @@ be wrong on the deliveries that genuinely carry none. Two honest options:
    acknowledgment and its invoice both landing is harmless; BloomBooks would
    show two records for one order, which is a reason to prefer replacing the
    acknowledgment rather than adding to it.
-2. **Flag it in BloomBooks rather than invent it.** The app already knows
-   $16.50 is Perri's usual charge, because 16 uploaded invoices say so. An
-   invoice from a supplier with a habitual delivery fee that arrives with
-   none is worth a line on the invoice card — the same flag-don't-write
-   pattern as recipe pricing and stale margins. That is app work, not script
-   work.
+2. **Flag it in BloomBooks rather than invent it — per DELIVERY DAY.** The
+   app already knows $16.50 is Perri's habit, because 16 uploaded invoices
+   say so. A delivery day from a supplier with a habitual charge, where no
+   document that day carries one, is worth a line: the same flag-don't-write
+   pattern as recipe pricing and stale margins. Per day is the crux — flagged
+   per document it would fire on three of the four acknowledgments for a
+   single delivery and be wrong every time.
 
-Option 1 is better if the invoice is emailed at all, because it records what
-was actually billed instead of inferring it. Worth finding out first.
+The Gmail scan is the fewest steps and should stay the default, so option 1
+is only better if Perri emails an invoice at all. If they do not — if it is
+only ever pulled from the portal, photographed or scanned — then option 2 is
+the whole answer, because it turns "did I remember to upload the invoice for
+that day" into something the app asks rather than something to remember.
