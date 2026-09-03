@@ -43,45 +43,89 @@ settled answer.
 
 ---
 
-## Change 1 — do not scan the status mail at all
+## Change 1 — recognise the status mail without paying to read it
 
-Roughly 700 Claude calls a year go into reading "your order is nearby". The
-cheapest fix is to never fetch them, which also empties the Errors tab so
-the failures that matter stop hiding in noise.
+Roughly 700 Claude calls a year go into establishing that "You Are Next"
+holds no line items. They also bury the failures that matter.
 
-Add a `skipSubjects` field to any vendor that sends them:
+**Filter in CODE, not in the Gmail query.** A query exclusion is invisible by
+definition: if a pattern is wrong, the invoice it swallows leaves no trace
+anywhere. Matching after the fetch costs nothing extra — Gmail reads are
+free, the Claude call is what costs — and every skip is written to the
+Skipped tab **with its subject**, so a mistake shows up as an invoice sitting
+in a list rather than as an invoice that never existed.
 
 ```js
 const VENDORS = [
   { name: 'Juliet Wholesale',    email: 'julietwholesalenj@gmail.com', mode: 'pdf'  },
   { name: 'Perri Farms',         email: 'sales@perrifarms.com',        mode: 'body',
-    // Three of these arrive on every delivery morning -- on the way, nearby,
-    // completed. None has ever contained a line item, and each one used to
-    // cost a Claude call to establish that.
-    skipSubjects: ['on the way', 'nearby', 'completed', 'out for delivery'] },
-  { name: 'DVFlora',             email: 'orders@dvflora.com',          mode: 'body' },
+    // Three of these on every delivery morning. 55 errors across 24 days,
+    // nine of those days landing on exactly 3.
+    skipSubjects: ['we are on our way', 'you are next', 'completed'] },
+  { name: 'DVFlora',             email: 'orders@dvflora.com',          mode: 'body',
+    skipSubjects: ['deleted shopping cart notice*'] },
   { name: 'Fisch Floral Supply', email: 'info@fischfloralsupply.com',  mode: 'pdf'  },
-  { name: 'Main Wholesale',      email: 'ANTHONY@mainwholesaleflorist.com', mode: 'pdf' },
+  { name: 'Main Wholesale',      email: 'ANTHONY@mainwholesaleflorist.com', mode: 'pdf',
+    skipSubjects: ['mwf receipt*'] },
 ];
 ```
 
-and fold it into the search, so Gmail does the filtering rather than Claude:
-
 ```js
-  // Excluded in the QUERY, not after fetching, so these never cost an API call.
-  const skip = (vendor.skipSubjects || [])
-    .map(s => '-subject:"' + s + '"').join(' ');
-  const query = `from:(${vendor.email}) ${skip} ${sinceQuery}`;
+// EXACT match by default; a trailing * makes it a prefix.
+//
+// Substring matching is the tempting default and it is wrong here. 'completed'
+// as a substring also swallows "Your order has been completed" -- and the cost
+// of a false match is an invoice that is never read, which is the one outcome
+// this whole file is about. Exact is safe because these subjects are whole
+// subjects; * is there for the two that carry a trailing account number.
+function shouldSkipSubject(msg, vendor) {
+  const subject = String(msg.getSubject() || '').trim().toLowerCase();
+  const list = vendor.skipSubjects || [];
+  for (let i = 0; i < list.length; i++) {
+    const pat = String(list[i]).trim().toLowerCase();
+    const hit = pat.slice(-1) === '*'
+      ? subject.indexOf(pat.slice(0, -1)) === 0
+      : subject === pat;
+    if (hit) return list[i];
+  }
+  return null;
+}
 ```
 
-**The exact subject wording matters and I do not have it** — the Errors tab
-records a MessageId but not a subject. Read the three off one delivery
-morning and put the distinctive part of each in the list. Match on something
-that cannot appear on an invoice: "on the way" is safe, a bare "delivery" is
-not, because an invoice may well say Delivery Date.
+called first in the message loop, before anything is sent to Claude:
 
-Worth doing for Main Wholesale too, on the same evidence: 35 errors over 19
-days.
+```js
+      const why = shouldSkipSubject(msg, vendor);
+      if (why) { recordSkip(vendor.name, msg, 'Subject matched "' + why + '"'); return; }
+```
+
+### Two of these need care
+
+**Do NOT filter Main Wholesale on "Main Wholesale Florist".** That is the
+vendor's own name and will almost certainly appear in the subject of a real
+invoice too — filtering on it could silently swallow all 46 of theirs. Their
+promotional mail needs either the distinctive part of its actual subject, or
+the generic exclusion, which is safer and needs no guessing:
+
+```js
+  // Gmail's own classification, so no subject has to be guessed at.
+  const query = `from:(${vendor.email}) -category:promotions ${sinceQuery}`;
+```
+
+**"completed" is why the match is exact.** As a substring it also swallows
+"Your order has been completed", and the cost of a wrong match is an invoice
+nobody ever reads. Matching the whole subject removes that: a mail titled
+exactly "Completed" is the status one, anything longer is not. Perri's 36
+invoices in the window all came through while those status mails were
+erroring, so nothing about their subjects collides today — and if Perri
+invoices ever stop appearing, the Skipped tab is where they will be.
+
+**"MWF Receipt" is a judgement call, not an obvious skip.** A receipt is a
+financial document; the reason it is safe to ignore here is that the money is
+already captured from the bank, and Main Wholesale's actual invoices arrive
+separately — 46 of them in the window, against 35 receipt errors. If a
+counter pickup ever arrives ONLY as a receipt, its line items would be lost
+while its money still showed up. Worth knowing rather than acting on.
 
 ---
 
