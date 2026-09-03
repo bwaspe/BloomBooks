@@ -66,7 +66,9 @@ const VENDORS = [
     skipSubjects: ['deleted shopping cart notice*'] },
   { name: 'Fisch Floral Supply', email: 'info@fischfloralsupply.com',  mode: 'pdf'  },
   { name: 'Main Wholesale',      email: 'ANTHONY@mainwholesaleflorist.com', mode: 'pdf',
-    skipSubjects: ['mwf receipt*'] },
+    // Safe BECAUSE their invoice subject is "MWF Invoice: 362662" -- it shares
+    // no prefix with either of these. Checked against all 70 of theirs.
+    skipSubjects: ['mwf receipt*', 'main wholesale florist*'] },
 ];
 ```
 
@@ -101,14 +103,18 @@ called first in the message loop, before anything is sent to Claude:
 
 ### Two of these need care
 
-**Do NOT filter Main Wholesale on "Main Wholesale Florist".** That is the
-vendor's own name and will almost certainly appear in the subject of a real
-invoice too — filtering on it could silently swallow all 46 of theirs. Their
-promotional mail needs either the distinctive part of its actual subject, or
-the generic exclusion, which is safer and needs no guessing:
+**Filtering Main Wholesale on their own name is safe here, but only because
+it was checked.** The instinct is that a vendor's name in a skip pattern will
+also match their invoices — it usually would. Theirs are titled
+`MWF Invoice: 362662`, which shares no prefix with `Main Wholesale Florist`,
+so the two lists cannot collide. That is a fact about this vendor, not a
+general rule: read the invoice subject before filtering on anything that
+looks like a vendor name.
+
+If their promotional subjects turn out to vary more than the prefix covers,
+Gmail's own classification needs no guessing at all:
 
 ```js
-  // Gmail's own classification, so no subject has to be guessed at.
   const query = `from:(${vendor.email}) -category:promotions ${sinceQuery}`;
 ```
 
@@ -123,7 +129,7 @@ invoices ever stop appearing, the Skipped tab is where they will be.
 **"MWF Receipt" is a judgement call, not an obvious skip.** A receipt is a
 financial document; the reason it is safe to ignore here is that the money is
 already captured from the bank, and Main Wholesale's actual invoices arrive
-separately — 46 of them in the window, against 35 receipt errors. If a
+separately — 47 of them in the window (70 in the book), against 35 receipt errors. If a
 counter pickup ever arrives ONLY as a receipt, its line items would be lost
 while its money still showed up. Worth knowing rather than acting on.
 
