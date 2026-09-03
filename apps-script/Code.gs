@@ -9,11 +9,13 @@
  * BEFORE YOU PASTE THIS OVER YOUR CURRENT FILE
  *
  * This is built from the version pasted into the session on 3 Sep 2026, with
- * every change from that day applied. One thing to check first: doPost calls
- * `saveSummary(body.summary)`, and that function was NOT in what was pasted --
- * so it lives somewhere in your file that I have not seen. Search your current
- * script for `function saveSummary` and for anything else missing here, and
- * paste those back in at the bottom before saving.
+ * every change from that day applied.
+ *
+ * doPost called `saveSummary` and no such function existed anywhere -- so
+ * every daily push from BloomBooks threw, was caught, and was discarded, while
+ * BloomBooks stamped lastSummaryPush regardless and believed it had worked.
+ * saveSummary is written below. The digest EMAILER that was meant to read it
+ * still does not exist; see the note beside it.
  *
  * WHAT CHANGED, and why (the detail is in the .md files beside this one):
  *
@@ -801,6 +803,43 @@ function attemptCounts() {
     .forEach(r => { const id = String(r[0]).trim(); if (id) counts[id] = (counts[id] || 0) + 1; });
   return counts;
 }
+
+// ============================================================
+// WEEKLY SUMMARY
+//
+// BloomBooks computes this -- it is the only side with categories, retail
+// prices and margin -- and pushes it here once a day. saveSummary did not
+// exist: doPost called it, the call threw, doPost caught the throw and
+// returned {ok:false}, and BloomBooks stamps lastSummaryPush without reading
+// the response. So the push has been running daily and being discarded, and
+// nothing on either side said so.
+//
+// Stored as one row per push rather than a single overwritten value, so a
+// digest can look back and a bad day is not the only thing on record. The
+// Script Property limit is 9KB per value, which a summary would eventually
+// exceed; a sheet has no such ceiling.
+// ============================================================
+function saveSummary(summary) {
+  const sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sheet = ss.getSheetByName('Summary');
+  if (!sheet) {
+    sheet = ss.insertSheet('Summary');
+    sheet.appendRow(['Timestamp', 'SummaryJSON']);
+  }
+  sheet.appendRow([new Date(), JSON.stringify(summary || {})]);
+
+  // Keep the last 90. Nothing reads further back, and an unbounded log on a
+  // daily push is a sheet nobody ever trims.
+  const extra = sheet.getLastRow() - 1 - 90;
+  if (extra > 0) sheet.deleteRows(2, extra);
+}
+
+// NOT IMPLEMENTED: the emailer that was meant to read the above and send a
+// weekly digest. The comment in BloomBooks says "Apps Script emails it on a
+// schedule" and no such function was ever written, which is why saveSummary
+// was missing too -- the whole second half of the feature is absent. Saying so
+// here rather than leaving the gap to be rediscovered.
 
 function logError(vendorName, msgId, message) {
   try {
