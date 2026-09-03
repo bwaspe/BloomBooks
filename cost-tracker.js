@@ -2777,10 +2777,58 @@ function ctPriceBasis(item) {
 // four stems and three. Nothing can compute around that; the line has to be
 // corrected. Reported as a unit to check rather than as a 1678% price rise,
 // because it is not one.
+// What one stem of a family has typically cost, from the lines that reconcile.
+// The median, not the mean: one mis-entered line at $32 a stem would drag a
+// mean far enough to make the next one look normal.
+function ctFamilyStemCost(family) {
+  const key = ctFamilyKey(family);
+  if (!key) return 0;
+  const per = [];
+  (ctData.invoices || []).forEach(inv => (inv.items || []).forEach(it => {
+    if (ctFamilyKey(ctItemFamily(it)) !== key) return;
+    const stems = ctLineStems(it).stems;
+    const total = ctLineTotal(it);
+    if (stems > 1 && total > 0) per.push(total / stems);
+  }));
+  if (per.length < 3) return 0;
+  per.sort((a, b) => a - b);
+  return per[Math.floor(per.length / 2)];
+}
+
+// A Stem or Each line whose quantity is really BUNCHES.
+//
+// The first version flagged any such line whose total was not the "counted in
+// bunches" shape, and that was far too broad. "50 Stem x25 @ $1.55" is fifty
+// stems costing $77.50 -- internally consistent, and $1.55 is plainly a stem
+// price -- yet it was told the price was a bunch price and the line was 1,250
+// stems. The stems-per-bunch on it had simply been carried over from an
+// earlier invoice of the same rose.
+//
+// So the test is not the arithmetic alone, it is whether the literal reading
+// gives a PLAUSIBLE price for one stem of that flower, judged against what the
+// flower has actually cost. $1.55 against a rose median of about $1.40 is
+// fine. $32 is not, and the bunch reading of the same line gives $1.28, which
+// is. With no history to judge against it stays quiet, because a guess here
+// costs an invoice being "corrected" into nonsense.
 function ctSuspectStemUnit(item) {
   const uom = String(item.uom || '').toLowerCase();
   if (uom !== 'stem' && uom !== 'each') return false;
-  return Number(item.stemsPerBu) > 1 && !ctCountsInBunches(item);
+  const per = Number(item.stemsPerBu) || 0;
+  if (per <= 1) return false;
+  const qty = Number(item.qty) || 0;
+  const total = ctLineTotal(item);
+  if (!qty || !(total > 0)) return false;
+  if (ctCountsInBunches(item)) return false;   // already understood
+
+  const median = ctFamilyStemCost(ctItemFamily(item));
+  if (!median) return false;
+
+  const literal = total / qty;             // if the quantity really is stems
+  const asBunches = total / (qty * per);   // if it is bunches
+  // Four times the going rate is not a stem, and the bunch reading has to be
+  // the sane one -- otherwise something else is wrong and this is not the fix.
+  return literal >= median * 4 &&
+         asBunches >= median * 0.25 && asBunches <= median * 4;
 }
 
 function ctComparablePrice(item) {
