@@ -59,9 +59,9 @@ in a list rather than as an invoice that never existed.
 const VENDORS = [
   { name: 'Juliet Wholesale',    email: 'julietwholesalenj@gmail.com', mode: 'pdf'  },
   { name: 'Perri Farms',         email: 'sales@perrifarms.com',        mode: 'body',
-    // Three of these on every delivery morning. 55 errors across 24 days,
-    // nine of those days landing on exactly 3.
-    skipSubjects: ['we are on our way', 'you are next', 'completed'] },
+    // Two of the three delivery-morning mails. "Completed" is deliberately
+    // NOT here -- see "Completed is evidence" below.
+    skipSubjects: ['we are on our way', 'you are next'] },
   { name: 'DVFlora',             email: 'orders@dvflora.com',          mode: 'body',
     skipSubjects: ['deleted shopping cart notice*'] },
   { name: 'Fisch Floral Supply', email: 'info@fischfloralsupply.com',  mode: 'pdf'  },
@@ -118,13 +118,58 @@ Gmail's own classification needs no guessing at all:
   const query = `from:(${vendor.email}) -category:promotions ${sinceQuery}`;
 ```
 
-**"completed" is why the match is exact.** As a substring it also swallows
-"Your order has been completed", and the cost of a wrong match is an invoice
-nobody ever reads. Matching the whole subject removes that: a mail titled
-exactly "Completed" is the status one, anything longer is not. Perri's 36
-invoices in the window all came through while those status mails were
-erroring, so nothing about their subjects collides today — and if Perri
-invoices ever stop appearing, the Skipped tab is where they will be.
+**"Completed" is evidence, and I was wrong to throw it away.**
+
+Perri sometimes place an order that never triggers an acknowledgment email at
+all. On 7 August two of them went missing: $159.52 of paperwork captured
+against a $244.97 card charge, with $85.45 simply absent. Nothing in the
+scanner can conjure an email that was never sent — but the delivery-morning
+mails still arrive, and **"Completed" is the only independent record that a
+Perri delivery happened on a given day.**
+
+Filtering it away removes the one signal that would catch a missing order on
+the day, rather than weeks later against a bank statement. So it is not in
+skipSubjects. Instead it is recorded, without a Claude call, as a delivery
+marker:
+
+```js
+// A delivery happened. No line items, nothing to parse, and no API call --
+// just the fact and the date, which is what makes a missing order findable.
+const DELIVERY_MARKERS = { 'perri farms': ['completed'] };
+
+function recordDelivery(vendorName, msg) {
+  const sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  const ss = SpreadsheetApp.openById(sheetId);
+  let sheet = ss.getSheetByName('Deliveries');
+  if (!sheet) {
+    sheet = ss.insertSheet('Deliveries');
+    sheet.appendRow(['Timestamp', 'Vendor', 'MessageId', 'DeliveryDate', 'Subject']);
+  }
+  const tz = Session.getScriptTimeZone();
+  sheet.appendRow([new Date(), vendorName, msg.getId(),
+                   Utilities.formatDate(msg.getDate(), tz, 'yyyy-MM-dd'), msg.getSubject()]);
+}
+```
+
+called in the message loop before anything else:
+
+```js
+      const markers = DELIVERY_MARKERS[String(vendor.name).toLowerCase()] || [];
+      if (markers.indexOf(String(msg.getSubject() || '').trim().toLowerCase()) !== -1) {
+        recordDelivery(vendor.name, msg);
+        recordSkip(vendor.name, msg, 'Delivery marker — recorded, not parsed');
+        return;
+      }
+```
+
+Still no Claude call, so the saving stands. What it buys is the question worth
+asking: **Perri delivered on 12 August and no invoice was captured for that
+day.** BloomBooks already reads this sheet; a Deliveries tab is one more read
+and the comparison is a date join.
+
+The exact-match rule still matters for the two that ARE skipped: "you are
+next" as a substring would swallow "Your order is next in line", and the cost
+of a wrong match is an invoice nobody ever reads.
 
 **"MWF Receipt" is a judgement call, not an obvious skip.** A receipt is a
 financial document; the reason it is safe to ignore here is that the money is
@@ -373,3 +418,117 @@ is only better if Perri emails an invoice at all. If they do not — if it is
 only ever pulled from the portal, photographed or scanned — then option 2 is
 the whole answer, because it turns "did I remember to upload the invoice for
 that day" into something the app asks rather than something to remember.
+
+---
+
+# Scanning a folder of invoices
+
+Yes, and almost all of it already exists. The script has a daily trigger, a
+PDF parser (`callClaudePdfBlob`, with an OCR fallback for scans with no text
+layer), a sheet to append to, and BloomBooks already reads that sheet. What is
+missing is one more source.
+
+**A Google Drive folder, not a local one.** BloomBooks runs in a browser on
+GitHub Pages and cannot watch a folder on the office machine — the File System
+Access API needs a click every session and cannot run unattended, which is the
+opposite of what is wanted. The Apps Script already runs daily on Google's
+side, so pointing it at a Drive folder costs nothing new.
+
+```js
+// One folder per source is deliberate: a scanner that saves everything into
+// one place gives no vendor, and guessing the supplier from a PDF is how a
+// Fall River invoice ends up filed under Perri.
+const INVOICE_FOLDERS = [
+  { name: 'Perri Farms', folderId: '<the Drive folder id>' },
+];
+```
+
+```js
+function scanInvoiceFolders() {
+  INVOICE_FOLDERS.forEach(src => {
+    let folder;
+    try { folder = DriveApp.getFolderById(src.folderId); }
+    catch (e) { logError(src.name, '', 'Cannot open folder: ' + e.message); return; }
+
+    // A "Processed" subfolder is the read marker. Moving the file is more
+    // robust than remembering ids: what has been done is visible in Drive
+    // itself, and a file dropped in twice is done twice on purpose rather
+    // than silently ignored.
+    const done = folder.getFoldersByName('Processed').hasNext()
+      ? folder.getFoldersByName('Processed').next()
+      : folder.createFolder('Processed');
+
+    const files = folder.getFilesByType(MimeType.PDF);
+    let n = 0;
+    while (files.hasNext() && n < 20) {          // a bounded run, like the mail scan
+      const file = files.next();
+      n++;
+      try {
+        const parsed = callClaudePdfBlob(file.getBlob(), file.getName());
+        if (parsed && parsed.items && parsed.items.length) {
+          appendFolderInvoice(parsed, src.name, file);
+          file.moveTo(done);
+        } else {
+          logError(src.name, file.getId(), 'No items extracted from ' + file.getName());
+          // NOT moved: a failure stays where it is so the next run tries again.
+        }
+      } catch (err) {
+        logError(src.name, file.getId(), err.message);
+      }
+    }
+  });
+}
+```
+
+```js
+// The same row shape the mail scan writes, so BloomBooks needs no change at
+// all: it dedupes on whatever is in MessageId, and a Drive file id is as good
+// an identity as a Gmail one.
+function appendFolderInvoice(parsed, vendorName, file) {
+  appendToSheet(parsed, { name: vendorName }, {
+    getId:   () => 'drive-' + file.getId(),
+    getDate: () => file.getDateCreated(),
+    getSubject: () => file.getName()
+  });
+}
+```
+
+and one line added to the daily run:
+
+```js
+function scanInvoices() {
+  VENDORS.forEach(vendor => { ... });
+  try { scanInvoiceFolders(); }
+  catch (err) { logError('folders', '', err.message); }
+}
+```
+
+## Getting the scans into that folder
+
+The one manual link, and there are three ways depending on the hardware:
+
+1. **Google Drive for Desktop** on the office machine. The scanner saves to a
+   local folder that syncs to Drive. Closest to "it just happens".
+2. **Scan to email**, to an address the script already watches. If the scanner
+   can email a PDF, it needs no folder at all — add that address to VENDORS
+   with `mode: 'pdf'` and it goes through the existing path.
+3. **The Drive app on a phone**, for a photograph. Same folder, same result.
+
+## Two things to know
+
+**A folder invoice reads as scan-sourced in BloomBooks.** Its id becomes
+`inv-gmail-drive-<fileId>`, because that prefix is how the app tells a scanned
+invoice from an uploaded one. Nothing breaks; the "via Gmail scan" wording in
+any analysis just covers both. Worth renaming the prefix if that distinction
+ever matters.
+
+**It does not replace the acknowledgment scan, it backs it up.** Both may land
+for the same order — one from the email, one from the paper — and they will
+NOT dedupe against each other, because their ids differ. Two records for one
+order is worse than one. Either scan the invoices INSTEAD of the
+acknowledgments for that vendor (drop them from VENDORS), or accept that the
+folder is only for the ones that never arrived by email.
+
+The second is fiddly to get right by hand. The first is cleaner and matches
+what the money says: the invoice is the document that is actually billed, and
+it carries the delivery charge the acknowledgment leaves off.
