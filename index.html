@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=20260903f">
+<link rel="stylesheet" href="styles.css?v=20260903g">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -413,6 +413,18 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
 <div id="panel-ct-prices" class="panel">
 <div class="page-title">Price History</div>
 <div class="page-subtitle">Track unit prices per item across suppliers and time</div>
+<div class="chart-wrap">
+<h3>📈 What a stem has cost</h3>
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+<label for="ct-cost-family" style="font-size:0.78rem;font-weight:500">Flower</label>
+<select id="ct-cost-family" onchange="renderCtCostChart()" style="font-size:0.82rem;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif;min-width:180px">
+<option value="">Pick a flower…</option>
+</select>
+<span style="font-size:0.72rem;color:var(--mist)">By family, not variety — one line for Delphinium, not one per colour and size.</span>
+</div>
+<div id="ct-cost-note" style="font-size:0.78rem;color:var(--ink-soft);margin-bottom:10px"></div>
+<div style="position:relative;height:260px"><canvas id="ct-cost-chart"></canvas></div>
+</div>
 <div style="margin-bottom:14px">
 <input type="text" id="ct-price-search" placeholder="🔍 Search for an item (e.g. 'rose', 'ribbon', 'vase')..." oninput="renderCtPrices()" style="width:100%;font-size:0.95rem;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font-family:'Inter',sans-serif">
 </div>
@@ -490,18 +502,18 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260903f"></script>
-<script src="utils.js?v=20260903f"></script>
-<script src="sync.js?v=20260903f"></script>
-<script src="ledger.js?v=20260903f"></script>
-<script src="reports.js?v=20260903f"></script>
-<script src="holiday-sync.js?v=20260903f"></script>
-<script src="epx.js?v=20260903f"></script>
-<script src="payouts.js?v=20260903f"></script>
-<script src="daily-sales.js?v=20260903f"></script>
-<script src="import-trainer.js?v=20260903f"></script>
-<script src="cost-tracker.js?v=20260903f"></script>
-<script src="init.js?v=20260903f"></script>
+<script src="config.js?v=20260903g"></script>
+<script src="utils.js?v=20260903g"></script>
+<script src="sync.js?v=20260903g"></script>
+<script src="ledger.js?v=20260903g"></script>
+<script src="reports.js?v=20260903g"></script>
+<script src="holiday-sync.js?v=20260903g"></script>
+<script src="epx.js?v=20260903g"></script>
+<script src="payouts.js?v=20260903g"></script>
+<script src="daily-sales.js?v=20260903g"></script>
+<script src="import-trainer.js?v=20260903g"></script>
+<script src="cost-tracker.js?v=20260903g"></script>
+<script src="init.js?v=20260903g"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>

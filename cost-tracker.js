@@ -4779,7 +4779,157 @@ function ctUpdatePriceHistoryRetail(key, val) {
   renderCtDashboard(); // margin/stale-margin reports depend on retail too
 }
 
+// ---------------------------------------------------------------------------
+// Cost per stem over time, for one flower family
+//
+// FAMILY, not variety, and that is the point. "Delphinium Dark Blue Bella
+// Andes Large" is not a thing anyone can be told to watch; "Delphinium" is.
+// The owner's constraint decides it -- there are many varieties and sizes, and
+// a designer cannot be asked to hold them in their head.
+//
+// Per STEM, because that is the only basis on which a bunch, a box and a stem
+// line are the same measurement. Lines whose stem count is unknown are left
+// OUT rather than plotted on a different scale, and counted so the omission is
+// visible -- the same rule the holiday purchase table follows.
+// ---------------------------------------------------------------------------
+function ctFamilyCostSeries(family) {
+  const key = ctFamilyKey(family);
+  const points = [];
+  let skipped = 0;
+  (ctData.invoices || []).forEach(inv => {
+    const d = ctEffDate(inv);
+    if (!d) return;
+    (inv.items || []).forEach(it => {
+      if (ctFamilyKey(ctItemFamily(it)) !== key) return;
+      const stems = ctLineStems(it).stems;
+      const total = ctLineTotal(it);
+      if (!stems || !(total > 0)) { skipped += 1; return; }
+      points.push({ d: d, per: total / stems, name: it.name,
+                    supplier: inv.supplier, invId: inv.id, stems: stems });
+    });
+  });
+  points.sort((a, b) => a.d.localeCompare(b.d));
+
+  // Retail is stored per ITEM, so a family has as many as it has members with
+  // one set. Averaged, and the count is shown rather than hidden, because an
+  // average over two of eleven members is a different claim from one over all
+  // eleven.
+  const retails = [];
+  const seen = {};
+  points.forEach(pt => {
+    const k = ctCatalogKey(pt.name);
+    if (seen[k]) return;
+    seen[k] = 1;
+    const r = ctData.retail[k];
+    if (r !== undefined && r > 0) retails.push(r);
+  });
+  const retail = retails.length
+    ? retails.reduce((a, b) => a + b, 0) / retails.length : null;
+
+  return { points: points, skipped: skipped, retail: retail,
+           retailCount: retails.length, members: Object.keys(seen).length };
+}
+
+// Families worth offering: flowers and greens that have at least two priced
+// purchases with a stem count. One point is not a trend and an empty chart is
+// worse than no chart.
+function ctChartableFamilies() {
+  const n = {};
+  (ctData.invoices || []).forEach(inv => (inv.items || []).forEach(it => {
+    const cat = it.category || '';
+    if (cat !== 'Flowers' && cat !== 'Greens') return;
+    const fam = ctItemFamily(it);
+    if (!fam || !ctLineStems(it).stems) return;
+    const k = ctFamilyKey(fam);
+    if (!n[k]) n[k] = { name: fam, count: 0 };
+    n[k].count += 1;
+  }));
+  return Object.keys(n).filter(k => n[k].count >= 2)
+    .map(k => n[k].name).sort((a, b) => a.localeCompare(b));
+}
+
+let ctCostChart = null;
+
+function renderCtCostChart() {
+  const sel = document.getElementById('ct-cost-family');
+  const note = document.getElementById('ct-cost-note');
+  const canvas = document.getElementById('ct-cost-chart');
+  if (!sel || !canvas) return;
+
+  const families = ctChartableFamilies();
+  if (sel.options.length !== families.length + 1) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Pick a flower…</option>' +
+      families.map(f => `<option value="${escHtml(f)}" ${f === cur ? 'selected' : ''}>${escHtml(f)}</option>`).join('');
+  }
+
+  const family = sel.value;
+  if (ctCostChart) { ctCostChart.destroy(); ctCostChart = null; }
+  if (!family) {
+    if (note) note.innerHTML = families.length
+      ? 'Pick a flower to see what a stem of it has cost, and how that sits against what you charge.'
+      : 'Nothing to chart yet — this needs at least two purchases with a stem count on them.';
+    return;
+  }
+
+  const s = ctFamilyCostSeries(family);
+  if (s.points.length < 2) {
+    if (note) note.innerHTML = `Only ${s.points.length} purchase of ${escHtml(family)} has a stem count. ` +
+      `Two are needed to show a change.`;
+    return;
+  }
+
+  const first = s.points[0], last = s.points[s.points.length - 1];
+  const move = ((last.per - first.per) / first.per) * 100;
+  const marginNow = s.retail ? ((s.retail - last.per) / s.retail) * 100 : null;
+
+  if (note) {
+    note.innerHTML =
+      `<strong>${escHtml(family)}</strong> — ${s.points.length} purchases, ` +
+      `$${first.per.toFixed(2)} to $${last.per.toFixed(2)} a stem ` +
+      `(<span style="color:${move >= 0 ? 'var(--red)' : 'var(--green)'}">${move >= 0 ? '+' : ''}${move.toFixed(0)}%</span>).` +
+      (s.retail
+        ? ` You charge $${s.retail.toFixed(2)}${s.retailCount < s.members ? ` (averaged over ${s.retailCount} of ${s.members} varieties priced)` : ''}, ` +
+          `so the margin today is <strong>${marginNow.toFixed(0)}%</strong> — ` +
+          `${(s.retail / last.per).toFixed(1)}x.`
+        : ` No retail price set for any variety of it, so there is no margin line to draw.`) +
+      (s.skipped ? `<br><span style="color:var(--mist)">${s.skipped} purchase${s.skipped === 1 ? '' : 's'} left out — no stem count, so no per-stem cost.</span>` : '');
+  }
+
+  const data = { labels: s.points.map(p => p.d), datasets: [
+    { label: 'Cost per stem', data: s.points.map(p => Math.round(p.per * 100) / 100,),
+      borderColor: '#1a5fa8', backgroundColor: 'rgba(26,95,168,0.08)',
+      fill: true, tension: 0.25, pointRadius: 3 }
+  ] };
+  if (s.retail) {
+    data.datasets.push({ label: 'What you charge', data: s.points.map(() => s.retail),
+      borderColor: '#2a7a4f', borderDash: [6, 4], pointRadius: 0, fill: false });
+  }
+
+  ctCostChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: data,
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: {
+          // The variety and the supplier are what make a spike explicable --
+          // a jump is usually a different variety, not the same one repriced.
+          afterBody: ctx => {
+            const p = s.points[ctx[0].dataIndex];
+            return p ? [p.name, p.supplier + ' · ' + p.stems + ' stems'] : [];
+          }
+        } }
+      },
+      scales: { y: { beginAtZero: true,
+                     ticks: { callback: v => '$' + Number(v).toFixed(2) } } }
+    }
+  });
+}
+
 function renderCtPrices() {
+  renderCtCostChart();
   const search = (document.getElementById('ct-price-search')?.value||'').toLowerCase();
   const cat = document.getElementById('ct-price-cat')?.value || 'all';
   const supplier = document.getElementById('ct-price-supplier')?.value || 'all';
