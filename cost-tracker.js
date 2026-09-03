@@ -46,8 +46,27 @@ function ctGuessCategory(name) {
   const careKw = ['floral foam','oasis foam','flower food','preservative','floralife','floral tape','anchor pin','chicken wire','floral adhesive','floral glue'];
   const seasonalKw = ['glass ball','ornament','christmas','holiday pick','poinsettia pick','snowflake pick'];
   const addonKw = ['candle','chocolate','greeting card','stuffed animal','balloon','gift bag','plush'];
-  const flowerKw = ['rose','sprose','lil','tulip','orchid','sunflow','delph','snap','stock','alstr','peony','dahlia','gerbera','iris','ranunc','anemon','freesia','lisianthus','cdn','mum','chrysanth','disb','pom','carna','spray rose','spray mum','spray chrysanth','protea','heliconia','anthurium','bird of paradise','hydrangea','wax','snapdragon','cremon','solidago','soledago','limonium','statice','campanula','gyps','dianthus'];
-  const greensKw = ['eucal','fern','ruscus','salal','pittospo','asparagus','leather','tree fern','lemon leaf','israeli ruscus','bear grass','lily grass','monstera','palm','green','foliage','ivy','huck','myrtle','seeded','bupleur','parvifolia','teepee'];
+  const flowerKw = ['rose','sprose','lil','tulip','orchid','sunflow','delph','snap','stock','alstr','peony','dahlia','gerbera','iris','ranunc','anemon','freesia','lisianthus','cdn','mum','chrysanth','disb','pom','carna','spray rose','spray mum','spray chrysanth','protea','heliconia','anthurium','bird of paradise','hydrangea','wax','snapdragon','cremon','solidago','soledago','limonium','statice','campanula','gyps','dianthus','peon','strawflower','riceflower','cornflower','corn flower','hydrang','scabiosa','larkspur','gladiol','marigold','gomphrena','ageratum','origanum','echinacea','astrantia','didiscus','hypericum','kangaroo paw','brassica','agapanth','eryngium','thistle','cymbidium','dendrob','anastasia','iconfetti','mardi gras','monte cassino','montecasino','craspedia','billy ball','tuberose','godetia','trachelium','ammi','matthiola','helleborus','amaranth','sunflower','calla','cosmos','freesia','muscari','hyacinth','narciss','daffodil','crocus','aconitum','physostegia','liatris','asclepias'];
+  const greensKw = ['eucal','fern','ruscus','salal','pittospo','asparagus','leather','tree fern','lemon leaf','israeli ruscus','bear grass','lily grass','monstera','palm','green','foliage','ivy','huck','myrtle','seeded','bupleur','parvifolia','teepee','tee pee','leucadendron','jasmine vine','ruscus','dusty miller','magnolia','boxwood','cedar','pine','juniper','silver dollar','baby blue','curly willow','willow curly','willow tips','sword fern','plumosus','equisetum'];
+  // Matched at a WORD BOUNDARY, not as a substring, for names that would
+  // otherwise collide: 'aster' as a substring is inside "Easter", so an Easter
+  // basket would be filed as a flower. aster does not match it.
+  // 'bell' is deliberately absent: it would take "Bell Cup Vase" as a flower,
+  // and Bells of Ireland is filed as Greens more often than not in this book.
+  // That is the owner's judgement about a filler, not a keyword's to make.
+  // No COLOUR words here -- 'lavender' took "#9 Wired Lavender Sheer 50yd", a
+  // ribbon, as a flower. 'mint' and 'sage' are the same hazard and buy nothing
+  // this book needs. Nor 'willow', which took a white willow BASKET as greens;
+  // the green is the tips, matched as a phrase below.
+  const flowerWordKw = ['aster','spider','daisy','dill','poppy','phlox','yarrow',
+    'zinnia','allium','anemone','veronica','celosia','nigella','sedum','clematis'];
+  const greensWordKw = ['ivy','pitto','acacia','ruskus','lemon','olive',
+    'grass','aspidistra','plumosa','umbrella'];
+  // TWO backslashes. '\b' in a JS string literal is a BACKSPACE character, so
+  // new RegExp('\b' + kw) looks for a literal backspace and never matches
+  // anything -- silently, which is how it got here. '\\b' is the word boundary.
+  const word = list => list.some(kw => new RegExp('\\b' + kw).test(key));
+
   const ceramicKw = ['ceramic','terracotta','clay pot'];
   const glassKw = ['glass','vase'];
   const packagingKw = ['bag','tissue','cello','kraft','wrap','shipping box','staple','tape'];
@@ -61,8 +80,8 @@ function ctGuessCategory(name) {
   if (careKw.some(kw => key.includes(kw))) return 'Floral Care';
   if (seasonalKw.some(kw => key.includes(kw))) return 'Seasonal';
   if (addonKw.some(kw => key.includes(kw))) return 'Add-on Retail';
-  if (flowerKw.some(kw => key.includes(kw))) return 'Flowers';
-  if (greensKw.some(kw => key.includes(kw))) return 'Greens';
+  if (flowerKw.some(kw => key.includes(kw)) || word(flowerWordKw)) return 'Flowers';
+  if (greensKw.some(kw => key.includes(kw)) || word(greensWordKw)) return 'Greens';
   if (ceramicKw.some(kw => key.includes(kw))) return 'Ceramic';
   if (glassKw.some(kw => key.includes(kw))) return 'Glass';
   if (packagingKw.some(kw => key.includes(kw))) return 'Packaging';
