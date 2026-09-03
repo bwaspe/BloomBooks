@@ -3143,30 +3143,110 @@ function ctMatchTolerance(target) {
   return Math.min(200, Math.max(5, Math.round(Math.abs(target) * 0.005)));
 }
 
-// Returns the matching subset, or -- when nothing matches -- how close the best
-// available combination got. That is what separates a genuinely missing invoice
-// (nowhere near, or no candidates at all) from a rounding difference.
-function ctFindSubset(items, target) {
-  const tol = ctMatchTolerance(target);
+// A couple of cents is rounding. Anything more is a difference with a reason.
+const CT_EXACT_CENTS = 2;
+
+// The delivery charge a supplier habitually adds, learned from their own
+// invoices rather than configured. Needs several sightings, because one
+// invoice with a freight line does not make a habit.
+function ctUsualDeliveryFee(supplier) {
+  const seen = {};
+  // ctSameVendor, not string equality: the bank says 'A. Perri Farms' and the
+  // invoice says 'Perri Farms'. Comparing the normalised strings directly found
+  // no invoices at all, so the habit was always zero and the explanation never
+  // fired -- on the very payment it was written for.
+  (ctData.invoices || []).forEach(i => {
+    if (!ctSameVendor(supplier, i.supplier)) return;
+    const f = Math.round((i.deliveryFee || 0) * 100);
+    if (f > 0) seen[f] = (seen[f] || 0) + 1;
+  });
+  let best = 0, n = 0;
+  Object.keys(seen).forEach(k => { if (seen[k] > n) { n = seen[k]; best = Number(k); } });
+  return n >= 3 ? best : 0;   // cents
+}
+
+// The BEST combination of up to four invoices, not the first one inside a
+// tolerance.
+//
+// Taking the first was the flaw. A payment of $695.22 was declared reconciled
+// against three invoices summing to $696.56 -- $1.34 out, inside the $2
+// tolerance -- while the single invoice that was EXACTLY the payment minus
+// Perri's $16.50 delivery charge sat unexamined in the same list. It also
+// consumed three invoices that belonged to other payments, degrading every
+// later match in the window.
+function ctBestSubset(items, target) {
   const n = items.length;
   let best = null;
   const consider = (sum, pick) => {
-    if (Math.abs(sum - target) <= tol) return pick;
-    if (!best || Math.abs(sum - target) < Math.abs(best.sum - target)) best = { sum, pick };
-    return null;
+    const d = Math.abs(sum - target);
+    // Fewest invoices wins a tie: two documents adding up by luck is a worse
+    // explanation than one that simply matches.
+    if (!best || d < best.diff || (d === best.diff && pick.length < best.pick.length)) {
+      best = { sum: sum, pick: pick, diff: d };
+    }
   };
-  let hit = null;
-  for (let i = 0; i < n && !hit; i++) hit = consider(items[i].c, [items[i]]);
-  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
-    hit = consider(items[i].c + items[j].c, [items[i], items[j]]);
-  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
-    for (let k = j + 1; k < n && !hit; k++)
-      hit = consider(items[i].c + items[j].c + items[k].c, [items[i], items[j], items[k]]);
-  for (let i = 0; i < n && !hit; i++) for (let j = i + 1; j < n && !hit; j++)
-    for (let k = j + 1; k < n && !hit; k++) for (let l = k + 1; l < n && !hit; l++)
-      hit = consider(items[i].c + items[j].c + items[k].c + items[l].c,
-                     [items[i], items[j], items[k], items[l]]);
-  return { hit: hit, best: best, candidates: n };
+  for (let i = 0; i < n; i++) {
+    consider(items[i].c, [items[i]]);
+    for (let j = i + 1; j < n; j++) {
+      consider(items[i].c + items[j].c, [items[i], items[j]]);
+      for (let k = j + 1; k < n; k++) {
+        consider(items[i].c + items[j].c + items[k].c, [items[i], items[j], items[k]]);
+        for (let l = k + 1; l < n; l++) {
+          consider(items[i].c + items[j].c + items[k].c + items[l].c,
+                   [items[i], items[j], items[k], items[l]]);
+        }
+      }
+    }
+  }
+  return best;
+}
+
+// Why a payment and its paperwork differ. "Some combination came within $2" is
+// not an explanation, and reporting it as a clean match hid two real ones.
+//
+//   exact  the invoices ARE the payment
+//   fee    exact once the supplier's habitual delivery charge is added -- the
+//          charge is on the invoice but not on the order acknowledgment that
+//          was scanned
+//   short  the paperwork totals MORE than was paid. For the suppliers whose
+//          orders are scanned rather than their invoices, a backordered line
+//          is ordered but never charged
+//   loose  inside tolerance but not exact, and now said out loud
+//   none   nothing close
+function ctClassifyPayment(cands, target, supplier) {
+  const plain = ctBestSubset(cands, target);
+  if (!plain) return { kind: 'none', best: null, candidates: cands.length };
+  if (plain.diff <= CT_EXACT_CENTS) {
+    return { kind: 'exact', pick: plain.pick, diff: plain.diff, candidates: cands.length };
+  }
+
+  const fee = ctUsualDeliveryFee(supplier);
+  if (fee) {
+    const less = ctBestSubset(cands, target - fee);
+    if (less && less.diff <= CT_EXACT_CENTS) {
+      return { kind: 'fee', pick: less.pick, fee: fee, diff: less.diff,
+               candidates: cands.length };
+    }
+  }
+
+  const tol = ctMatchTolerance(target);
+  // Overshooting by a plausible amount reads as a backorder; overshooting by
+  // half the payment reads as the wrong invoices.
+  if (plain.sum > target && plain.diff > tol && plain.diff <= Math.max(2000, target * 0.4)) {
+    return { kind: 'short', pick: plain.pick, diff: plain.diff, candidates: cands.length };
+  }
+  if (plain.diff <= tol) {
+    return { kind: 'loose', pick: plain.pick, diff: plain.diff, candidates: cands.length };
+  }
+  return { kind: 'none', best: plain, candidates: cands.length };
+}
+
+// Kept for callers and tests that still ask the old question.
+function ctFindSubset(items, target) {
+  const r = ctClassifyPayment(items, target, items.length ? items[0].sup : '');
+  const best = ctBestSubset(items, target);
+  return { hit: (r.kind === 'exact' || r.kind === 'loose') ? r.pick : null,
+           best: best, candidates: items.length };
 }
 
 const ctCents = n => Math.round(Number(n || 0) * 100);
@@ -3208,6 +3288,24 @@ function ctReconcileFrom() {
   return ctData.reconcileFrom || ctReconcileDefault();
 }
 
+// Adds the supplier's habitual delivery charge to the invoice the reconciler
+// matched. Only ever from a click: the reconciler names the explanation, the
+// owner agrees to it. Writing it automatically would put a number on a
+// document that does not say it, which is the thing this whole trail is about.
+function ctApplyDeliveryFee(invoiceId, cents) {
+  const inv = ctData.invoices.find(i => i.id === invoiceId);
+  if (!inv) { notify('That invoice is no longer here'); return; }
+  const add = Number(cents) / 100;
+  if (!(add > 0)) return;
+  inv.deliveryFee = Math.round(((inv.deliveryFee || 0) + add) * 100) / 100;
+  inv.total = Math.round(((inv.total || 0) + add) * 100) / 100;
+  ctSave();
+  notify(`Added $${add.toFixed(2)} delivery to ${inv.supplier} ${inv.invoiceNumber || ''}`.trim());
+  renderCtDashboard();
+  if (typeof renderCtPrices === 'function') renderCtPrices();
+  if (typeof renderHolidayPanel === 'function') renderHolidayPanel();
+}
+
 function ctSetReconcileFrom(val) {
   const v = String(val || '').trim();
   ctData.reconcileFrom = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
@@ -3218,16 +3316,24 @@ function ctSetReconcileFrom(val) {
     : 'Back to starting from the month after the first invoice');
 }
 
-function ctUnmatchedPayments() {
+// The walk is shared, the two answers are not. ctUnmatchedPayments keeps its
+// name and its meaning -- payments with NO paperwork -- because five callers
+// and four test suites rely on exactly that. Returning explained rows from it
+// as well was a rename by stealth.
+function ctUnmatchedPayments() { return ctReconcilePayments().missing; }
+function ctExplainedPayments() { return ctReconcilePayments().explained; }
+
+function ctReconcilePayments() {
   const invoices = ctData.invoices.filter(i => ctEffDate(i));
-  if (!invoices.length) return [];
+  if (!invoices.length) return { missing: [], explained: [] };
   const start = ctReconcileFrom();
   const cutoff = ctShiftDay(new Date().toISOString().slice(0, 10), -CT_GRACE_DAYS);
 
   // An invoice may only settle one payment, so matches are consumed as they go.
   const pool = invoices.map(i => ({ d: ctEffDate(i), c: ctCents(i.total),
-                                    sup: i.supplier, used: false }));
-  const out = [];
+                                    sup: i.supplier, id: i.id,
+                                    num: i.invoiceNumber || '', used: false }));
+  const out = [], explained = [];
   ctCogsPayments().forEach(t => {
     if (t.date < start || t.date > cutoff) return;
     if ((ctData.dismissedPayments || {})[t.id]) return;
@@ -3239,8 +3345,25 @@ function ctUnmatchedPayments() {
     const lo = ctShiftDay(t.date, -CT_LAG_BACK), hi = ctShiftDay(t.date, CT_LAG_FWD);
     const cands = pool.filter(p => !p.used && p.d >= lo && p.d <= hi && ctSameVendor(name, p.sup));
     const target = ctCents(t.amount);
-    const r = ctFindSubset(cands, target);
-    if (r.hit) { r.hit.forEach(p => { p.used = true; }); return; }
+    const r = ctClassifyPayment(cands, target, name);
+
+    // Settled invoices come out of the pool so they cannot settle a second
+    // payment. A SHORT match deliberately does not consume: the paperwork
+    // totals more than was paid, so part of it is still owed and may well be
+    // what a later payment covers -- and consuming it also robbed the
+    // unlinked-vendor suggestions of the very invoices they name.
+    if (r.pick && r.kind !== 'short') r.pick.forEach(p => { p.used = true; });
+    if (r.kind === 'exact') return;
+
+    // Explained, but not clean. These used to be reported as reconciled, which
+    // is how a $16.50 delivery charge went missing 11 times without a word.
+    if (r.kind === 'fee' || r.kind === 'short' || r.kind === 'loose') {
+      explained.push({ ...t, kind: r.kind, diff: r.diff, fee: r.fee || 0,
+                 picked: r.pick.map(p => ({ d: p.d, c: p.c, sup: p.sup,
+                                            id: p.id, num: p.num })) });
+      return;
+    }
+
     // Carried so each row can say WHY, which is what decides the response:
     // chase an invoice, link a name, or silence a vendor that never had one.
     let why, suggest = [];
@@ -3263,7 +3386,12 @@ function ctUnmatchedPayments() {
       // against a supermarket run is worse than offering nothing. Only names
       // that actually start alike: 'DVFG' and 'DVFlora' share two letters,
       // 'Trader Joes' shares none with anyone.
-      const near = [...new Set(pool.filter(p => !p.used && p.d >= lo && p.d <= hi)
+      // Deliberately NOT filtered to unsettled invoices. This suggestion is
+      // about NAMES -- "the bank writes DVFG, your invoices say DVFlora" --
+      // and that is true whether or not the particular invoice nearby has
+      // already been settled by another payment. Requiring an unused one made
+      // the advice disappear as soon as the matcher got better at its job.
+      const near = [...new Set(pool.filter(p => p.d >= lo && p.d <= hi)
                                    .map(p => p.sup))]
         .filter(sup => ctNamePrefixOverlap(name, sup) >= 2);
       if (!known && near.length) {
@@ -3280,7 +3408,7 @@ function ctUnmatchedPayments() {
     }
     out.push(Object.assign({}, t, { _why: why, _cands: cands.length, _suggest: suggest }));
   });
-  return out;
+  return { missing: out, explained: explained };
 }
 
 function ctIgnoreVendor(id) {
@@ -3359,14 +3487,19 @@ function renderCtMissingInvoices() {
   const restore =
     (dismissed ? ` <a href="#" onclick="ctRestoreDismissedPayments();return false" style="color:var(--link)">Restore ${dismissed} dismissed</a>.` : '') +
     (ignored ? ` <a href="#" onclick="ctExpectInvoicesAgain();return false" style="color:var(--link)">Expect invoices from ${ignored} silenced vendor${ignored === 1 ? '' : 's'} again</a>.` : '');
-  let missing = [];
-  try { missing = ctUnmatchedPayments(); }
+  // Two different findings that used to be one. A payment with NO paperwork is
+  // something to go and find; a payment whose paperwork is short by exactly the
+  // delivery charge is something to agree to. Mixing them made the second
+  // invisible -- it was reported as a clean match for two months.
+  let missing = [], explained = [];
+  try { const r = ctReconcilePayments(); missing = r.missing; explained = r.explained; }
   catch (e) { el.innerHTML = ''; return; }   // never take the dashboard down with it
+  const explainedHtml = ctExplainedPaymentsHtml(explained);
 
   if (!missing.length) {
     el.innerHTML = `<div style="margin-bottom:16px;padding:10px 12px;border-radius:6px;
       background:var(--paper);border:1px solid var(--border);font-size:0.78rem;color:var(--mist)">
-      Every COGS payment has an invoice behind it.${restore}${fromLine}</div>`;
+      Every COGS payment has an invoice behind it.${restore}${fromLine}</div>` + explainedHtml;
     return;
   }
 
@@ -3416,6 +3549,67 @@ function renderCtMissingInvoices() {
       </div>
       ${missing.length > 40 ? `<div style="font-size:0.72rem;color:var(--ink-soft);margin-top:6px">
         …and ${missing.length - 40} more.</div>` : ''}
+    </div>` + explainedHtml;
+}
+
+// Payments whose invoices ARE here, but do not add up to them. Rendered apart
+// from the missing-paperwork list because the response is different: nothing to
+// go and find, something to agree to or explain.
+function ctExplainedPaymentsHtml(rows) {
+  if (!rows.length) return '';
+  const money = c => '$' + (c / 100).toFixed(2);
+  const label = {
+    fee:   ['Delivery charge not on the paperwork', 'var(--red)'],
+    short: ['Paid less than the paperwork', 'var(--ink-soft)'],
+    loose: ['Adds up, but not to the cent', 'var(--mist)']
+  };
+  const line = t => {
+    const picked = (t.picked || []);
+    const names = picked.map(p => p.num ? '#' + p.num : p.d).join(' + ');
+    if (t.kind === 'fee') {
+      const one = picked.length === 1 ? picked[0] : null;
+      return `${escHtml(names)} ${money(picked.reduce((s, p) => s + p.c, 0))}
+        + ${money(t.fee)} delivery = ${fmt(t.amount)} exactly.
+        ${one ? `<button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:4px"
+          onclick="ctApplyDeliveryFee('${ctJsArg(one.id)}', ${t.fee})"
+          title="Add the charge to that invoice">add ${money(t.fee)}</button>` : ''}`;
+    }
+    if (t.kind === 'short') {
+      return `${escHtml(names)} total ${money(picked.reduce((s, p) => s + p.c, 0))},
+        ${money(t.diff)} more than was paid — a backordered line is ordered but never charged.`;
+    }
+    return `${escHtml(names)} come to ${money(picked.reduce((s, p) => s + p.c, 0))},
+      ${money(t.diff)} out.`;
+  };
+  const order = ['fee', 'short', 'loose'];
+  return `
+    <div style="margin-bottom:16px;padding:12px 14px;border-radius:8px;
+                background:var(--paper);border:1px solid var(--border)">
+      <strong style="font-size:0.85rem">${rows.length} payment${rows.length === 1 ? '' : 's'}
+        whose invoices do not add up to them</strong>
+      <div style="font-size:0.74rem;color:var(--ink-soft);margin:4px 0 10px">
+        The paperwork is here — these are differences with a reason. Until now any
+        combination within $2 was reported as a clean match, which is how a $16.50
+        delivery charge went missing without a word.
+      </div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Vendor</th><th style="text-align:right">Paid</th>
+                     <th>What the difference is</th></tr></thead>
+          <tbody>
+            ${order.flatMap(k => rows.filter(t => t.kind === k)).slice(0, 40).map(t => `
+              <tr>
+                <td style="white-space:nowrap">${escHtml(t.date)}</td>
+                <td>${escHtml(String(t.vendor || t.desc || '').slice(0, 34))}</td>
+                <td class="amount-out" style="text-align:right">${fmt(t.amount)}</td>
+                <td style="font-size:0.7rem;color:var(--ink-soft)">
+                  <span style="color:${label[t.kind][1]};font-weight:500">${label[t.kind][0]}</span><br>
+                  ${line(t)}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 
