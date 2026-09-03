@@ -424,7 +424,7 @@ function ctDayFeeState(supplier, effDate, selfKey) {
     if (covered || !(i.deliveryFee > 0)) return;
     if (ctEffDate(i) !== effDate || !ctSameVendor(supplier, i.supplier)) return;
     covered = { where: 'saved', label: i.invoiceNumber ? '#' + i.invoiceNumber : 'an invoice',
-                amount: Math.round(i.deliveryFee * 100) };
+                id: i.id, amount: Math.round(i.deliveryFee * 100) };
   });
 
   const pend = (list, key, dateOf) => (list || []).forEach((p, idx) => {
@@ -462,7 +462,8 @@ function ctDeliveryFeeNoteHtml(opts) {
   if (st.covered) {
     return `<div style="${w}font-size:0.66rem;color:var(--mist);margin-top:3px">
       Delivery charge ${money(st.covered.amount)} already on ${escHtml(st.covered.label)}
-      for ${escHtml(effDate)}.</div>`;
+      for ${escHtml(effDate)}.${st.covered.where === 'saved'
+        ? ctOpenLineBtn(st.covered.id, 'Open the invoice carrying the charge') : ''}</div>`;
   }
   if (!effDate) {
     return `<div style="${w}font-size:0.66rem;color:var(--mist);margin-top:3px">
@@ -3669,22 +3670,28 @@ function ctExplainedPaymentsHtml(rows) {
     short: ['Paid less than the paperwork', 'var(--ink-soft)'],
     loose: ['Adds up, but not to the cent', 'var(--mist)']
   };
+  // Every invoice named here opens. Naming one is how you find out it is wrong,
+  // and the invoice is the only place it can be put right -- the same rule the
+  // rest of the cost tracker follows, which I had just finished applying
+  // everywhere else and then broke on the screen I was adding.
   const line = t => {
     const picked = (t.picked || []);
-    const names = picked.map(p => p.num ? '#' + p.num : p.d).join(' + ');
+    const names = picked.map(p =>
+      escHtml(p.num ? '#' + p.num : p.d) + ctOpenLineBtn(p.id, 'Open this invoice')
+    ).join(' + ');
     if (t.kind === 'fee') {
       const one = picked.length === 1 ? picked[0] : null;
-      return `${escHtml(names)} ${money(picked.reduce((s, p) => s + p.c, 0))}
+      return `${names} ${money(picked.reduce((s, p) => s + p.c, 0))}
         + ${money(t.fee)} delivery = ${fmt(t.amount)} exactly.
         ${one ? `<button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px;margin-left:4px"
           onclick="ctApplyDeliveryFee('${ctJsArg(one.id)}', ${t.fee})"
           title="Add the charge to that invoice">add ${money(t.fee)}</button>` : ''}`;
     }
     if (t.kind === 'short') {
-      return `${escHtml(names)} total ${money(picked.reduce((s, p) => s + p.c, 0))},
+      return `${names} total ${money(picked.reduce((s, p) => s + p.c, 0))},
         ${money(t.diff)} more than was paid — a backordered line is ordered but never charged.`;
     }
-    return `${escHtml(names)} come to ${money(picked.reduce((s, p) => s + p.c, 0))},
+    return `${names} come to ${money(picked.reduce((s, p) => s + p.c, 0))},
       ${money(t.diff)} out.`;
   };
   const order = ['fee', 'short', 'loose'];
