@@ -697,6 +697,25 @@ th.sortable:hover { background: var(--border); }
   #sidebar, #sidebar-backdrop, .sidebar-tab, .no-print,
   button, .btn { display: none !important; }
 
+  /* THE one that mattered, and it was never the tables.
+     
+     The app is a fixed-height, internally-scrolling layout: body and #layout
+     are 720px with overflow hidden, and #main-content scrolls inside them. On
+     paper that means exactly one screenful exists -- everything below it is
+     clipped by the body, whatever the tables inside do. Opening the scroll
+     boxes and letting rows break was necessary and did nothing on its own,
+     because the page was already cut off above them.
+     
+     #layout is a flex row for the sidebar, which is hidden here, so it becomes
+     a plain block and the content flows to whatever length it needs. */
+  html, body, #layout, #main-content, #app-header {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #layout, #main-content { display: block !important; }
+  #app-header { display: none !important; }
+
   body {
     background: #fff !important;
     color: #000 !important;
