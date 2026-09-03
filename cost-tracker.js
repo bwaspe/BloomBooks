@@ -3290,39 +3290,46 @@ function ctUsualDeliveryFee(supplier) {
   return n >= 3 ? best : 0;   // cents
 }
 
-// The BEST combination of up to four invoices, not the first one inside a
-// tolerance.
+// The BEST combination of invoices, not the first one inside a tolerance, and
+// not capped at four of them.
 //
-// Taking the first was the flaw. A payment of $695.22 was declared reconciled
-// against three invoices summing to $696.56 -- $1.34 out, inside the $2
-// tolerance -- while the single invoice that was EXACTLY the payment minus
-// Perri's $16.50 delivery charge sat unexamined in the same list. It also
-// consumed three invoices that belonged to other payments, degrading every
-// later match in the window.
+// Two flaws, both found the same way. Taking the FIRST match declared a $695.22
+// payment reconciled against three invoices summing to $696.56 -- $1.34 out,
+// inside the $2 tolerance -- while the single invoice that was exactly the
+// payment minus Perri's $16.50 delivery charge sat unexamined in the same list.
+// And the four-deep loops could not see a Main Wholesale payment that was
+// exactly FIVE invoices, so it reported 72 cents out for ever.
+//
+// Depth-first over invoices sorted large-first, with the prune that makes it
+// cheap: every invoice is a positive amount, so once a running sum reaches the
+// target, adding anything to it can only move further away. A node budget
+// bounds the worst case rather than trusting the prune alone.
 function ctBestSubset(items, target) {
-  const n = items.length;
-  let best = null;
-  const consider = (sum, pick) => {
+  const arr = items.slice().sort((a, b) => b.c - a.c);
+  const n = arr.length;
+  let best = null, budget = 400000;
+  const cur = [];
+  const visit = sum => {
     const d = Math.abs(sum - target);
     // Fewest invoices wins a tie: two documents adding up by luck is a worse
     // explanation than one that simply matches.
-    if (!best || d < best.diff || (d === best.diff && pick.length < best.pick.length)) {
-      best = { sum: sum, pick: pick, diff: d };
+    if (!best || d < best.diff || (d === best.diff && cur.length < best.pick.length)) {
+      best = { sum: sum, pick: cur.slice(), diff: d };
     }
   };
-  for (let i = 0; i < n; i++) {
-    consider(items[i].c, [items[i]]);
-    for (let j = i + 1; j < n; j++) {
-      consider(items[i].c + items[j].c, [items[i], items[j]]);
-      for (let k = j + 1; k < n; k++) {
-        consider(items[i].c + items[j].c + items[k].c, [items[i], items[j], items[k]]);
-        for (let l = k + 1; l < n; l++) {
-          consider(items[i].c + items[j].c + items[k].c + items[l].c,
-                   [items[i], items[j], items[k], items[l]]);
-        }
-      }
+  const dfs = (i, sum) => {
+    if (cur.length) visit(sum);
+    if (best && best.diff === 0) return;      // nothing beats exact
+    if (sum >= target || i >= n || budget <= 0) return;
+    for (let k = i; k < n; k++) {
+      budget--;
+      cur.push(arr[k]);
+      dfs(k + 1, sum + arr[k].c);
+      cur.pop();
+      if ((best && best.diff === 0) || budget <= 0) return;
     }
-  }
+  };
+  dfs(0, 0);
   return best;
 }
 
@@ -3485,6 +3492,11 @@ function ctReconcilePayments() {
     // is how a $16.50 delivery charge went missing 11 times without a word.
     if (r.kind === 'fee' || r.kind === 'short' || r.kind === 'loose') {
       explained.push({ ...t, kind: r.kind, diff: r.diff, fee: r.fee || 0,
+                 // Signed, because "44 cents out" does not say which way, and
+                 // which way is the whole question: paid more than the
+                 // paperwork means paperwork is missing, paid less means the
+                 // supplier did not charge for something.
+                 signed: target - r.pick.reduce((n, p) => n + p.c, 0),
                  picked: r.pick.map(p => ({ d: p.d, c: p.c, sup: p.sup,
                                             id: p.id, num: p.num })) });
       return;
@@ -3708,10 +3720,13 @@ function ctExplainedPaymentsHtml(rows) {
     }
     if (t.kind === 'short') {
       return `${names} total ${money(picked.reduce((s, p) => s + p.c, 0))},
-        ${money(t.diff)} more than was paid — a backordered line is ordered but never charged.`;
+        ${money(t.diff)} MORE than was paid — a backordered line is ordered but never charged.`;
     }
-    return `${names} come to ${money(picked.reduce((s, p) => s + p.c, 0))},
-      ${money(t.diff)} out.`;
+    const sum = picked.reduce((s, p) => s + p.c, 0);
+    const way = t.signed > 0
+      ? `the payment is ${money(t.signed)} MORE than the paperwork — something small is missing`
+      : `the payment is ${money(-t.signed)} LESS than the paperwork — a credit, or a line not charged`;
+    return `${names} come to ${money(sum)}; ${way}.`;
   };
   const order = ['fee', 'short', 'loose'];
   return `
@@ -3722,12 +3737,15 @@ function ctExplainedPaymentsHtml(rows) {
       <div style="font-size:0.74rem;color:var(--ink-soft);margin:4px 0 10px">
         The paperwork is here — these are differences with a reason. Until now any
         combination within $2 was reported as a clean match, which is how a $16.50
-        delivery charge went missing without a word.
+        delivery charge went missing without a word. A difference of a few cents
+        with no exact combination behind it will not resolve on its own:
+        <strong>settle</strong> accepts it and stops the reporting, and it can be
+        restored later.
       </div>
       <div class="staging-table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Vendor</th><th style="text-align:right">Paid</th>
-                     <th>What the difference is</th></tr></thead>
+                     <th>What the difference is</th><th style="width:1%"></th></tr></thead>
           <tbody>
             ${order.flatMap(k => rows.filter(t => t.kind === k)).slice(0, 40).map(t => `
               <tr>
@@ -3737,6 +3755,11 @@ function ctExplainedPaymentsHtml(rows) {
                 <td style="font-size:0.7rem;color:var(--ink-soft)">
                   <span style="color:${label[t.kind][1]};font-weight:500">${label[t.kind][0]}</span><br>
                   ${line(t)}
+                </td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+                          onclick="ctDismissPayment('${ctJsArg(t.id)}')"
+                          title="Accept the difference and stop reporting this payment">settle</button>
                 </td>
               </tr>`).join('')}
           </tbody>
