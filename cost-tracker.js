@@ -1880,9 +1880,26 @@ function ctLineIssues(item) {
   // raises a 1678% price alert against the same rose bought properly.
   // ctSuspectStemUnit spots it; this is where it can be put right.
   if (ctSuspectStemUnit(item)) {
-    out.push({ level: 'warn', fixUom: 'Bunch',
-      text: `Unit says ${uom} but $${ctUnitPrice(item).toFixed(2)} is a bunch price — ` +
-            `${qty} × ${per} = ${qty * per} stems` });
+    const price = ctUnitPrice(item);
+    const total = ctLineTotal(item);
+    const asBunches = qty * per;
+    // Two different faults wear the same shape, and calling both "the price is
+    // per bunch" was wrong. Say which it is, from the arithmetic.
+    if (Math.abs(total - qty * price) < 0.02) {
+      // The total is quantity x price, so the price IS the bunch price.
+      out.push({ level: 'warn', fixUom: 'Bunch',
+        text: `Unit says ${uom} but $${price.toFixed(2)} is a bunch price — ` +
+              `${qty} × ${per} = ${asBunches} stems` });
+    } else {
+      // Neither reading gives the printed total, so a figure is a little off.
+      // The total is the sound one -- it is what was charged, and it sums to
+      // the invoice -- so it decides what a stem cost.
+      const implied = asBunches ? total / asBunches : 0;
+      out.push({ level: 'warn', fixUom: 'Bunch',
+        text: `$${total.toFixed(2)} is not ${qty} × ${per} × $${price.toFixed(2)} ` +
+              `($${(qty * per * price).toFixed(2)}) — as ${asBunches} stems it works out ` +
+              `at $${implied.toFixed(2)} each` });
+    }
   }
 
   // No stem count where this family normally has one. A family sold by the
