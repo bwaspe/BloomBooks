@@ -3264,12 +3264,24 @@ function ctCogsPayments() {
 // $236.83 -- three tenths of a percent. So half a percent is allowed, floored
 // at five cents so a small payment cannot match a merely similar invoice, and
 // capped at two dollars so a large one cannot match by coincidence.
-function ctMatchTolerance(target) {
-  return Math.min(200, Math.max(5, Math.round(Math.abs(target) * 0.005)));
+// Five cents, flat. It used to scale to half a percent, up to $2 on a large
+// payment -- and $2 of slack across nine candidate invoices is enough for
+// subset-sum to hit almost any number by luck, which is how a $16.50 delivery
+// charge hid inside a "clean match" for two months.
+//
+// The owner's suppliers do not differ by cents: an invoice is paid to the cent
+// or it is not that invoice. So a difference of more than a few cents is not
+// rounding to be absorbed, it is a document that is missing -- and saying so is
+// the whole point. The five cents that remain cover a stored total that was
+// rounded on the way in, nothing more.
+function ctMatchTolerance() {
+  return 5;
 }
 
-// A couple of cents is rounding. Anything more is a difference with a reason.
-const CT_EXACT_CENTS = 2;
+// The same five cents ctMatchTolerance allows. Two different thresholds left a
+// pointless three-cent band where a payment was neither exact nor a real
+// difference, and 'loose' existed only to describe it.
+const CT_EXACT_CENTS = 5;
 
 // The delivery charge a supplier habitually adds, learned from their own
 // invoices rather than configured. Needs several sightings, because one
@@ -3453,6 +3465,64 @@ function ctSetReconcileFrom(val) {
 // name and its meaning -- payments with NO paperwork -- because five callers
 // and four test suites rely on exactly that. Returning explained rows from it
 // as well was a rename by stealth.
+// How long after an invoice a vendor's money actually moves, measured rather
+// than assumed.
+//
+// The blanket window -- 16 days back, 3 forward -- is far too wide for most of
+// them, and width is what lets subset-sum invent explanations. On 7 August a
+// $244.97 Perri payment was declared a match 22 cents out by combining four
+// invoices from across 19 days, when the truth was two invoices totalling
+// $159.52 and $85.45 of paperwork that never arrived by email.
+//
+// Learned ONLY from payments a SINGLE invoice settles exactly. One invoice
+// matching a payment to the cent cannot be a coincidence of adding several
+// together -- and multi-invoice matches inside a 19-day window are precisely
+// the ones that might be wrong, so learning from them would teach the error.
+//
+// Five samples before narrowing anything. Below that the blanket window stands,
+// which today means only Perri (same day, sometimes the next) and Main
+// Wholesale (they key sales in the following day) are narrowed at all.
+const CT_LAG_MIN_SAMPLES = 5;
+
+function ctVendorLags() {
+  const lags = {};
+  const pays = ctCogsPayments();          // hoisted: it was re-derived per invoice
+  (ctData.invoices || []).forEach(i => {
+    const d = ctEffDate(i);
+    if (!d) return;
+    const cents = ctCents(i.total);
+    pays.forEach(t => {
+      if (!t.date || Math.abs(ctCents(t.amount) - cents) > CT_EXACT_CENTS) return;
+      if (!ctSameVendor(t.vendor || t.desc, i.supplier)) return;
+      const days = Math.round((Date.parse(t.date + 'T00:00:00') -
+                               Date.parse(d + 'T00:00:00')) / 864e5);
+      if (days < -CT_LAG_FWD || days > CT_LAG_BACK) return;
+      // Keyed by the INVOICE's spelling, and looked up with ctSameVendor --
+      // the bank writes "A. Perri Farms" where the invoice says "Perri Farms",
+      // and a normalised-string lookup finds neither from the other. I made
+      // this exact mistake on the delivery-fee habit an hour earlier.
+      (lags[i.supplier] = lags[i.supplier] || []).push(days);
+    });
+  });
+  return lags;
+}
+
+function ctSettlementWindow(lags, supplier, payDate) {
+  let seen = [];
+  Object.keys(lags).forEach(sup => {
+    if (ctSameVendor(supplier, sup)) seen = seen.concat(lags[sup]);
+  });
+  if (seen.length < CT_LAG_MIN_SAMPLES) {
+    return { lo: ctShiftDay(payDate, -CT_LAG_BACK), hi: ctShiftDay(payDate, CT_LAG_FWD),
+             learned: false };
+  }
+  const s = seen.slice().sort((a, b) => a - b);
+  // A day either side of what has actually been seen. An invoice is dated
+  // payDate minus the lag, so the LARGEST lag gives the EARLIEST invoice.
+  return { lo: ctShiftDay(payDate, -(s[s.length - 1] + 1)),
+           hi: ctShiftDay(payDate, -s[0] + 1), learned: true };
+}
+
 function ctUnmatchedPayments() { return ctReconcilePayments().missing; }
 function ctExplainedPayments() { return ctReconcilePayments().explained; }
 
@@ -3467,6 +3537,7 @@ function ctReconcilePayments() {
                                     sup: i.supplier, id: i.id,
                                     num: i.invoiceNumber || '', used: false }));
   const out = [], explained = [];
+  const lags = ctVendorLags();
   ctCogsPayments().forEach(t => {
     if (t.date < start || t.date > cutoff) return;
     if ((ctData.dismissedPayments || {})[t.id]) return;
@@ -3475,7 +3546,8 @@ function ctReconcilePayments() {
     // purchase one at a time means doing it again on the next shop. Dismissed
     // once, the whole vendor stays quiet.
     if ((ctData.noInvoiceVendors || {})[ctSupplierNorm(name)]) return;
-    const lo = ctShiftDay(t.date, -CT_LAG_BACK), hi = ctShiftDay(t.date, CT_LAG_FWD);
+    const win = ctSettlementWindow(lags, name, t.date);
+    const lo = win.lo, hi = win.hi;
     const cands = pool.filter(p => !p.used && p.d >= lo && p.d <= hi && ctSameVendor(name, p.sup));
     const target = ctCents(t.amount);
     const r = ctClassifyPayment(cands, target, name);
