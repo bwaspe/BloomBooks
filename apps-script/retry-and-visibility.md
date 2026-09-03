@@ -313,3 +313,54 @@ X to Y". It could report the Errors and Skipped tabs the same way, so a
 vendor whose invoices stop parsing shows as a number that climbs rather than
 as silence. That is the failure this whole write-up is really about: not
 that anything went wrong, but that for two months nothing would have said so.
+
+---
+
+# The acknowledgment is not the invoice
+
+Nothing adds a delivery charge automatically. `PARSE_PROMPT` asks Claude to
+transcribe every line from the charges section into `other_charges`, and
+`callClaude` sums those into `delivery_fee`. If the document does not state a
+charge, none is recorded — which is right, because inventing a cost that is
+not on the paper is how books stop being trustworthy.
+
+The trouble is which document is being read. Splitting the same suppliers by
+where the invoice came from:
+
+```
+                          invoices   with a delivery fee
+  Perri  via Gmail scan         39          3     (8%)
+  Perri  via manual upload      21         16    (76%)
+
+  Juliet via Gmail scan          7          0     (0%)
+  Juliet via manual upload       9          5    (56%)
+```
+
+Same vendor, same period, opposite answers. The scanned mail is an **order
+acknowledgment** — "A. Perri Farms, Inc. Order #594619-0", sent when the
+order is placed. The uploaded document is the **invoice**, and that is where
+the $16.50 appears. An acknowledgment says what was ordered; an invoice says
+what is being billed, and freight only exists on the second.
+
+It shows in the money. Matching each Perri payment to the invoices it covers,
+a gap of **exactly $16.50** turns up four separate times on cycles where a
+payment covers a single invoice — and $819.97 in total across the period.
+
+**Do not have the script fill this in.** A default charge written onto a
+document that does not state one is a guess recorded as a fact, and it would
+be wrong on the deliveries that genuinely carry none. Two honest options:
+
+1. **Scan the invoice as well.** If Perri emails one — from any address, even
+   a different one — add it to VENDORS. The MessageId dedupe means an
+   acknowledgment and its invoice both landing is harmless; BloomBooks would
+   show two records for one order, which is a reason to prefer replacing the
+   acknowledgment rather than adding to it.
+2. **Flag it in BloomBooks rather than invent it.** The app already knows
+   $16.50 is Perri's usual charge, because 16 uploaded invoices say so. An
+   invoice from a supplier with a habitual delivery fee that arrives with
+   none is worth a line on the invoice card — the same flag-don't-write
+   pattern as recipe pricing and stale margins. That is app work, not script
+   work.
+
+Option 1 is better if the invoice is emailed at all, because it records what
+was actually billed instead of inferring it. Worth finding out first.
