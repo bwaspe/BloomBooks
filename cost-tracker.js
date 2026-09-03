@@ -1213,6 +1213,23 @@ function ctLineWorking(item) {
       <span>(${pieces} per pack)</span></div>`;
   }
 
+  // The one figure that means the same thing on every flower line.
+  //
+  // The price column does not: sometimes the unit is the stem and sometimes it
+  // is the bunch, and nothing on the row says which. $1.55, $1.29 and $32.00
+  // sat in the same column meaning three different things, and changing the
+  // unit rewrote it into a fourth. Derived from the total and the stem count,
+  // which are the two figures that are never ambiguous, a stem price is always
+  // a stem price -- and a line that reads $32.00 a stem is visibly wrong
+  // without needing a warning to explain it.
+  const stems = ctLineStems(item).stems;
+  if (stems > 1) {
+    const each = ctLineTotal(item) / stems;
+    return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">
+      ${escHtml(txt)} · <strong style="color:var(--ink)">$${each.toFixed(2)} a stem</strong>
+      <span>(${stems} stems)</span></div>`;
+  }
+
   // Silent when it is just quantity times price with nothing else going on.
   if (per <= 1 && !disc) return '';
   return `<div style="font-size:0.65rem;color:var(--mist);text-align:right;margin-top:2px">${escHtml(txt)}</div>`;
@@ -2943,6 +2960,7 @@ function ctBuildGmailCardHtml(inv, invIdx) {
                 title="Unit — pick a pack unit like Box or Case to record how many are in one">
           ${CT_UOMS.map(u => `<option value="${u}" ${u === item.uom ? 'selected' : ''}>${u}</option>`).join('')}
         </select>${stemsInput ? ' ' + stemsInput : ''}
+        ${ctLineWorking(item)}
         ${ctIssuesHtml(item, `ctUpdateGmailItemUom(${invIdx}, ${itemIdx}, 'Bunch')`)}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
@@ -4470,6 +4488,7 @@ function ctRenderEditInvoice() {
           ${CT_UOMS.map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
         </select>
         ${stemsInput}
+        ${ctLineWorking(item)}
         ${ctIssuesHtml(item, `ctEditUpdateItemField(${i}, 'uom', 'Bunch')`)}
       </div>
       <div class="ct-item-cat">
