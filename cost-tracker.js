@@ -355,6 +355,10 @@ function ctBuildUploadCardHtml(p, idx) {
           <input type="date" value="${escHtml(p.deliveryDate||'')}" onchange="ctUpdateUploadDeliveryDate(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
           <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
           <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateUploadDeliveryFee(${idx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
+          ${ctDeliveryFeeNoteHtml({ supplier: ctPendingSupplier(p),
+            effDate: p.deliveryDate || (p.parsed && p.parsed.date),
+            current: deliveryFee, selfKey: 'u' + idx, flex: true,
+            onAdd: `ctAddUploadDeliveryFee(${idx})` })}
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -397,6 +401,88 @@ function ctBuildUploadCardHtml(p, idx) {
       <button class="btn btn-primary btn-sm" onclick="ctSaveUploadInvoice(${idx})">Save Invoice →</button>
     </div>
   </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// The delivery charge, asked about while the card is still open
+//
+// One charge per DELIVERY DAY, not per document. Several orders placed for one
+// day's delivery share a charge between them and produce an acknowledgment
+// each -- so a per-document prompt would fire on three of a Tuesday's four
+// cards and be wrong every time.
+//
+// It also has to see the cards sitting beside it, not just what is saved: a
+// Gmail scan brings a whole morning's acknowledgments in at once, and adding
+// the charge to the first must quiet the other three immediately.
+// ---------------------------------------------------------------------------
+function ctDayFeeState(supplier, effDate, selfKey) {
+  const fee = ctUsualDeliveryFee(supplier);
+  if (!fee || !effDate) return { fee: fee, covered: null };
+
+  let covered = null;
+  (ctData.invoices || []).forEach(i => {
+    if (covered || !(i.deliveryFee > 0)) return;
+    if (ctEffDate(i) !== effDate || !ctSameVendor(supplier, i.supplier)) return;
+    covered = { where: 'saved', label: i.invoiceNumber ? '#' + i.invoiceNumber : 'an invoice',
+                amount: Math.round(i.deliveryFee * 100) };
+  });
+
+  const pend = (list, key, dateOf) => (list || []).forEach((p, idx) => {
+    if (covered || !p || key(p, idx) === selfKey) return;
+    if (!(Number(p.deliveryFee) > 0)) return;
+    const d = dateOf(p);
+    if (d !== effDate || !ctSameVendor(supplier, ctPendingSupplier(p))) return;
+    covered = { where: 'batch', label: ctPendingLabel(p), amount: Math.round(p.deliveryFee * 100) };
+  });
+  pend(window._ctGmailPending, (p, i) => 'g' + i, p => p.deliveryDate || p.date);
+  pend(window._ctUploadPending, (p, i) => 'u' + i,
+       p => p.deliveryDate || (p.parsed && p.parsed.date));
+
+  return { fee: fee, covered: covered };
+}
+
+function ctPendingSupplier(p) {
+  return p.supplier || (p.parsed && (p.parsed.supplier || p.parsed.vendor)) || '';
+}
+function ctPendingLabel(p) {
+  const n = p.invoiceNumber || (p.parsed && p.parsed.invoice_number);
+  return n ? '#' + n : (p.filename || 'another card');
+}
+
+// Three states, and only the third asks for anything.
+function ctDeliveryFeeNoteHtml(opts) {
+  const { supplier, effDate, current, selfKey, onAdd, flex } = opts;
+  // Rendered inside the same flex row as the fee input, so it takes a whole
+  // line of its own rather than squeezing in beside it.
+  const w = flex ? 'flex-basis:100%;' : '';
+  if (Number(current) > 0) return '';
+  const st = ctDayFeeState(supplier, effDate, selfKey);
+  if (!st.fee) return '';
+  const money = c => '$' + (c / 100).toFixed(2);
+  if (st.covered) {
+    return `<div style="${w}font-size:0.66rem;color:var(--mist);margin-top:3px">
+      Delivery charge ${money(st.covered.amount)} already on ${escHtml(st.covered.label)}
+      for ${escHtml(effDate)}.</div>`;
+  }
+  if (!effDate) {
+    return `<div style="${w}font-size:0.66rem;color:var(--mist);margin-top:3px">
+      ${escHtml(supplier)} usually charges ${money(st.fee)} a delivery — set a delivery
+      date and I can tell whether that day already has one.</div>`;
+  }
+  return `<div style="${w}font-size:0.66rem;color:var(--red);margin-top:3px">
+    ${escHtml(supplier)} usually charges ${money(st.fee)} a delivery, and nothing for
+    ${escHtml(effDate)} has one.
+    <button class="btn btn-outline btn-sm" style="font-size:0.62rem;padding:0 6px;margin-left:4px"
+      onclick="${onAdd}">add ${money(st.fee)}</button></div>`;
+}
+
+function ctAddUploadDeliveryFee(idx) {
+  const p = window._ctUploadPending && window._ctUploadPending[idx];
+  if (!p) return;
+  const fee = ctUsualDeliveryFee(ctPendingSupplier(p));
+  if (!fee) return;
+  p.deliveryFee = Math.round(((p.deliveryFee || 0) * 100 + fee)) / 100;
+  ctRenderUploadArea();
 }
 
 function ctUpdateUploadDeliveryFee(idx, val) {
@@ -2644,6 +2730,7 @@ function ctShowGmailResults(candidates) {
   }));
 
   const el = document.getElementById('ct-gmail-results');
+  if (!el) return;
   el.innerHTML = ctFamilyDatalist() + window._ctGmailPending.map((inv, invIdx) => ctBuildGmailCardHtml(inv, invIdx)).join('')
     + `<div style="font-size:0.72rem;color:var(--mist);margin-top:4px;padding:0 4px">
     💡 Retail flags only appear once you've set a price for that item at least once. Family/Type learns by the item's first word, so tagging one variant applies to future ones too. Remove any line items that don't belong (like a standing order) before saving.
@@ -2748,6 +2835,9 @@ function ctBuildGmailCardHtml(inv, invIdx) {
           <input type="date" value="${escHtml(inv.deliveryDate||'')}" onchange="ctUpdateGmailDeliveryDate(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px">
           <label style="font-size:0.7rem;color:var(--mist);margin-left:8px">Delivery fee:</label>
           <input type="number" step="0.01" value="${deliveryFee}" onchange="ctUpdateGmailDeliveryFee(${invIdx}, this.value)" style="font-size:0.72rem;padding:3px 6px;width:70px">
+          ${ctDeliveryFeeNoteHtml({ supplier: inv.supplier, effDate: inv.deliveryDate || inv.date,
+            current: deliveryFee, selfKey: 'g' + invIdx, flex: true,
+            onAdd: `ctAddGmailDeliveryFee(${invIdx})` })}
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
@@ -2762,6 +2852,22 @@ function ctBuildGmailCardHtml(inv, invIdx) {
     ${rows}
     ${deliveryFee > 0 ? `<div style="padding:6px 18px;font-size:0.75rem;color:var(--mist);border-top:1px dashed var(--border)">+ Delivery fee: $${deliveryFee.toFixed(2)}</div>` : ''}
   </div>`;
+}
+
+// Adds the supplier's habitual charge to this card. Every sibling card for the
+// same delivery day is re-rendered so they flip to "already covered" at once --
+// the whole point of asking per day rather than per document.
+function ctAddGmailDeliveryFee(invIdx) {
+  const inv = window._ctGmailPending && window._ctGmailPending[invIdx];
+  if (!inv) return;
+  const fee = ctUsualDeliveryFee(inv.supplier);
+  if (!fee) return;
+  inv.deliveryFee = Math.round(((inv.deliveryFee || 0) * 100 + fee)) / 100;
+  // Each card re-rendered on its own, NEVER via ctShowGmailResults: that
+  // re-derives every line's category, family and stem count from the item name
+  // and resets 'removed', so calling it here would throw away every correction
+  // made to every card in the batch to add one delivery charge.
+  window._ctGmailPending.forEach((_, i) => ctRerenderGmailCard(i));
 }
 
 function ctUpdateGmailDeliveryFee(invIdx, val) {
