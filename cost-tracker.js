@@ -339,7 +339,7 @@ function ctBuildUploadCardHtml(p, idx) {
         $<input type="number" step="0.01" min="0" value="${ctLineTotal(item).toFixed(2)}" onchange="ctUpdateUploadItemTotal(${idx}, ${i}, this.value)" style="font-size:0.75rem;padding:2px 4px;width:72px;font-weight:600" title="Line total as printed on the invoice">
         <button onclick="ctRemoveUploadItem(${idx}, ${i})" title="Remove this item" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 0 0 6px">✕</button>
         ${ctLineWorking(item)}
-        ${ctIssuesHtml(item)}
+        ${ctIssuesHtml(item, `ctUpdateUploadItemUom(${idx}, ${i}, 'Bunch')`)}
         ${ctAltNote(item, `ctTakeAltUpload(${idx}, ${i})`)}
       </div>
     </div>`;
@@ -1874,6 +1874,17 @@ function ctLineIssues(item) {
             `($${(price / packName).toFixed(2)} each), or one?` });
   }
 
+  // A Stem or Each line carrying a stems-per-bunch, where the total says the
+  // price is per BUNCH. "4 Stem x25 @ $32.00, total $128.00" is four bunches
+  // of 25 at $1.28 a stem, not four stems at $32 -- and read literally it
+  // raises a 1678% price alert against the same rose bought properly.
+  // ctSuspectStemUnit spots it; this is where it can be put right.
+  if (ctSuspectStemUnit(item)) {
+    out.push({ level: 'warn', fixUom: 'Bunch',
+      text: `Unit says ${uom} but $${ctUnitPrice(item).toFixed(2)} is a bunch price — ` +
+            `${qty} × ${per} = ${qty * per} stems` });
+  }
+
   // No stem count where this family normally has one. A family sold by the
   // bunch is exempt -- that is the whole point of the flag.
   if (uom === 'bunch' && per <= 1 && !ctIsByTheBunch(item.family)) {
@@ -1884,10 +1895,17 @@ function ctLineIssues(item) {
   return out;
 }
 
-function ctIssuesHtml(item) {
+// setUom is a JS expression the CALLER supplies, because only the caller knows
+// where this line sits -- an upload card, a scan card and the saved-invoice
+// editor all index their items differently. Given one, the fix is a click;
+// without one the issue still reads, it just cannot be acted on from here.
+function ctIssuesHtml(item, setUom) {
   const issues = ctLineIssues(item);
   if (!issues.length) return '';
   return issues.map(i => {
+    const fix = (i.fixUom && setUom) ? `
+      <a href="#" style="color:var(--link);margin-left:6px"
+         onclick="${setUom};return false">they're bunches</a>` : '';
     // The answer is stored against the product, so it is given once here and
     // never asked again -- on this invoice or any later one.
     const ask = i.ask ? `
@@ -1900,7 +1918,7 @@ function ctIssuesHtml(item) {
     return `
       <div style="font-size:0.66rem;margin-top:2px;text-align:right;
                   color:${i.level === 'warn' ? 'var(--red)' : 'var(--amber, #b8860b)'}">
-        ${i.text}${ask}</div>`;
+        ${i.text}${ask}${fix}</div>`;
   }).join('');
 }
 
@@ -2860,7 +2878,7 @@ function ctBuildGmailCardHtml(inv, invIdx) {
                 title="Unit — pick a pack unit like Box or Case to record how many are in one">
           ${CT_UOMS.map(u => `<option value="${u}" ${u === item.uom ? 'selected' : ''}>${u}</option>`).join('')}
         </select>${stemsInput ? ' ' + stemsInput : ''}
-        ${ctIssuesHtml(item)}</div>
+        ${ctIssuesHtml(item, `ctUpdateGmailItemUom(${invIdx}, ${itemIdx}, 'Bunch')`)}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
           ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
@@ -4387,6 +4405,7 @@ function ctRenderEditInvoice() {
           ${CT_UOMS.map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
         </select>
         ${stemsInput}
+        ${ctIssuesHtml(item, `ctEditUpdateItemField(${i}, 'uom', 'Bunch')`)}
       </div>
       <div class="ct-item-cat">
         <select onchange="ctEditUpdateItemField(${i}, 'category', this.value)">
