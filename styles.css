@@ -713,9 +713,24 @@ th.sortable:hover { background: var(--border); }
     max-height: none !important;
   }
 
-  /* A row split across a page break is unreadable in a figures table. */
+  /* Most scrolling boxes are styled INLINE -- the holiday tables are three of
+     them -- and an inline max-height cannot be overridden by a class rule that
+     does not match the element. Printing then clipped each table to its 340px
+     of visible screen and the whole report came out as one short page. */
+  [style*="overflow:auto"], [style*="overflow: auto"],
+  [style*="max-height"] {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* A row split across a page break is unreadable in a figures table -- but
+     the holiday detail row is a whole report inside one <tr>, several pages
+     tall, and telling the browser to keep THAT together is the other half of
+     why only one page came out. A row holding a nested table is a container,
+     not a line of figures, and has to be allowed to break. */
   table { page-break-inside: auto; }
   tr, .trap, figure { page-break-inside: avoid; }
+  tr.hc-detail, tr:has(table) { page-break-inside: auto !important; }
   thead { display: table-header-group; }
 
   /* Screen greys wash out on paper; a detail element that is shut on screen

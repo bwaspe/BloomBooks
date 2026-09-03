@@ -696,7 +696,7 @@ function hcCostHtml() {
                   ${hcOpen === r.key ? 'hide' : 'detail'}</td>
               </tr>
               ${hcOpen === r.key ? `
-                <tr><td colspan="6" style="background:var(--paper);padding:12px 16px">
+                <tr class="hc-detail"><td colspan="6" style="background:var(--paper);padding:12px 16px">
                   ${gap > 1 ? `<div style="font-size:0.75rem;color:var(--red);margin-bottom:8px">
                     ${fmt(gap)} was paid out with no invoice behind it in this window —
                     the detail below is only the part that was captured.</div>` : ''}
