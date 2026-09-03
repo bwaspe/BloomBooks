@@ -532,3 +532,112 @@ folder is only for the ones that never arrived by email.
 The second is fiddly to get right by hand. The first is cleaner and matches
 what the money says: the invoice is the document that is actually billed, and
 it carries the delivery charge the acknowledgment leaves off.
+
+---
+
+# Scan to email, and what happens to Perri
+
+## Do NOT drop Perri from VENDORS
+
+The instinct is right — their acknowledgment is superseded by the scanned
+invoice, and keeping both would put two records against one order. But
+removing the vendor entirely also removes the **delivery markers**, and those
+are the whole safety net: they are what says a delivery happened on a day no
+invoice was captured. Without them, a scan you forget to do disappears in
+exactly the way 7 August did.
+
+So Perri stays, and stops being parsed:
+
+```js
+  { name: 'Perri Farms', email: 'sales@perrifarms.com', mode: 'body',
+    // The invoice is scanned now, so the ORDER acknowledgment is skipped --
+    // parsing both would file two records against one order, and the invoice
+    // is the one that carries the $16.50 delivery charge.
+    skipSubjects: ['we are on our way', 'you are next',
+                   'a. perri farms, inc. order*'] },
+```
+
+`Completed` stays out of that list, so it still lands in Deliveries. What the
+pair then gives you is better than today: **Perri delivered on the 12th, and
+nothing was captured for the 12th** — which catches a forgotten scan on the
+day, not five weeks later against a card charge.
+
+## The scanned invoices arrive as their own source
+
+Match on a LABEL, not a sender. A scanner that emails from a device address
+would work with `from:`, but one that goes through your own account — a phone
+forward, or scan-to-self — has your address in `from:`, and
+`from:(wecare@tuckahoeflorist.com)` matches every message you have ever sent.
+
+```js
+// A label, so it does not matter what address the scan arrives from. Set one
+// Gmail filter -- has attachment, subject contains whatever the scanner puts
+// there -- to apply it, or apply it by hand on a phone in two taps.
+const VENDORS = [
+  ...,
+  { name: 'Perri Farms', label: 'BloomBooks/Scanned/Perri', mode: 'pdf' },
+];
+```
+
+and the query builder learns one branch:
+
+```js
+  const source = vendor.label
+    ? 'label:"' + vendor.label + '"'
+    : 'from:(' + vendor.email + ')';
+  const query = `${source} ${skip} ${sinceQuery}`;
+```
+
+The name on the VENDORS entry is what lands in the sheet's Vendor column, so
+it must stay `Perri Farms` — that is what ctSameVendor matches against the
+bank's `A. Perri Farms`, and getting it wrong breaks the payment reconciliation
+rather than the scan.
+
+## The trap: a flatbed scan has no text layer
+
+This one will bite on the first attempt if it is not fixed first.
+
+`extractInvoice` sends mail attachments to `callClaudePdf`. The manual-upload
+path uses `callClaudePdfBlob`, which is the same call **plus a fallback**: when
+a PDF returns no items it re-sends it as an image, because a PDF with no text
+layer has nothing for a document parse to read.
+
+A vendor's emailed invoice is generated from their system and has a text
+layer. **A flatbed scan does not.** Sent to `callClaudePdf` it returns
+`{items:[]}`, gets logged as "No items extracted", and — before the retry
+change above — is never looked at again.
+
+```js
+function extractInvoice(msg, vendor) {
+  const sent = msg.getDate();
+  if (vendor.mode === 'pdf') {
+    const pdf = findPdfAttachment(msg);
+    // callClaudePdfBlob, not callClaudePdf: it falls back to an image when the
+    // PDF has no text layer, which is every flatbed scan.
+    if (pdf) return callClaudePdfBlob(pdf.copyBlob(), vendor.name, sent);
+    return callClaudeBody(msg.getPlainBody(), vendor.name, sent);
+  }
+  ...
+}
+```
+
+Worth doing for every `mode: 'pdf'` vendor, not just the scans — it can only
+help, and `callClaudePdf` then has no callers left.
+
+Note `pdfToImageBase64` writes a temp file to Drive and trashes it. That is
+already how manual uploads work, so it is proven, but it means the script
+needs Drive permission — it will ask to re-authorise the first time the folder
+or the OCR path runs under the new code.
+
+## What to check on the first one
+
+Scan one Perri invoice, run `testSingleVendor` with the index pointing at the
+new entry, and look at the row it writes:
+
+- **Total** matches the paper to the cent
+- **DeliveryFee** is $16.50, not 0 — the whole reason for scanning invoices
+- **Date** is the invoice date, not today
+- **ItemsJSON** has every line, including the cheap ones
+
+If DeliveryFee is 0 on an invoice that shows a delivery charge, the parse read
+the totals block wrong and that is worth fixing before scanning fifty of them.
