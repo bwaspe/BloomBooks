@@ -244,7 +244,7 @@ async function ctProcessOneFile(file, idx) {
                                   parsed.delivery_date || parsed.date),
       stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null,
       removed: false
-    }));
+    })).map(it => ({ ...it, stemsPerBu: it.stemsPerBu || ctImpliedStemsPerBunch(it) || null }));
     window._ctUploadPending[idx] = { status: 'ready', parsed, enriched, filename: file.name, deliveryDate: parsed.delivery_date || null, deliveryFee: parsed.delivery_fee || 0 };
   } catch (err) {
     window._ctUploadPending[idx] = { status: 'error', filename: file.name, error: err.message };
@@ -1806,6 +1806,43 @@ function ctUsualStemsPer(family) {
 // What is worth stopping a rushed reviewer for. Deliberately narrow: a flag on
 // every line is a flag on none, so this fires only where the line contradicts
 // itself or the shop's own habit -- never on a line that is merely unusual.
+// The stem count a line's own arithmetic implies.
+//
+// Perri price roses per STEM and put the number of BUNCHES in the quantity
+// column, so a line reads "1 Stem @ $1.39" with a total of $34.75. Read
+// literally that is one stem costing $1.39 -- and a Mother's Day upload of
+// forty rose lines comes in as 1s and 2s instead of 25s and 50s.
+//
+// The number is not a guess. 34.75 / (1 x 1.39) = 25, exactly. A total that is
+// a whole multiple of quantity x price, where the unit claims to be a single
+// stem, can only mean the quantity is bunches and the multiple is the bunch
+// size. ctCountsInBunches already ACTS on this reading -- it just needed
+// stemsPerBu to be set first, which on a fresh upload it never is.
+//
+// Deliberately narrow. Flowers and greens only; only where the unit says one
+// stem; only when the division is exact to half a cent; and never over a line
+// that already carries a count, which is somebody's answer.
+function ctImpliedStemsPerBunch(item) {
+  const uom = String(item.uom || '').toLowerCase();
+  if (uom !== 'stem' && uom !== 'each') return 0;
+  if (Number(item.stemsPerBu) > 1) return 0;
+  const cat = item.category || '';
+  if (cat !== 'Flowers' && cat !== 'Greens') return 0;
+
+  const qty = Number(item.qty) || 0;
+  const price = ctUnitPrice(item);
+  const total = item.total;
+  if (total == null || !qty || !(price > 0)) return 0;
+
+  const ratio = total / (qty * price);
+  const n = Math.round(ratio);
+  // Exact, or it is not this. A price read a cent wrong gives 24.98, and
+  // acting on that would invent stems that were never bought.
+  if (Math.abs(ratio - n) > 0.005) return 0;
+  if (n < 2 || n > 300) return 0;
+  return n;
+}
+
 function ctLineIssues(item) {
   const out = [];
   const qty = Number(item.qty) || 0;
@@ -2743,7 +2780,9 @@ function ctRetailFlag(item) {
 function ctShowGmailResults(candidates) {
   window._ctGmailPending = candidates.map(inv => ({
     ...inv,
-    items: inv.items.map(item => ({ ...item, category: ctGuessCategory(item.name), family: ctGuessFamily(item.name), stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null, removed: false }))
+    items: inv.items
+      .map(item => ({ ...item, category: ctGuessCategory(item.name), family: ctGuessFamily(item.name), stemsPerBu: item.stems_per_bunch || ctGetPriorStemsPerBunch(item.name) || null, removed: false }))
+      .map(it => ({ ...it, stemsPerBu: it.stemsPerBu || ctImpliedStemsPerBunch(it) || null }))
   }));
 
   const el = document.getElementById('ct-gmail-results');
