@@ -218,6 +218,55 @@ function vmSetDay(iso, sale, tax) {
   return true;
 }
 
+// Taking the statement as the authority cuts both ways: a day recorded as
+// Venmo takings that Venmo has no record of is wrong under that rule, and
+// writing only the days the statement covers would leave it standing. So this
+// exists -- but on its own button, and confirmed. Writing a figure the
+// statement gives is a correction; removing one it is silent about takes money
+// out of the books, and the two should not go through the same click.
+function vmClearDay(iso, quiet) {
+  if (typeof appData === 'undefined' || !iso) return false;
+  const d = new Date(iso + 'T00:00:00Z');
+  const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+  const day = String(d.getUTCDate());
+  const month = (appData.dailySales || {})[key];
+  const rec = month && month[day];
+  if (!rec || !rec[VM_CHANNEL]) return false;
+  const had = Number(rec[VM_CHANNEL].s) || 0;
+  // Removed rather than zeroed, and the day removed with it if nothing else is
+  // on it -- the same shape dsSet leaves behind when a figure is cleared by
+  // hand, so the day book does not grow a second kind of empty.
+  delete rec[VM_CHANNEL];
+  if (!Object.keys(rec).length) delete month[day];
+  if (!quiet) {
+    saveData();
+    notify(`${iso} — ${fmt(had)} removed from Venmo`);
+    vmRender();
+    if (typeof renderDailySalesPanel === 'function') renderDailySalesPanel();
+  }
+  return true;
+}
+
+function vmClearOrphans() {
+  const p = vmStatement;
+  if (!p) return;
+  const c = vmCompare(p);
+  if (!c.orphans.length) return;
+  const total = c.orphans.reduce((s, o) => s + o.book, 0);
+  const list = c.orphans.map(o => `${o.date} ${fmt(o.book)}`).join('\n');
+  if (!confirm(`Venmo has no record of ${c.orphans.length} day${c.orphans.length === 1 ? '' : 's'} ` +
+               `that the book records as Venmo takings:\n\n${list}\n\n` +
+               `Remove ${fmt(total)} from the books?\n\n` +
+               `The sales themselves are not in question — only that they were not Venmo. ` +
+               `If they were taken some other way they should be recorded there instead.`)) return;
+  let n = 0;
+  c.orphans.forEach(o => { if (vmClearDay(o.date, true)) n++; });
+  if (n) saveData();
+  notify(`${fmt(total)} removed across ${n} day${n === 1 ? '' : 's'}`);
+  vmRender();
+  if (typeof renderDailySalesPanel === 'function') renderDailySalesPanel();
+}
+
 function vmApplyDay(iso) {
   const p = vmStatement;
   if (!p || !p.days[iso]) return;
@@ -296,7 +345,11 @@ function vmReportHtml() {
       <td style="text-align:right">—</td><td style="text-align:right">—</td><td style="text-align:right">—</td>
       <td style="text-align:right">${fmt(o.book)}</td>
       <td style="text-align:right;color:var(--red)">no Venmo that day</td>
-      <td></td></tr>`).join('');
+      <td style="text-align:right"><button class="btn btn-outline btn-sm no-print"
+        style="font-size:0.65rem;padding:1px 6px"
+        onclick="vmClearDay('${o.date}')"
+        title="Remove ${escHtml(fmt(o.book))} from Venmo on ${o.date}">remove</button></td>
+    </tr>`).join('');
 
   return `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:0.78rem">
@@ -307,6 +360,21 @@ function vmReportHtml() {
               title="Write every day this statement covers, sale and tax">
         Write all ${Object.keys(p.days).length} days</button>
     </div>
+
+    ${c.orphans.length ? `
+      <div style="margin-top:8px;padding:8px 10px;border-radius:6px;
+                  background:var(--paper);border:1px solid var(--border);
+                  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span style="font-size:0.74rem">
+          <strong>${fmt(c.orphans.reduce((s, o) => s + o.book, 0))}</strong> on
+          ${c.orphans.length} day${c.orphans.length === 1 ? '' : 's'} is recorded as Venmo takings
+          that this statement has no record of. Writing the days above will not touch it.
+        </span>
+        <button class="btn btn-outline btn-sm no-print" style="margin-left:auto;font-size:0.68rem"
+                onclick="vmClearOrphans()"
+                title="Remove the Venmo figure from those days">
+          Remove ${c.orphans.length === 1 ? 'it' : 'them'}</button>
+      </div>` : ''}
 
     ${inclusive.length ? `
       <div style="font-size:0.72rem;color:var(--ink-soft);margin-top:8px;
