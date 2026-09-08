@@ -208,10 +208,15 @@ function calcMonth(year, month) {
   const loanPrincipal = sum(isLoanPrincipalCat);
   const ownerDraw = sum(isOwnerDrawCat);
   const nonExpense = capital + loanPrincipal + ownerDraw;
+  // The owner's own money coming back IN. Not revenue, so it is outside net --
+  // but it did raise the balance, so the cash line has to carry it or a month
+  // the owner funded reads as a month that lost less than it did.
+  const nonRevenueIn = counted.filter(t => t.type === 'in' && isNonRevenueInCat(t.category))
+                              .reduce((s, t) => s + t.amount, 0);
   const expenses = sum(c => !isNonExpenseCat(c));
   const net = revenue - expenses;
   const cashOut = expenses + nonExpense;
-  const cashNet = net - nonExpense;
+  const cashNet = net - nonExpense + nonRevenueIn;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
   const byCategory = {};
@@ -221,7 +226,7 @@ function calcMonth(year, month) {
   });
   if (fromDayBook) byCategory['Revenue'] = revenue;
   return { revenue, cogs, expenses, net, capital, loanPrincipal, ownerDraw, nonExpense,
-           cashOut, cashNet, cogsRatio, byCategory };
+           nonRevenueIn, cashOut, cashNet, cogsRatio, byCategory };
 }
 
 function getRevenue(year, month) {

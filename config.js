@@ -18,7 +18,7 @@ const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
   'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
-  'Capital Expenditure','Loan Repayment','Interest','Owner Draw'
+  'Capital Expenditure','Loan Repayment','Interest','Owner Draw','Owner Contribution'
 ];
 
 // Money that passes through the business without ever being earned or spent.
@@ -79,11 +79,22 @@ const LOAN_PRINCIPAL_CATEGORIES = ['Loan Repayment'];
 // (An S-corp is the exception: there the owner's reasonable wages are real
 // payroll and belong under Payroll, not here. Worth knowing which you are.)
 //
-// Note BUILTIN_RULES still IGNORES rows matching the owner's name outright, so
-// a draw does not reach the ledger at all. Recording it as a draw rather than
-// discarding it is the change that makes the bank tie out; the rule is left
-// alone because flipping it also pulls in whatever else that name matched.
+// BUILTIN_RULES used to ignore rows matching the owner's name outright, so a
+// draw never reached the ledger and the books could not tie to the balance.
+// They are categorised here now instead of discarded.
 const OWNER_DRAW_CATEGORIES = ['Owner Draw'];
+
+// The same movement the other way: the owner's own money going IN. Not revenue
+// -- nothing was sold -- so it must never reach the sales figures, which is
+// also where the sales-tax return reads from. It is here so the bank still ties
+// out: without it a month the owner funded looks like a month that earned.
+const OWNER_CONTRIBUTION_CATEGORIES = ['Owner Contribution'];
+
+// Money that arrived without being earned. Kept separate from the outflow list
+// because it moves the balance the other way.
+const NON_REVENUE_IN_CATEGORIES = OWNER_CONTRIBUTION_CATEGORIES.slice();
+
+function isNonRevenueInCat(c) { return NON_REVENUE_IN_CATEGORIES.indexOf(c) >= 0; }
 
 // Money that genuinely left the bank without being an operating expense. Kept
 // as one list because every screen has the same duty towards all of them --
@@ -104,17 +115,30 @@ function nonExpenseNote(c) {
   if (isCapitalCat(c)) return 'not an expense — depreciated';
   if (isLoanPrincipalCat(c)) return 'not an expense — repays what is owed';
   if (isOwnerDrawCat(c)) return 'not an expense — your own money out';
+  if (isNonRevenueInCat(c)) return 'not revenue — your own money in';
   if (PASSTHROUGH_CATEGORIES.indexOf(c) >= 0) return 'not an expense — held for the state';
   return '';
 }
 
 const EXPENSE_CATS = CATEGORIES.filter(c =>
-  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) && !NON_EXPENSE_CATEGORIES.includes(c));
+  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) &&
+  !NON_EXPENSE_CATEGORIES.includes(c) && !NON_REVENUE_IN_CATEGORIES.includes(c));
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [
   // IGNORE
-  { keyword: 'BARAMI WASPE',              ignore: true },
+  // Was `ignore: true`, so money the owner took out never reached the ledger at
+  // all and these books could not tie to the bank balance. Recorded now, as a
+  // draw -- which is still not an expense and still changes no tax, but it is
+  // real money leaving and the books have to account for it.
+  //
+  // BOTH directions must be named. resolveRules checks `ignore` before sign, so
+  // one ignore rule covered in and out together; a categorising rule does not.
+  // And an unmatched credit defaults to Revenue, so leaving the `in` side off
+  // would book the owner's own money back into the business as a SALE --
+  // inflating revenue, and with it the sales-tax figures that come off it.
+  { keyword: 'BARAMI WASPE', sign: 'out', category: 'Owner Draw',         vendor: 'Owner' },
+  { keyword: 'BARAMI WASPE', sign: 'in',  category: 'Owner Contribution', vendor: 'Owner' },
   { keyword: 'AMERICAN EXPRESS',          ignore: true },
   { keyword: 'AMEX',                      ignore: true },
   { keyword: 'MP GARDENS',               ignore: true },
