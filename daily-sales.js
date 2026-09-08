@@ -206,7 +206,35 @@ function dsAddChannel() {
 // entered by hand before the importer existed -- is reported as UNCLASSIFIED
 // rather than guessed at. A filing built on a guess is worse than one with a
 // visible hole in it.
+//
+// WHICH TAX FIGURES ARE WORTH RECORDING, and which are not.
+//
+// A cross-check means something only when the tax came from somewhere OTHER
+// than the sales figure. On a 'detail' channel it did: FloraNext taxed each
+// order, so comparing that against sales x rate can catch an order on the wrong
+// side of the line. On an 'all' channel there is no second source -- every
+// dollar is taxable by definition, so the tax IS sales x rate. Writing that
+// number into the day book and then comparing it against sales x rate is a
+// tautology with a step in front of it, and asking for the step made the page
+// report $0.00 of tax collected on a quarter that plainly collected some.
+//
+// So an 'all' channel's tax is DERIVED at report time and labelled as derived.
+// A figure actually recorded on the day still wins -- a corrected day must stay
+// corrected, and Venmo's own statement carries a real per-sale tax figure worth
+// keeping.
 const DS_TAX_RATE = 0.08375;          // NY state + Westchester
+
+// Tax on a day: what was recorded, or -- where the mode makes it arithmetic --
+// what that arithmetic gives. Returns which it was, because the page must not
+// present a derived figure as a collected one.
+function dsDayTax(rec, taxable, mode) {
+  const t = dsNum((rec || {}).t);
+  if (Math.abs(t) > 0.005) return { tax: t, derived: false };
+  if ((mode === 'all' || mode === 'exempt') && taxable != null) {
+    return { tax: Math.round(taxable * DS_TAX_RATE * 100) / 100, derived: true };
+  }
+  return { tax: 0, derived: false };
+}
 
 const dsFnIds = () => new Set(Object.values(FN_METHOD_CHANNEL).concat(['fn']));
 
@@ -270,18 +298,23 @@ function dsTaxReport(year, quarter) {
         // here at all.
         if (dsExcludedFromTax(k)) { excluded += dsNum((d[k] || {}).s); return; }
         const rec = d[k] || {};
-        const s = dsNum(rec.s), t = dsNum(rec.t);
+        const s = dsNum(rec.s);
         const mode = dsTaxMode(dsChannels().find(c => c.id === k) || { id: k });
         let taxable = null;
         if (mode === 'exempt') taxable = 0;
         else if (mode === 'all') taxable = s;
         else if (rec.x != null) taxable = dsNum(rec.x);
 
+        const dt = dsDayTax(rec, taxable, mode);
+        const t = dt.tax;
+
         const b = byChannel[k] || (byChannel[k] = { sales: 0, taxable: 0, exempt: 0, tax: 0,
                                                     unknown: 0, checkedTaxable: 0,
-                                                    uncheckedTaxable: 0, mode });
+                                                    uncheckedTaxable: 0, derivedTax: 0,
+                                                    derivedTaxable: 0, mode });
         b.sales += s; b.tax += t;
         mt.sales += s; mt.tax += t;
+        if (dt.derived) { b.derivedTax += t; b.derivedTaxable += taxable || 0; }
         if (taxable === null) { b.unknown += s; mt.unknown += s; }
         else {
           b.taxable += taxable; b.exempt += s - taxable;
@@ -291,8 +324,9 @@ function dsTaxReport(year, quarter) {
           // that channel as checked -- so filling August's tax and not June's
           // put all three months into "expected" against one month's collected
           // and reported a shortfall of about the other two. The day either has
-          // a figure to compare against or it has not.
-          if (taxable > 0.005) {
+          // a figure to compare against or it has not. A derived figure is
+          // neither: there is nothing behind it to disagree with the sale.
+          if (taxable > 0.005 && !dt.derived) {
             if (Math.abs(t) > 0.005) b.checkedTaxable += taxable;
             else b.uncheckedTaxable += taxable;
           }
@@ -308,15 +342,18 @@ function dsTaxReport(year, quarter) {
   // still belong in the filing; it is only the comparison they are out of.
   const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0,
                 checkedTaxable: 0, uncheckedTaxable: 0, uncheckedChannels: [],
+                derivedTax: 0, derivedTaxable: 0, derivedChannels: [],
                 excluded };
   Object.values(byChannel).forEach(b => {
     tot.sales += b.sales; tot.taxable += b.taxable;
     tot.exempt += b.exempt; tot.tax += b.tax; tot.unknown += b.unknown;
     tot.checkedTaxable += b.checkedTaxable;
     tot.uncheckedTaxable += b.uncheckedTaxable;
+    tot.derivedTax += b.derivedTax; tot.derivedTaxable += b.derivedTaxable;
   });
   Object.keys(byChannel).forEach(k => {
     if (byChannel[k].uncheckedTaxable > 0.005) tot.uncheckedChannels.push(k);
+    if (byChannel[k].derivedTax > 0.005) tot.derivedChannels.push(k);
   });
   return { months, byChannel, byMonth, tips, tot };
 }
@@ -352,7 +389,10 @@ function renderSalesTaxPanel() {
   const r = dsTaxReport(stYear, stQuarter);
   const r2 = n => Math.round(n * 100) / 100;
   const expected = r2(r.tot.checkedTaxable * DS_TAX_RATE);
-  const gap = r2(r.tot.tax - expected);
+  // Only RECORDED tax is compared. A derived figure is the same arithmetic the
+  // comparison applies, so including it on one side and its sales on neither
+  // would report an overage of exactly itself.
+  const gap = r2((r.tot.tax - r.tot.derivedTax) - expected);
   const label0 = id => (dsChannels().find(c => c.id === id) || {}).label || id;
   const qRange = (y, i) => {
     const ms = DS_QUARTERS[i].months;
@@ -394,7 +434,9 @@ function renderSalesTaxPanel() {
         <div class="kpi-sub">${r.tips ? 'incl. ' + fmt(r.tips) + ' tips' : 'house accounts, wire, tips'}</div></div>
       <div class="kpi-card profit"><div class="kpi-label">Tax collected</div>
         <div class="kpi-value">${fmt(r.tot.tax)}</div>
-        <div class="kpi-sub">expected ${fmt(expected)} on ${fmt(r.tot.checkedTaxable)} of checkable sales</div></div>
+        <div class="kpi-sub">${r.tot.derivedTax > 0.005
+          ? `incl. ${fmt(r.tot.derivedTax)} worked out from sales`
+          : `expected ${fmt(expected)} on ${fmt(r.tot.checkedTaxable)} of checkable sales`}</div></div>
     </div>
 
     ${r.tot.uncheckedTaxable ? `
@@ -402,19 +444,23 @@ function renderSalesTaxPanel() {
         <strong style="font-size:0.8rem">${fmt(r.tot.uncheckedTaxable)} of taxable sales have no tax recorded against them</strong>
         <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
           ${r.tot.uncheckedChannels.map(id => `<div style="margin-bottom:3px">
-              <strong>${escHtml(label0(id))}</strong> ${fmt(r.byChannel[id].uncheckedTaxable)} —
-              ${id === 'epx'
-                ? `the statement can fill this. Upload the month on the
-                   <a href="#" onclick="dsGoToEpx();return false" style="color:var(--link)">EPX check</a>
-                   and use <em>Enter the tax on these days</em> under “Against the day book”: what EPX
-                   released is the sale including tax, so the figure is arithmetic rather than a guess.`
-                : `entered by hand from a report that carries no tax figure, so there is nothing here to
-                   compare against.`}
-            </div>`).join('')}
-          These are taxable sales and belong in the filing exactly as they stand — it is only the check
+              <strong>${escHtml(label0(id))}</strong> ${fmt(r.byChannel[id].uncheckedTaxable)}</div>`).join('')}
+          These are set to read the tax per order, and some days carry a taxable figure with no tax
+          beside it. They still belong in the filing exactly as they stand — it is only the check
           below they are out of. At ${(DS_TAX_RATE * 100).toFixed(3)}% they would account for about
           ${fmt(r.tot.uncheckedTaxable * DS_TAX_RATE)} of tax.
         </div>
+      </div>` : ''}
+
+    ${r.tot.derivedTax > 0.005 ? `
+      <div style="margin-bottom:16px;font-size:0.74rem;color:var(--ink-soft);
+                  padding:8px 10px;border-left:2px solid var(--border)">
+        ${fmt(r.tot.derivedTax)} of the tax above is worked out from the sales rather than read off a
+        day — ${r.tot.derivedChannels.map(id =>
+          `${escHtml(label0(id))} ${fmt(r.byChannel[id].derivedTaxable)}`).join(', ')}.
+        ${r.tot.derivedChannels.length === 1 ? 'That channel is' : 'Those channels are'} set to
+        <em>all taxable</em>, so the tax is ${(DS_TAX_RATE * 100).toFixed(3)}% of the sale and there is no
+        second figure to check it against. Nothing needs entering; a figure typed on a day wins over this one.
       </div>` : ''}
 
     ${r.tot.unknown ? `
@@ -1841,6 +1887,7 @@ function renderDailySalesPanel() {
     ${fnImportHtml()}
     ${dsImportHtml()}
     ${typeof epxPanelHtml === 'function' ? epxPanelHtml() : ''}
+    ${typeof vmPanelHtml === 'function' ? vmPanelHtml() : ''}
     ${typeof poPanelHtml === 'function' ? poPanelHtml() : ''}
   `;
   // After innerHTML, or the canvas does not exist yet.
