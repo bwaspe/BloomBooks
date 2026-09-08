@@ -96,23 +96,32 @@ function isPropertyTax(t) {
   return d.includes('property') || v.includes('property');
 }
 
+// One year's totals by category. The two flags are the whole difference
+// between the accountant's view and the owner's own, and they exist so the two
+// cannot drift: the tax summary drops Payroll1 and cash revenue, the yearly
+// summary keeps both. Sales tax remitted is excluded either way -- it is money
+// held for the state and is reported in the tax breakdown instead, so leaving
+// it in a column headed "Category Totals" invites deducting it twice.
+function categoryTotalsFor(yr, opts) {
+  opts = opts || {};
+  const totals = {};
+  CATEGORIES.forEach(c => totals[c] = 0);
+  getYearTx(yr).forEach(t => {
+    if (totals[t.category] === undefined) return;
+    if (!opts.withPayroll1 && t.category === 'Payroll1') return;
+    if (!opts.withCashRevenue && isCashRevenue(t)) return;
+    if (PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0) return;
+    totals[t.category] += t.amount;
+  });
+  return totals;
+}
+
 function renderTaxPanel() {
   const yr = appData.activeYear;
   const el = document.getElementById('tax-summary-content');
   const allTx = getYearTx(yr);
 
-  // Category totals, but: exclude cash revenue from Revenue, and drop Payroll1 entirely
-  const totals = {};
-  CATEGORIES.forEach(c => totals[c] = 0);
-  allTx.forEach(t => {
-    if (totals[t.category] === undefined) return;
-    if (t.category === 'Payroll1') return;          // excluded from accountant view
-    if (isCashRevenue(t)) return;                    // cash revenue excluded
-    // Sales tax remitted is money held for the state, not an expense. Excluded
-    // here too, so the accountant's view and the monthly P&L agree.
-    if (PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0) return;
-    totals[t.category] += t.amount;
-  });
+  const totals = categoryTotalsFor(yr);
 
   // Tax sub-line breakdown
   const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
@@ -256,14 +265,7 @@ function renderTaxPanel() {
 
 function exportTaxCSV(yr) {
   const allTx = getYearTx(yr);
-  const totals = {};
-  CATEGORIES.forEach(c => totals[c] = 0);
-  allTx.forEach(t => {
-    if (totals[t.category] === undefined) return;
-    if (t.category === 'Payroll1') return;
-    if (isCashRevenue(t)) return;
-    totals[t.category] += t.amount;
-  });
+  const totals = categoryTotalsFor(yr);
   const payrollTax = allTx.filter(isPayrollTax).reduce((s,t) => s + t.amount, 0);
   const salesTax   = allTx.filter(isSalesTax).reduce((s,t) => s + t.amount, 0);
   const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
@@ -1120,6 +1122,73 @@ function renderSupplierPie(canvasId, legendId, data) {
   }
 }
 
+// The same category table the tax summary carries, but this is the owner's own
+// view rather than the accountant's, so it puts back the two things that one
+// leaves out -- Payroll1 and cash revenue -- and shows every year side by side,
+// which is the question this panel exists to answer.
+//
+// Deliberately NOT the accountant's figures. Two tables that look alike and
+// disagree would be worse than one, so each says at the top what it counts.
+function yearlyCategoryTableHtml() {
+  const years = (appData.years || []).slice().sort((a, b) => a - b);
+  if (!years.length) return '';
+  const opts = { withPayroll1: true, withCashRevenue: true };
+  const byYear = {};
+  years.forEach(y => { byYear[y] = categoryTotalsFor(y, opts); });
+
+  const rowFor = c => years.map(y => byYear[y][c] || 0);
+  const anyIn = c => rowFor(c).some(v => Math.abs(v) > 0.005);
+
+  const expenseCats = CATEGORIES.filter(c =>
+    c !== 'Revenue' && !isNonExpenseCat(c) && !isNonRevenueInCat(c) && anyIn(c));
+  const otherCats = CATEGORIES.filter(c =>
+    (isNonExpenseCat(c) || isNonRevenueInCat(c)) && anyIn(c));
+
+  const rev = y => byYear[y]['Revenue'] || 0;
+  const exp = y => expenseCats.reduce((s, c) => s + (byYear[y][c] || 0), 0);
+
+  const cells = (vals, cls) => vals.map(v =>
+    `<td style="text-align:right" class="${cls || ''}">${v ? fmt(v) : '—'}</td>`).join('');
+
+  const line = (label, vals, opt) => {
+    const o = opt || {};
+    return `<tr style="${o.style || ''}">
+      <td>${o.badge === false ? escHtml(label) : `<span class="badge">${escHtml(label)}</span>`}${
+        o.note ? ` <span style="font-size:0.65rem;color:var(--mist)">${escHtml(o.note)}</span>` : ''}</td>
+      ${cells(vals, o.cls)}
+    </tr>`;
+  };
+
+  return `
+    <div class="ledger-wrap" style="margin-bottom:20px">
+      <div class="ledger-header">
+        <h3>📊 Category Totals by Year</h3>
+        <span style="font-size:0.7rem;color:var(--mist)">
+          Everything, including Payroll1 and cash takings — unlike the Tax Summary,
+          which reports what the accountant is given
+        </span>
+      </div>
+      <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Category</th>${years.map(y =>
+            `<th style="text-align:right">${y}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${line('Revenue', years.map(rev), { cls: 'amount-in' })}
+            ${expenseCats.map(c => line(c, rowFor(c), { cls: 'amount-out' })).join('')}
+            ${line('Total expenses', years.map(exp),
+                   { badge: false, cls: 'amount-out', style: 'font-weight:600;border-top:1px solid var(--border)' })}
+            ${line('Net income', years.map(y => rev(y) - exp(y)),
+                   { badge: false, style: 'font-weight:700' })}
+            ${otherCats.length ? `<tr><td colspan="${years.length + 1}"
+                style="padding-top:10px;font-size:0.7rem;color:var(--mist)">
+                Money that moved but is not revenue or an expense</td></tr>` : ''}
+            ${otherCats.map(c => line(c, rowFor(c), { note: nonExpenseNote(c) })).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderYearlyPanel() {
   const grid = document.getElementById('yearly-grid-content');
   const yearRows = appData.years.map(yr => {
@@ -1153,6 +1222,8 @@ function renderYearlyPanel() {
         </div>
       `).join('')}
     </div>
+
+    ${yearlyCategoryTableHtml()}
 
     <div class="chart-wrap" style="margin-bottom:20px;">
       <h3>Monthly Revenue — Annual Comparison</h3>
