@@ -125,8 +125,10 @@ function renderTaxPanel() {
   // the depreciation schedule -- so burying it among the overheads is how it
   // gets deducted in full in the wrong year.
   const capital = CAPITAL_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
+  const loanPrincipal = LOAN_PRINCIPAL_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
+  const ownerDraw = OWNER_DRAW_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
   const totalExp = CATEGORIES.filter(c =>
-    c !== 'Revenue' && c !== 'Payroll1' && !isCapitalCat(c)).reduce((s,c) => s + (totals[c]||0), 0);
+    c !== 'Revenue' && c !== 'Payroll1' && !isNonExpenseCat(c)).reduce((s,c) => s + (totals[c]||0), 0);
   const net = revenue - totalExp;
 
   el.innerHTML = `
@@ -136,6 +138,10 @@ function renderTaxPanel() {
       <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
       ${capital ? `<div class="kpi-card" style="min-width:160px;border-top:3px solid var(--mist)">
         <div class="kpi-label">Capital Spending</div><div class="kpi-value">${fmt(capital)}</div></div>` : ''}
+      ${loanPrincipal ? `<div class="kpi-card" style="min-width:160px;border-top:3px solid var(--mist)">
+        <div class="kpi-label">Loan Principal</div><div class="kpi-value">${fmt(loanPrincipal)}</div></div>` : ''}
+      ${ownerDraw ? `<div class="kpi-card" style="min-width:160px;border-top:3px solid var(--mist)">
+        <div class="kpi-label">Owner Draws</div><div class="kpi-value">${fmt(ownerDraw)}</div></div>` : ''}
     </div>
 
     ${capital ? `
@@ -163,6 +169,26 @@ function renderTaxPanel() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>` : ''}
+
+    ${loanPrincipal || ownerDraw ? `
+      <div class="ledger-wrap" style="margin-bottom:20px">
+        <div class="ledger-header"><h3>🏦 Left the bank, but not an expense</h3></div>
+        <div style="padding:0 16px 14px;font-size:0.75rem;color:var(--ink-soft)">
+          ${loanPrincipal ? `<div style="margin-bottom:6px">
+            <strong>Loan repayments ${fmt(loanPrincipal)}</strong> — pays down what is owed rather than
+            buying anything, so it is not in the expense total above. Only the <strong>interest</strong>
+            is deductible, entered separately from the lender's year-end statement:
+            ${totals['Interest']
+              ? `${fmt(totals['Interest'])} recorded so far.`
+              : `<span style="color:var(--red)">nothing recorded yet this year.</span>`}
+          </div>` : ''}
+          ${ownerDraw ? `<div>
+            <strong>Owner draws ${fmt(ownerDraw)}</strong> — never an expense, and not deductible: the
+            profit is taxed whether it is drawn or left in. Here so the books tie to the bank, not
+            because the return wants it.
+          </div>` : ''}
         </div>
       </div>` : ''}
 
@@ -216,8 +242,8 @@ function renderTaxPanel() {
             // way. It carries the label so the column cannot be added up into
             // an expense figure that deducts an asset in one year.
             return `<tr>
-              <td><span class="badge">${c}</span>${isCapitalCat(c)
-                ? ' <span style="font-size:0.65rem;color:var(--mist)">not an expense — see the depreciation schedule above</span>' : ''}</td>
+              <td><span class="badge">${c}</span>${nonExpenseNote(c)
+                ? ` <span style="font-size:0.65rem;color:var(--mist)">${nonExpenseNote(c)}</span>` : ''}</td>
               <td class="${c==='Revenue'?'amount-in':'amount-out'}">${fmt(totals[c])}</td>
               <td>${pct}%</td>
               <td>${fmt(avg)}</td>
@@ -249,7 +275,7 @@ function exportTaxCSV(yr) {
   csv += `Tax Breakdown,Property Tax,${propertyTax.toFixed(2)},,\n`;
   // Capital under its own heading, so a column of "Category Totals" cannot be
   // summed into an expense figure that deducts an asset in one year.
-  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0 && !isCapitalCat(c)).forEach(c => {
+  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0 && !isNonExpenseCat(c)).forEach(c => {
     const pct = rev > 0 ? (totals[c]/rev*100).toFixed(1) : '0';
     csv += `Category Totals,"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
   });
@@ -259,6 +285,12 @@ function exportTaxCSV(yr) {
          const what = [t.vendor, t.desc].filter(Boolean).join(' — ').replace(/"/g, '""');
          csv += `Capital - depreciate not expense,"${t.date} ${what}",${Number(t.amount).toFixed(2)},,\n`;
        });
+  // Loan principal and draws under their own headings for the same reason: a
+  // column labelled "Category Totals" gets summed, and neither is deductible.
+  LOAN_PRINCIPAL_CATEGORIES.concat(OWNER_DRAW_CATEGORIES).forEach(c => {
+    if (!totals[c]) return;
+    csv += `Not an expense,"${c}",${totals[c].toFixed(2)},,\n`;
+  });
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1097,8 +1129,9 @@ function renderYearlyPanel() {
       acc.expenses += c.expenses;
       acc.net += c.net;
       acc.capital += c.capital || 0;
+      acc.nonExpense += c.nonExpense || 0;
       return acc;
-    }, { revenue: 0, expenses: 0, net: 0, capital: 0 });
+    }, { revenue: 0, expenses: 0, net: 0, capital: 0, nonExpense: 0 });
 
     // YoY annual growth
     const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
@@ -1115,7 +1148,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
-          ${r.capital ? `<div class="stat-row"><span title="Bought assets rather than being consumed — depreciated, not expensed">Capital</span><span style="color:var(--mist)">${fmt(r.capital)}</span></div>` : ''}
+          ${r.nonExpense ? `<div class="stat-row"><span title="Capital, loan principal and owner draws — money out that is not an operating cost">Out, not an expense</span><span style="color:var(--mist)">${fmt(r.nonExpense)}</span></div>` : ''}
           ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
@@ -1194,7 +1227,7 @@ function renderYearlyPanel() {
 
   // Annual Category Breakdown — stacked bar by category per year
   if (yearlyChartInst3) yearlyChartInst3.destroy();
-  const expCats = CATEGORIES.filter(c => c !== 'Revenue' && !isCapitalCat(c));
+  const expCats = CATEGORIES.filter(c => c !== 'Revenue' && !isNonExpenseCat(c));
   const catColorMap = {
     'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
     'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',

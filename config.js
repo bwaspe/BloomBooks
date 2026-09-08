@@ -18,7 +18,7 @@ const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
   'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
-  'Capital Expenditure'
+  'Capital Expenditure','Loan Repayment','Interest','Owner Draw'
 ];
 
 // Money that passes through the business without ever being earned or spent.
@@ -55,10 +55,61 @@ const PASSTHROUGH_CATEGORIES = ['Sales Tax Remitted'];
 // home for fixing what is already there.
 const CAPITAL_CATEGORIES = ['Capital Expenditure'];
 
+// The other half of the van. A loan repayment is not an expense either, but for
+// a different reason: it does not buy anything, it pays down what is owed. Only
+// the INTEREST is a cost, which is why Interest is its own ordinary expense
+// category -- with nowhere to put it, it was being swallowed by the repayment.
+//
+// The books had the whole $522.39 a month under Vehicles, so they showed about
+// $6,270 a year of expense that mostly was not one. The accountant corrects it
+// afterwards because the van is on the depreciation schedule; that made the
+// return right and left these books wrong.
+//
+// Split it once a year, not monthly: Valley Bank states the year's interest,
+// which goes in as a single Interest row. Amortising twelve payments by hand to
+// reach the same figure is work with nothing at the end of it.
+const LOAN_PRINCIPAL_CATEGORIES = ['Loan Repayment'];
+
+// Money the owner takes out. Not an expense on a sole trader, a single-member
+// LLC or a partnership: the owner is taxed on the profit whether it is drawn or
+// left in, so a draw never reduces it. Which is why the accountant does not
+// want it -- and also why leaving it out entirely is wrong HERE. It left the
+// bank, so without it these books cannot reconcile to the balance.
+//
+// (An S-corp is the exception: there the owner's reasonable wages are real
+// payroll and belong under Payroll, not here. Worth knowing which you are.)
+//
+// Note BUILTIN_RULES still IGNORES rows matching the owner's name outright, so
+// a draw does not reach the ledger at all. Recording it as a draw rather than
+// discarding it is the change that makes the bank tie out; the rule is left
+// alone because flipping it also pulls in whatever else that name matched.
+const OWNER_DRAW_CATEGORIES = ['Owner Draw'];
+
+// Money that genuinely left the bank without being an operating expense. Kept
+// as one list because every screen has the same duty towards all of them --
+// take them out of the expense total, then say on the same screen where they
+// went, or net income quietly stops explaining the balance.
+const NON_EXPENSE_CATEGORIES = CAPITAL_CATEGORIES
+  .concat(LOAN_PRINCIPAL_CATEGORIES)
+  .concat(OWNER_DRAW_CATEGORIES);
+
 function isCapitalCat(c) { return CAPITAL_CATEGORIES.indexOf(c) >= 0; }
+function isLoanPrincipalCat(c) { return LOAN_PRINCIPAL_CATEGORIES.indexOf(c) >= 0; }
+function isOwnerDrawCat(c) { return OWNER_DRAW_CATEGORIES.indexOf(c) >= 0; }
+function isNonExpenseCat(c) { return NON_EXPENSE_CATEGORIES.indexOf(c) >= 0; }
+
+// What a non-expense row should say about itself, wherever it is listed beside
+// real expenses.
+function nonExpenseNote(c) {
+  if (isCapitalCat(c)) return 'not an expense — depreciated';
+  if (isLoanPrincipalCat(c)) return 'not an expense — repays what is owed';
+  if (isOwnerDrawCat(c)) return 'not an expense — your own money out';
+  if (PASSTHROUGH_CATEGORIES.indexOf(c) >= 0) return 'not an expense — held for the state';
+  return '';
+}
 
 const EXPENSE_CATS = CATEGORIES.filter(c =>
-  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) && !CAPITAL_CATEGORIES.includes(c));
+  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) && !NON_EXPENSE_CATEGORIES.includes(c));
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [
