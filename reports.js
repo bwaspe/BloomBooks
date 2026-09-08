@@ -120,7 +120,13 @@ function renderTaxPanel() {
   const propertyTax= allTx.filter(isPropertyTax).reduce((s,t) => s + t.amount, 0);
 
   const revenue = totals['Revenue'] || 0;
-  const totalExp = CATEGORIES.filter(c => c !== 'Revenue' && c !== 'Payroll1').reduce((s,c) => s + (totals[c]||0), 0);
+  // Capital is out of the expense total and reported on its own below. It is
+  // the one figure here the accountant does something ELSE with -- it goes on
+  // the depreciation schedule -- so burying it among the overheads is how it
+  // gets deducted in full in the wrong year.
+  const capital = CAPITAL_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
+  const totalExp = CATEGORIES.filter(c =>
+    c !== 'Revenue' && c !== 'Payroll1' && !isCapitalCat(c)).reduce((s,c) => s + (totals[c]||0), 0);
   const net = revenue - totalExp;
 
   el.innerHTML = `
@@ -128,7 +134,37 @@ function renderTaxPanel() {
       <div class="kpi-card revenue" style="min-width:160px"><div class="kpi-label">Total Revenue</div><div class="kpi-value">${fmt(revenue)}</div></div>
       <div class="kpi-card expense" style="min-width:160px"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${fmt(totalExp)}</div></div>
       <div class="kpi-card profit" style="min-width:160px"><div class="kpi-label">Net Income</div><div class="kpi-value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
+      ${capital ? `<div class="kpi-card" style="min-width:160px;border-top:3px solid var(--mist)">
+        <div class="kpi-label">Capital Spending</div><div class="kpi-value">${fmt(capital)}</div></div>` : ''}
     </div>
+
+    ${capital ? `
+      <div class="ledger-wrap" style="margin-bottom:20px">
+        <div class="ledger-header"><h3>🔨 Capital spending — for the depreciation schedule</h3></div>
+        <div style="padding:0 16px 14px;font-size:0.75rem;color:var(--ink-soft)">
+          ${fmt(capital)} bought something lasting rather than being consumed, so it is
+          <strong>not</strong> in the expense total above and must not be deducted in full this year.
+          It belongs on the depreciation schedule — though §179 or bonus depreciation may still put
+          most or all of it in this year, which is your accountant's call and their election to make.
+          <div style="margin-top:8px">
+            <table style="width:100%;font-size:0.73rem">
+              <thead><tr style="color:var(--mist)"><th style="text-align:left">Date</th>
+                <th style="text-align:left">Paid to</th><th style="text-align:left">What for</th>
+                <th style="text-align:right">Amount</th></tr></thead>
+              <tbody>
+                ${allTx.filter(t => isCapitalCat(t.category) && t.type === 'out')
+                       .sort((a,b) => String(a.date).localeCompare(String(b.date)))
+                       .map(t => `<tr>
+                         <td>${escHtml(String(t.date || ''))}</td>
+                         <td>${escHtml(String(t.vendor || ''))}</td>
+                         <td>${escHtml(String(t.desc || ''))}</td>
+                         <td style="text-align:right" class="amount-out">${fmt(t.amount)}</td>
+                       </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>` : ''}
 
     <div class="ledger-wrap" style="margin-bottom:20px">
       <div class="ledger-header"><h3>🧾 Tax Breakdown (for accountant)</h3></div>
@@ -175,8 +211,13 @@ function renderTaxPanel() {
           ${CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).map(c => {
             const pct = revenue > 0 ? (totals[c]/revenue*100).toFixed(1) : '—';
             const avg = totals[c] / 12;
+            // Capital is listed here as well as in its own block above, because
+            // someone looking for where the money went should find it either
+            // way. It carries the label so the column cannot be added up into
+            // an expense figure that deducts an asset in one year.
             return `<tr>
-              <td><span class="badge">${c}</span></td>
+              <td><span class="badge">${c}</span>${isCapitalCat(c)
+                ? ' <span style="font-size:0.65rem;color:var(--mist)">not an expense — see the depreciation schedule above</span>' : ''}</td>
               <td class="${c==='Revenue'?'amount-in':'amount-out'}">${fmt(totals[c])}</td>
               <td>${pct}%</td>
               <td>${fmt(avg)}</td>
@@ -206,10 +247,18 @@ function exportTaxCSV(yr) {
   csv += `Tax Breakdown,Payroll Tax,${payrollTax.toFixed(2)},,\n`;
   csv += `Tax Breakdown,Sales Tax,${salesTax.toFixed(2)},,\n`;
   csv += `Tax Breakdown,Property Tax,${propertyTax.toFixed(2)},,\n`;
-  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0).forEach(c => {
+  // Capital under its own heading, so a column of "Category Totals" cannot be
+  // summed into an expense figure that deducts an asset in one year.
+  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0 && !isCapitalCat(c)).forEach(c => {
     const pct = rev > 0 ? (totals[c]/rev*100).toFixed(1) : '0';
     csv += `Category Totals,"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
   });
+  allTx.filter(t => isCapitalCat(t.category) && t.type === 'out')
+       .sort((a,b) => String(a.date).localeCompare(String(b.date)))
+       .forEach(t => {
+         const what = [t.vendor, t.desc].filter(Boolean).join(' — ').replace(/"/g, '""');
+         csv += `Capital - depreciate not expense,"${t.date} ${what}",${Number(t.amount).toFixed(2)},,\n`;
+       });
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1047,8 +1096,9 @@ function renderYearlyPanel() {
       acc.revenue += c.revenue;
       acc.expenses += c.expenses;
       acc.net += c.net;
+      acc.capital += c.capital || 0;
       return acc;
-    }, { revenue: 0, expenses: 0, net: 0 });
+    }, { revenue: 0, expenses: 0, net: 0, capital: 0 });
 
     // YoY annual growth
     const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
@@ -1065,6 +1115,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Revenue</span><span class="amount-in">${fmt(r.revenue)}</span></div>
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
+          ${r.capital ? `<div class="stat-row"><span title="Bought assets rather than being consumed — depreciated, not expensed">Capital</span><span style="color:var(--mist)">${fmt(r.capital)}</span></div>` : ''}
           ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
@@ -1143,7 +1194,7 @@ function renderYearlyPanel() {
 
   // Annual Category Breakdown — stacked bar by category per year
   if (yearlyChartInst3) yearlyChartInst3.destroy();
-  const expCats = CATEGORIES.filter(c => c !== 'Revenue');
+  const expCats = CATEGORIES.filter(c => c !== 'Revenue' && !isCapitalCat(c));
   const catColorMap = {
     'Payroll':'#1a5fa8','Payroll1':'#4a8abf','Supplies & Materials - COGS':'#e67e22',
     'Taxes':'#c0392b','Utilities':'#8e44ad','Transpo':'#16a085','Vehicles':'#2980b9',

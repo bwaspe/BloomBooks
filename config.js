@@ -17,7 +17,8 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
-  'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing'
+  'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
+  'Capital Expenditure'
 ];
 
 // Money that passes through the business without ever being earned or spent.
@@ -34,7 +35,30 @@ const CATEGORIES = [
 // the record of that matters; it simply is not an expense.
 const PASSTHROUGH_CATEGORIES = ['Sales Tax Remitted'];
 
-const EXPENSE_CATS = CATEGORIES.filter(c => c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c));
+// Money the shop spent that bought something lasting rather than being consumed
+// -- a cooler, a van, a build-out. It is deducted over the asset's life on the
+// depreciation schedule, not in the month the cheque cleared, so counting it as
+// an expense makes a month that invested look like a month that lost money.
+// The $10,000 basement cooler sat in Repairs/Maintenance and turned a summer
+// that traded slightly UP into one that read as down.
+//
+// NOT the same treatment as a passthrough, and the difference matters. Sales
+// tax was never the shop's money, so it can leave both sides and nothing is
+// owed an explanation. Capital IS the shop's money and it really did leave the
+// bank -- so it is taken out of the operating result and then shown on its own,
+// or net income quietly stops accounting for the balance. Every screen that
+// removes it from expenses has to state it somewhere.
+//
+// What belongs here is a judgement the accountant makes, not this app: broadly,
+// something that lasts beyond the year and improves or adds to what the shop
+// has, rather than keeping it running. Repairs/Maintenance is still the right
+// home for fixing what is already there.
+const CAPITAL_CATEGORIES = ['Capital Expenditure'];
+
+function isCapitalCat(c) { return CAPITAL_CATEGORIES.indexOf(c) >= 0; }
+
+const EXPENSE_CATS = CATEGORIES.filter(c =>
+  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) && !CAPITAL_CATEGORIES.includes(c));
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [

@@ -199,8 +199,16 @@ function calcMonth(year, month) {
     : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
 
   const cogs = counted.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
-  const expenses = counted.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  // Capital comes out of expenses and is reported beside them. `net` therefore
+  // means the trading result; `cashOut` and `cashNet` are what the bank did, so
+  // the two can be told apart instead of one silently standing for both.
+  const capital = counted.filter(t => t.type === 'out' && isCapitalCat(t.category))
+                         .reduce((s, t) => s + t.amount, 0);
+  const expenses = counted.filter(t => t.type === 'out' && !isCapitalCat(t.category))
+                          .reduce((s, t) => s + t.amount, 0);
   const net = revenue - expenses;
+  const cashOut = expenses + capital;
+  const cashNet = net - capital;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
   const byCategory = {};
@@ -209,7 +217,7 @@ function calcMonth(year, month) {
     if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
   });
   if (fromDayBook) byCategory['Revenue'] = revenue;
-  return { revenue, cogs, expenses, net, cogsRatio, byCategory };
+  return { revenue, cogs, expenses, net, capital, cashOut, cashNet, cogsRatio, byCategory };
 }
 
 function getRevenue(year, month) {
@@ -275,13 +283,23 @@ function renderMonthPanel(mi) {
       <div class="kpi-card expense">
         <div class="kpi-label">Total Expenses</div>
         <div class="kpi-value">${fmt(calc.expenses)}</div>
-        <div class="kpi-sub">Incl. payroll, COGS, overhead</div>
+        <div class="kpi-sub">${calc.capital
+          ? 'Payroll, COGS, overhead — not the ' + fmt(calc.capital) + ' capital'
+          : 'Incl. payroll, COGS, overhead'}</div>
       </div>
       <div class="kpi-card profit">
         <div class="kpi-label">Net Income</div>
         <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
-        <div class="kpi-sub">${calc.net >= 0 ? 'Profitable' : 'Net Loss'}</div>
+        <div class="kpi-sub">${calc.capital
+          ? 'Trading only · bank moved ' + fmt(calc.cashNet)
+          : (calc.net >= 0 ? 'Profitable' : 'Net Loss')}</div>
       </div>
+      ${calc.capital ? `
+      <div class="kpi-card" style="border-top:3px solid var(--mist)">
+        <div class="kpi-label">Capital Spending</div>
+        <div class="kpi-value" style="font-size:1.1rem">${fmt(calc.capital)}</div>
+        <div class="kpi-sub">Depreciated, not expensed</div>
+      </div>` : ''}
       <div class="kpi-card cogs">
         <div class="kpi-label">COGS Efficiency</div>
         <div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div>
@@ -305,8 +323,15 @@ function renderMonthPanel(mi) {
             if (amt === 0) return '';
             const pct = calc.revenue > 0 ? (amt / calc.revenue * 100).toFixed(1) : '—';
             const isActive = monthCatFilter[mi] === cat;
+            // Capital and the sales-tax remittance both sit in this table because
+            // the money moved, but neither is in Total Expenses above. Saying so
+            // on the row is what stops the column being added up by eye and
+            // disagreeing with the card.
+            const aside = isCapitalCat(cat) ? 'not an expense — depreciated'
+                        : (PASSTHROUGH_CATEGORIES.indexOf(cat) >= 0 ? 'not an expense — held for the state' : '');
             return `<tr class="cat-clickable${isActive ? ' cat-active' : ''}" onclick="filterByCategory(${mi}, '${cat.replace(/'/g, "\\'")}')" style="cursor:pointer" title="Click to view ${cat} transactions">
-              <td><span class="badge">${cat}</span>${isActive ? ' <span style="font-size:0.65rem;color:var(--accent2)">● filtering</span>' : ''}</td>
+              <td><span class="badge">${cat}</span>${isActive ? ' <span style="font-size:0.65rem;color:var(--accent2)">● filtering</span>' : ''}${
+                aside ? ` <span style="font-size:0.65rem;color:var(--mist)">${aside}</span>` : ''}</td>
               <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
               <td>${pct}%</td>
             </tr>`;
