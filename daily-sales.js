@@ -277,38 +277,64 @@ function dsTaxReport(year, quarter) {
         else if (mode === 'all') taxable = s;
         else if (rec.x != null) taxable = dsNum(rec.x);
 
-        const b = byChannel[k] || (byChannel[k] = { sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0, mode });
+        const b = byChannel[k] || (byChannel[k] = { sales: 0, taxable: 0, exempt: 0, tax: 0,
+                                                    unknown: 0, checkedTaxable: 0,
+                                                    uncheckedTaxable: 0, mode });
         b.sales += s; b.tax += t;
-        if (Math.abs(t) > 0.005) b.hasTax = true;
         mt.sales += s; mt.tax += t;
         if (taxable === null) { b.unknown += s; mt.unknown += s; }
         else {
           b.taxable += taxable; b.exempt += s - taxable;
           mt.taxable += taxable; mt.exempt += s - taxable;
+          // Checkable is decided per DAY, not per channel. Keyed on the channel,
+          // one day carrying a tax figure marked the whole quarter's takings on
+          // that channel as checked -- so filling August's tax and not June's
+          // put all three months into "expected" against one month's collected
+          // and reported a shortfall of about the other two. The day either has
+          // a figure to compare against or it has not.
+          if (taxable > 0.005) {
+            if (Math.abs(t) > 0.005) b.checkedTaxable += taxable;
+            else b.uncheckedTaxable += taxable;
+          }
         }
       });
     });
   });
 
-  // The cross-check can only compare channels whose tax was actually recorded.
-  // Cash, EPX and Venmo are typed by hand and carry sales but no tax figure, so
-  // including their taxable sales in "expected" produces a permanent shortfall
-  // of exactly the tax on them -- a warning that fires every quarter and means
-  // nothing. Their taxable sales are reported separately as unchecked instead.
+  // The cross-check can only compare days whose tax was actually recorded.
+  // Including a day with no tax figure in "expected" produces a shortfall of
+  // exactly the tax on it -- a warning that means nothing. Those sales are
+  // reported separately as unchecked instead. They are still taxable sales and
+  // still belong in the filing; it is only the comparison they are out of.
   const tot = { sales: tips, taxable: 0, exempt: tips, tax: 0, unknown: 0,
                 checkedTaxable: 0, uncheckedTaxable: 0, uncheckedChannels: [],
                 excluded };
   Object.values(byChannel).forEach(b => {
     tot.sales += b.sales; tot.taxable += b.taxable;
     tot.exempt += b.exempt; tot.tax += b.tax; tot.unknown += b.unknown;
+    tot.checkedTaxable += b.checkedTaxable;
+    tot.uncheckedTaxable += b.uncheckedTaxable;
   });
   Object.keys(byChannel).forEach(k => {
-    const b = byChannel[k];
-    if (!b.taxable) return;
-    if (b.hasTax) tot.checkedTaxable += b.taxable;
-    else { tot.uncheckedTaxable += b.taxable; tot.uncheckedChannels.push(k); }
+    if (byChannel[k].uncheckedTaxable > 0.005) tot.uncheckedChannels.push(k);
   });
   return { months, byChannel, byMonth, tips, tot };
+}
+
+// The EPX check has no panel of its own -- it is rendered at the foot of Daily
+// Sales -- so a link to 'epx' switches to a panel that does not exist and
+// leaves the screen blank. Switch to the panel it actually lives on, then go to
+// it: landing at the top of a long page and hunting for it is most of the
+// friction the link exists to remove.
+function dsGoToEpx() {
+  switchPanel('daily-sales');
+  setTimeout(() => {
+    // Not smooth: the panel scrolls inside main-content rather than the window,
+    // and an animated scroll there was measured going nowhere at all. A jump
+    // that lands beats a glide that does not.
+    const el = document.getElementById('epx-report');
+    if (el) el.scrollIntoView({ block: 'center' });
+  }, 60);
 }
 
 let stYear = null, stQuarter = null;
@@ -373,12 +399,21 @@ function renderSalesTaxPanel() {
 
     ${r.tot.uncheckedTaxable ? `
       <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:var(--paper);border:1px solid var(--border)">
-        <strong style="font-size:0.8rem">${fmt(r.tot.uncheckedTaxable)} of taxable sales cannot be cross-checked</strong>
+        <strong style="font-size:0.8rem">${fmt(r.tot.uncheckedTaxable)} of taxable sales have no tax recorded against them</strong>
         <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
-          ${r.tot.uncheckedChannels.map(id => escHtml(label0(id))).join(', ')} —
-          these are typed by hand and carry no tax figure, so there is nothing to compare against.
-          They still count towards taxable sales for the filing; only the check below excludes them.
-          At ${(DS_TAX_RATE * 100).toFixed(3)}% they would account for about ${fmt(r.tot.uncheckedTaxable * DS_TAX_RATE)} of tax.
+          ${r.tot.uncheckedChannels.map(id => `<div style="margin-bottom:3px">
+              <strong>${escHtml(label0(id))}</strong> ${fmt(r.byChannel[id].uncheckedTaxable)} —
+              ${id === 'epx'
+                ? `the statement can fill this. Upload the month on the
+                   <a href="#" onclick="dsGoToEpx();return false" style="color:var(--link)">EPX check</a>
+                   and use <em>Enter the tax on these days</em> under “Against the day book”: what EPX
+                   released is the sale including tax, so the figure is arithmetic rather than a guess.`
+                : `entered by hand from a report that carries no tax figure, so there is nothing here to
+                   compare against.`}
+            </div>`).join('')}
+          These are taxable sales and belong in the filing exactly as they stand — it is only the check
+          below they are out of. At ${(DS_TAX_RATE * 100).toFixed(3)}% they would account for about
+          ${fmt(r.tot.uncheckedTaxable * DS_TAX_RATE)} of tax.
         </div>
       </div>` : ''}
 
