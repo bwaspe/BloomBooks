@@ -337,6 +337,32 @@ function renderMonthPanel(mi) {
       </div>` : ''}
     </div>
 
+    ${(() => {
+      // Only the rows touching THIS month, so the notice is about the screen
+      // you are on rather than a standing complaint about the whole book.
+      const mis = ledgerMisfiled(year).thisYear.filter(r =>
+        (r.fromY === year && r.fromM === mi) || (r.toY === year && r.toM === mi));
+      if (!mis.length) return '';
+      const here = mis.filter(r => r.fromY === year && r.fromM === mi);
+      const belong = mis.filter(r => r.toY === year && r.toM === mi);
+      return `<div style="margin-bottom:18px;padding:10px;border-radius:6px;
+                          background:var(--paper);border:1px solid var(--border)">
+        <strong style="font-size:0.8rem">${mis.length} transaction${mis.length === 1 ? '' : 's'} filed under the wrong month</strong>
+        <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
+          ${here.length ? `${here.length} sitting in ${MONTHS[mi]} that ${here.length === 1 ? 'belongs' : 'belong'} elsewhere` : ''}
+          ${here.length && belong.length ? ' · ' : ''}
+          ${belong.length ? `${belong.length} dated ${MONTHS[mi]} but filed elsewhere` : ''}.
+          Entering one from another month's screen used to file it here rather than by its date;
+          that is fixed, and these are the ones it caught.
+          <strong>No year total changes</strong> — each stays in the year it is already in.
+          <div style="margin-top:6px">
+            <button class="btn btn-outline btn-sm no-print" style="font-size:0.68rem"
+                    onclick="ledgerRefile(${year})">Re-file ${ledgerMisfiled(year).thisYear.length} by date</button>
+          </div>
+        </div>
+      </div>`;
+    })()}
+
     <!-- CATEGORY BREAKDOWN -->
     <div class="cat-breakdown" style="margin-bottom:22px">
       <div class="ledger-header"><h3>Category Breakdown</h3></div>
@@ -559,9 +585,72 @@ function addManualTx(mi) {
   if (!date || !desc || isNaN(amount) || amount <= 0) {
     notify('Please fill all required fields', true); return;
   }
-  addTransaction(year, mi, { date, desc, category: cat, vendor, amount, type });
+
+  // Filed by the DATE, not by the panel you happen to be standing on. It used
+  // to take the month from `mi` and the year from the active-year selector
+  // while the date came from the box, so a March payment entered from the
+  // January screen was filed under January carrying a March date -- right in
+  // every report that reads the date, wrong in every one that reads the bucket.
+  // Four van payments went in that way.
+  const d = new Date(date + 'T00:00:00Z');
+  if (isNaN(d.getTime())) { notify('That date cannot be read', true); return; }
+  const y = d.getUTCFullYear(), m = d.getUTCMonth();
+
+  addTransaction(y, m, { date, desc, category: cat, vendor, amount, type });
   renderMonthPanel(mi);
-  notify('Transaction added');
+  // Say where it went when that is not where you are, or a row filed correctly
+  // somewhere else looks like a row that vanished.
+  notify(y === year && m === mi
+    ? 'Transaction added'
+    : `Added to ${MONTHS[m]} ${y} — that is the date on it`);
+}
+
+// Rows sitting in a month bucket that disagrees with their own date.
+//
+// Split on purpose. A row whose date is in the SAME year as its bucket can be
+// re-filed freely: no annual total moves, so nothing that has already been
+// filed with the state can change. One whose date is in a different year is
+// reported and left alone -- moving it would shift two years' figures at once,
+// and those years are closed.
+function ledgerMisfiled(year) {
+  const safe = [], crossYear = [];
+  Object.keys(appData.transactions || {}).forEach(key => {
+    const [by, bm] = key.split('-').map(Number);
+    (appData.transactions[key] || []).forEach(t => {
+      if (!t.date) return;
+      const d = new Date(t.date + 'T00:00:00Z');
+      if (isNaN(d.getTime())) return;
+      const dy = d.getUTCFullYear(), dm = d.getUTCMonth();
+      if (dy === by && dm === bm) return;
+      const row = { tx: t, from: key, fromY: by, fromM: bm, toY: dy, toM: dm };
+      if (dy === by) safe.push(row); else crossYear.push(row);
+    });
+  });
+  const forYear = y => safe.filter(r => r.fromY === y || r.toY === y);
+  return { safe, crossYear, thisYear: year == null ? safe : forYear(year) };
+}
+
+function ledgerRefile(year) {
+  const rows = ledgerMisfiled(year).thisYear;
+  if (!rows.length) { notify('Nothing to re-file'); return; }
+  const list = rows.slice(0, 8).map(r =>
+    `${r.tx.date}  ${fmt(r.tx.amount)}  ${r.tx.vendor || r.tx.desc || ''}`.trim()).join('\n');
+  if (!confirm(`Re-file ${rows.length} transaction${rows.length === 1 ? '' : 's'} ` +
+               `into the month its own date says?\n\n${list}` +
+               (rows.length > 8 ? `\n… and ${rows.length - 8} more` : '') +
+               `\n\nNo year total changes — every one of these stays in the year it is already in.`)) return;
+  rows.forEach(r => {
+    const from = appData.transactions[r.from] || [];
+    const i = from.indexOf(r.tx);
+    if (i < 0) return;
+    from.splice(i, 1);
+    const to = `${r.toY}-${r.toM}`;
+    if (!appData.transactions[to]) appData.transactions[to] = [];
+    appData.transactions[to].push(r.tx);
+  });
+  saveData();
+  notify(`${rows.length} re-filed by date`);
+  renderCurrentPanel();
 }
 
 function deleteTx(id, mi, year) {
