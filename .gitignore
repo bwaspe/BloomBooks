@@ -1,0 +1,20 @@
+# THIS REPO IS PUBLIC. Nothing here is a nicety.
+#
+# The test suites check their answers against a real Bloom Books backup and
+# against real vendor statements. Those are the shop's financial records --
+# every sale, every supplier invoice, every bank row. They are found at run
+# time from outside the repo (see tests/fixtures.js) and must never be copied
+# in, so the patterns below are a second line of defence in case one ever is.
+bloom-books-backup-*.json
+VenmoStatement_*.csv
+Sales_Report_*.csv
+*.ofx
+*.qfx
+
+# Scratch copies used while checking a change in the browser
+x-*.json
+x-*.csv
+
+node_modules/
+.DS_Store
+Thumbs.db
