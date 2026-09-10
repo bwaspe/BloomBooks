@@ -180,6 +180,15 @@ const BUILTIN_RULES = [
   // other payee starting DEL is DELUXE BUS SYS., so there is no collision.
   { keyword: 'DELAWARE VALLEY',          sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Delaware Valley Florist' },
   { keyword: 'A PERRI FARMS',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'A. Perri Farms' },
+  // The van. 'VALLEY BANK' and 'VNB', never bare 'VALLEY' -- that would swallow
+  // DELAWARE VALLEY above and start filing flower invoices as loan repayments.
+  // The rule sits AFTER Delaware Valley for the same reason: first match wins,
+  // and the COGS supplier should never have to compete with the lender.
+  //
+  // 'out' only. A credit from the bank is not a repayment -- it is a refund, or
+  // the loan being drawn down, and neither belongs here.
+  { keyword: 'VALLEY BANK',              sign: 'out', category: 'Loan Repayment', vendor: 'Valley Bank' },
+  { keyword: 'VNB',                      sign: 'out', category: 'Loan Repayment', vendor: 'Valley Bank' },
   { keyword: 'FISCH FLORAL',             sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Fisch Floral Supply' },
   { keyword: 'CLIFTON WHOLESALE',        sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Clifton Wholesale Florist' },
   { keyword: 'AMAZON',                   sign: 'any', category: 'Office',        vendor: 'Amazon' },
