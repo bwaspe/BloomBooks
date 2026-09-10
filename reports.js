@@ -204,11 +204,13 @@ function renderTaxPanel() {
         <div style="padding:0 16px 14px;font-size:0.75rem;color:var(--ink-soft)">
           ${loanPrincipal ? `<div style="margin-bottom:6px">
             <strong>Loan repayments ${fmt(loanPrincipal)}</strong> — pays down what is owed rather than
-            buying anything, so it is not in the expense total above. Only the <strong>interest</strong>
-            is deductible, entered separately from the lender's year-end statement:
-            ${totals['Interest']
-              ? `${fmt(totals['Interest'])} recorded so far.`
-              : `<span style="color:var(--red)">nothing recorded yet this year.</span>`}
+            buying anything, so it is not in the expense total above. The <strong>interest</strong> is
+            deductible, but it is already <em>inside</em> these payments — do not enter it again here,
+            or the same money leaves the bank twice. It comes off the lender's year-end statement on
+            the return.${totals['Interest']
+              ? ` (${fmt(totals['Interest'])} is recorded under Interest, which should be interest
+                 billed on its own line — a card or overdraft charge — not part of a repayment above.)`
+              : ''}
           </div>` : ''}
           ${ownerDraw ? `<div>
             <strong>Owner draws ${fmt(ownerDraw)}</strong> — never an expense, and not deductible: the

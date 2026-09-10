@@ -65,9 +65,12 @@ const CAPITAL_CATEGORIES = ['Capital Expenditure'];
 // afterwards because the van is on the depreciation schedule; that made the
 // return right and left these books wrong.
 //
-// Split it once a year, not monthly: Valley Bank states the year's interest,
-// which goes in as a single Interest row. Amortising twelve payments by hand to
-// reach the same figure is work with nothing at the end of it.
+// The interest is INSIDE these payments, so it is not entered again as its own
+// row -- doing that would spend the same money twice in a ledger built from
+// bank rows. The deduction comes off the lender's year-end statement on the
+// return, which is where it belongs; these books only need to stop calling the
+// repayment an expense. Interest is for interest billed on its own line: a card
+// charge, an overdraft fee.
 const LOAN_PRINCIPAL_CATEGORIES = ['Loan Repayment'];
 
 // Money the owner takes out. Not an expense on a sole trader, a single-member
