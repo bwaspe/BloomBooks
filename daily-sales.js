@@ -146,23 +146,37 @@ function dsDayTotal(year, month, day, field) {
 // never tax.
 function dsMonthTotals(year, month) {
   const days = dsMonth(year, month);
-  let sales = 0, tax = 0, tips = 0;
+  let sales = 0, tax = 0, tips = 0, derivedTax = 0;
   const byChannel = {};
   Object.keys(days).forEach(day => {
     const d = days[day] || {};
     tips += dsNum(d._tips);
     Object.keys(d).forEach(k => {
       if (k.startsWith('_')) return;
-      const s = dsNum((d[k] || {}).s), t = dsNum((d[k] || {}).t);
+      const rec = d[k] || {};
+      const s = dsNum(rec.s), t = dsNum(rec.t);
       sales += s; tax += t;
       if (!byChannel[k]) byChannel[k] = { s: 0, t: 0 };
       byChannel[k].s += s; byChannel[k].t += t;
+      // Tax worked out from the sale, tracked separately. Summing `t` alone
+      // left this month reporting "tax collected $0.00" for a quarter the
+      // Sales Tax panel reported $255.60 for -- same book, same months, two
+      // answers. Cash is excluded here exactly as it is there.
+      if (!dsExcludedFromTax(k)) {
+        const mode = dsTaxMode(dsChannels().find(c => c.id === k) || { id: k });
+        const taxable = mode === 'exempt' ? 0
+                      : mode === 'all' ? s
+                      : (rec.x != null ? dsNum(rec.x) : null);
+        const dt = dsDayTax(rec, taxable, mode);
+        if (dt.derived) derivedTax += dt.tax;
+      }
     });
   });
   // sales   = channel figures only
   // tips    = kept by the business, so revenue, but shown separately
   // revenue = what the books should count. Tax is in neither.
-  return { sales, tax, tips, revenue: sales + tips, byChannel };
+  return { sales, tax, derivedTax, taxAll: tax + derivedTax,
+           tips, revenue: sales + tips, byChannel };
 }
 
 // ---- channel admin ----------------------------------------
@@ -284,7 +298,8 @@ function dsTaxReport(year, quarter) {
   let excluded = 0;      // cash, kept out of every figure in this report
 
   months.forEach(({ y, m }) => {
-    const mt = byMonth[`${y}-${m}`] = { y, m, sales: 0, taxable: 0, exempt: 0, tax: 0, unknown: 0 };
+    const mt = byMonth[`${y}-${m}`] = { y, m, sales: 0, taxable: 0, exempt: 0, tax: 0,
+                                        unknown: 0, derivedTax: 0 };
     const days = dsMonth(y, m);
     Object.keys(days).forEach(dk => {
       const d = days[dk] || {};
@@ -314,7 +329,7 @@ function dsTaxReport(year, quarter) {
                                                     derivedTaxable: 0, mode });
         b.sales += s; b.tax += t;
         mt.sales += s; mt.tax += t;
-        if (dt.derived) { b.derivedTax += t; b.derivedTaxable += taxable || 0; }
+        if (dt.derived) { b.derivedTax += t; b.derivedTaxable += taxable || 0; mt.derivedTax += t; }
         if (taxable === null) { b.unknown += s; mt.unknown += s; }
         else {
           b.taxable += taxable; b.exempt += s - taxable;
@@ -434,9 +449,14 @@ function renderSalesTaxPanel() {
         <div class="kpi-sub">${r.tips ? 'incl. ' + fmt(r.tips) + ' tips' : 'house accounts, wire, tips'}</div></div>
       <div class="kpi-card profit"><div class="kpi-label">Tax collected</div>
         <div class="kpi-value">${fmt(r.tot.tax)}</div>
-        <div class="kpi-sub">${r.tot.derivedTax > 0.005
-          ? `incl. ${fmt(r.tot.derivedTax)} worked out from sales`
-          : `expected ${fmt(expected)} on ${fmt(r.tot.checkedTaxable)} of checkable sales`}</div></div>
+        <div class="kpi-sub">${[
+          r.tot.checkedTaxable > 0.005
+            ? `expected ${fmt(expected)} on ${fmt(r.tot.checkedTaxable)} checkable`
+            : '',
+          r.tot.derivedTax > 0.005
+            ? `incl. ${fmt(r.tot.derivedTax)} worked out`
+            : ''
+        ].filter(Boolean).join(' · ') || 'nothing to check against'}</div></div>
     </div>
 
     ${r.tot.uncheckedTaxable ? `
@@ -534,7 +554,17 @@ function renderSalesTaxPanel() {
               <td style="text-align:right">${fmt(b.sales)}</td>
               <td style="text-align:right">${fmt(b.taxable)}</td>
               <td style="text-align:right;color:var(--mist)">${fmt(b.exempt)}</td>
-              <td style="text-align:right">${fmt(b.tax)}</td>
+              <td style="text-align:right">${fmt(b.tax)}${(() => {
+                if (Math.abs(b.derivedTax) <= 0.005) return '';
+                // "incl. $89.02 worked out" beside $89.02 reads like a second
+                // figure. Where the whole month is derived, say so plainly.
+                const all = Math.abs(b.derivedTax - b.tax) <= 0.005;
+                const note = all ? 'worked out' : `incl. ${fmt(b.derivedTax)} worked out`;
+                return ` <span style="font-size:0.65rem;color:var(--mist)" title="${
+                  escHtml(fmt(b.derivedTax) + ' of this is worked out from the sales at ' +
+                          (DS_TAX_RATE * 100).toFixed(3) + '%, not recorded on the day')
+                }">${note}</span>`;
+              })()}</td>
               <td style="text-align:right;color:var(--mist)">${fmt(exp)}</td>
             </tr>`;
           }).join('')}
@@ -1796,7 +1826,10 @@ function renderDailySalesPanel() {
         <div style="font-size:0.7rem;color:var(--mist);text-transform:uppercase;letter-spacing:0.08em">Month revenue (ex tax)</div>
         <div class="kpi-value" style="font-size:1.3rem">${fmt(totals.revenue)}</div>
         <div style="font-size:0.72rem;color:var(--mist)">
-          ${totals.tips ? `incl. ${fmt(totals.tips)} tips · ` : ''}tax collected ${fmt(totals.tax)} (not revenue)
+          ${totals.tips ? `incl. ${fmt(totals.tips)} tips · ` : ''}tax ${fmt(totals.taxAll)}${
+            Math.abs(totals.derivedTax) <= 0.005 ? ''
+              : Math.abs(totals.derivedTax - totals.taxAll) <= 0.005 ? ' (worked out)'
+              : ` (incl. ${fmt(totals.derivedTax)} worked out)`} — not revenue
         </div>
       </div>
     </div>

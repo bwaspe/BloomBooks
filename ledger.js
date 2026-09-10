@@ -215,8 +215,20 @@ function calcMonth(year, month) {
                               .reduce((s, t) => s + t.amount, 0);
   const expenses = sum(c => !isNonExpenseCat(c));
   const net = revenue - expenses;
-  const cashOut = expenses + nonExpense;
-  const cashNet = net - nonExpense + nonRevenueIn;
+
+  // What the account ACTUALLY did, read off every row rather than inferred
+  // from net. That distinction is the whole point: from the switch-over month
+  // `revenue` is the day book -- tax-exclusive and gross of processor fees --
+  // while bank credits are dropped from `counted` so they cannot be counted
+  // twice. So `net - nonExpense + nonRevenueIn` is NOT the bank movement in any
+  // month after the switch-over, and a card that said "the bank rose $302.63"
+  // was reporting a June the account actually ended about $5,329 down.
+  //
+  // The two agree only while revenue still comes from deposits. After that they
+  // are different questions, so they get different names.
+  const bankIn  = txs.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
+  const bankOut = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  const bankNet = bankIn - bankOut;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown
   const byCategory = {};
@@ -226,7 +238,7 @@ function calcMonth(year, month) {
   });
   if (fromDayBook) byCategory['Revenue'] = revenue;
   return { revenue, cogs, expenses, net, capital, loanPrincipal, ownerDraw, nonExpense,
-           nonRevenueIn, cashOut, cashNet, cogsRatio, byCategory };
+           nonRevenueIn, bankIn, bankOut, bankNet, cogsRatio, byCategory };
 }
 
 function getRevenue(year, month) {
@@ -300,8 +312,8 @@ function renderMonthPanel(mi) {
         <div class="kpi-label">Net Income</div>
         <div class="kpi-value" style="color:${calc.net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(calc.net)}</div>
         <div class="kpi-sub">${calc.nonExpense
-          ? 'What trading earned · after ' + fmt(calc.nonExpense) + ' of it went out, the bank '
-            + (calc.cashNet >= 0 ? 'rose ' : 'fell ') + fmt(Math.abs(calc.cashNet))
+          ? 'What trading earned · ' + fmt(calc.nonExpense) + ' of it went out again; the account itself '
+            + (calc.bankNet >= 0 ? 'rose ' : 'fell ') + fmt(Math.abs(calc.bankNet))
           : (calc.net >= 0 ? 'Profitable' : 'Net Loss')}</div>
       </div>
       ${calc.nonExpense ? `
@@ -344,7 +356,7 @@ function renderMonthPanel(mi) {
             return `<tr class="cat-clickable${isActive ? ' cat-active' : ''}" onclick="filterByCategory(${mi}, '${cat.replace(/'/g, "\\'")}')" style="cursor:pointer" title="Click to view ${cat} transactions">
               <td><span class="badge">${cat}</span>${isActive ? ' <span style="font-size:0.65rem;color:var(--accent2)">● filtering</span>' : ''}${
                 aside ? ` <span style="font-size:0.65rem;color:var(--mist)">${aside}</span>` : ''}</td>
-              <td class="${cat === 'Revenue' ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
+              <td class="${cat === 'Revenue' || isNonRevenueInCat(cat) ? 'amount-in' : 'amount-out'}">${fmt(amt)}</td>
               <td>${pct}%</td>
             </tr>`;
           }).join('')}

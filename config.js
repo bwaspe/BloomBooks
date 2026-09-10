@@ -120,9 +120,10 @@ function nonExpenseNote(c) {
   return '';
 }
 
-const EXPENSE_CATS = CATEGORIES.filter(c =>
-  c !== 'Revenue' && !PASSTHROUGH_CATEGORIES.includes(c) &&
-  !NON_EXPENSE_CATEGORIES.includes(c) && !NON_REVENUE_IN_CATEGORIES.includes(c));
+// (EXPENSE_CATS used to be derived here and was read by nothing. It was a trap:
+// the obvious place to add a new exclusion, with no effect anywhere, because
+// calcMonth and renderTaxPanel each build their own filter. Removed rather than
+// kept in step.)
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [

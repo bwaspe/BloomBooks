@@ -78,10 +78,21 @@ function salesTaxCollected(year) {
         const chan = (typeof dsChannels === 'function'
           ? dsChannels().find(c => c.id === k) : null) || { id: k };
         const mode = dsTaxMode(chan);
+        // NULL, not 0, when a 'detail' day carries no taxable base -- that is
+        // the unclassified case and dsDayTax has to see the difference.
+        //
+        // This function used to derive tax for 'detail' days as well, which
+        // dsDayTax refuses to do, so the two screens disagreed about the same
+        // day: the Sales Tax panel listed it as having no tax recorded while
+        // this one quietly counted a derived figure into "collected". One rule
+        // now, in one place.
         const taxable = mode === 'exempt' ? 0
                       : mode === 'all' ? s
-                      : (rec.x != null ? Number(rec.x) || 0 : 0);
-        derived += taxable * rate;
+                      : (rec.x != null ? Number(rec.x) || 0 : null);
+        const dt = typeof dsDayTax === 'function'
+          ? dsDayTax(rec, taxable, mode)
+          : { tax: 0, derived: false };
+        if (dt.derived) derived += dt.tax;
       });
     });
   }
@@ -136,8 +147,14 @@ function renderTaxPanel() {
   const capital = CAPITAL_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
   const loanPrincipal = LOAN_PRINCIPAL_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
   const ownerDraw = OWNER_DRAW_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
+  const ownerIn = NON_REVENUE_IN_CATEGORIES.reduce((s,c) => s + (totals[c]||0), 0);
+  // isNonExpenseCat covers what LEAVES without being a cost. An Owner
+  // Contribution is the other direction, and leaving it out of this filter
+  // added money the owner put IN to the expense total -- so a $5,000
+  // contribution read as $5,000 of costs and $5,000 less profit.
   const totalExp = CATEGORIES.filter(c =>
-    c !== 'Revenue' && c !== 'Payroll1' && !isNonExpenseCat(c)).reduce((s,c) => s + (totals[c]||0), 0);
+    c !== 'Revenue' && c !== 'Payroll1' &&
+    !isNonExpenseCat(c) && !isNonRevenueInCat(c)).reduce((s,c) => s + (totals[c]||0), 0);
   const net = revenue - totalExp;
 
   el.innerHTML = `
@@ -181,9 +198,9 @@ function renderTaxPanel() {
         </div>
       </div>` : ''}
 
-    ${loanPrincipal || ownerDraw ? `
+    ${loanPrincipal || ownerDraw || ownerIn ? `
       <div class="ledger-wrap" style="margin-bottom:20px">
-        <div class="ledger-header"><h3>🏦 Left the bank, but not an expense</h3></div>
+        <div class="ledger-header"><h3>🏦 Moved, but not revenue or an expense</h3></div>
         <div style="padding:0 16px 14px;font-size:0.75rem;color:var(--ink-soft)">
           ${loanPrincipal ? `<div style="margin-bottom:6px">
             <strong>Loan repayments ${fmt(loanPrincipal)}</strong> — pays down what is owed rather than
@@ -197,6 +214,10 @@ function renderTaxPanel() {
             <strong>Owner draws ${fmt(ownerDraw)}</strong> — never an expense, and not deductible: the
             profit is taxed whether it is drawn or left in. Here so the books tie to the bank, not
             because the return wants it.
+          </div>` : ''}
+          ${ownerIn ? `<div style="margin-top:6px">
+            <strong>Owner contributions ${fmt(ownerIn)}</strong> — money put in, not earned. Not revenue
+            and not income, so it sits outside both totals above.
           </div>` : ''}
         </div>
       </div>` : ''}
@@ -277,7 +298,8 @@ function exportTaxCSV(yr) {
   csv += `Tax Breakdown,Property Tax,${propertyTax.toFixed(2)},,\n`;
   // Capital under its own heading, so a column of "Category Totals" cannot be
   // summed into an expense figure that deducts an asset in one year.
-  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0 && !isNonExpenseCat(c)).forEach(c => {
+  CATEGORIES.filter(c => c !== 'Payroll1' && totals[c] > 0 &&
+                        !isNonExpenseCat(c) && !isNonRevenueInCat(c)).forEach(c => {
     const pct = rev > 0 ? (totals[c]/rev*100).toFixed(1) : '0';
     csv += `Category Totals,"${c}",${totals[c].toFixed(2)},${pct}%,${(totals[c]/12).toFixed(2)}\n`;
   });
@@ -289,9 +311,10 @@ function exportTaxCSV(yr) {
        });
   // Loan principal and draws under their own headings for the same reason: a
   // column labelled "Category Totals" gets summed, and neither is deductible.
-  LOAN_PRINCIPAL_CATEGORIES.concat(OWNER_DRAW_CATEGORIES).forEach(c => {
+  LOAN_PRINCIPAL_CATEGORIES.concat(OWNER_DRAW_CATEGORIES)
+    .concat(NON_REVENUE_IN_CATEGORIES).forEach(c => {
     if (!totals[c]) return;
-    csv += `Not an expense,"${c}",${totals[c].toFixed(2)},,\n`;
+    csv += `Not revenue or an expense,"${c}",${totals[c].toFixed(2)},,\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a');
