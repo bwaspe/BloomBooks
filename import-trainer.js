@@ -98,6 +98,11 @@ function normalizeStatement(rows, source) {
 
   const iDate = find(/post.*date/, /transaction date/, /^date$/, /date/);
   const iType = find(/^type$/, /^details$/, /transaction type/);
+  // The running balance after each row. It is what lets the ledger be
+  // reconciled against the statement by arithmetic rather than by eye: where
+  // the balance steps by an amount with no transaction to explain it a row is
+  // missing, and the size of the step IS the missing amount. Dropped until now.
+  const iBal = find(/^balance$/, /balance/);
   const body = rows.slice(1);
 
   return body.map(r => {
@@ -106,8 +111,8 @@ function normalizeStatement(rows, source) {
       // parseAmex reads cols 0, 2 and 5.
       return [g(iDate), '', g(iDesc), '', '', g(iAmt)].join('\t');
     }
-    // The Chase parser reads Date, Description, Amount, TxType.
-    return [g(iDate), g(iDesc), g(iAmt), g(iType)].join('\t');
+    // The Chase parser reads Date, Description, Amount, TxType, Balance.
+    return [g(iDate), g(iDesc), g(iAmt), g(iType), g(iBal)].join('\t');
   }).join('\n');
 }
 
@@ -287,6 +292,10 @@ function parseImport() {
     const desc    = (cols[1] || '').trim();
     const rawAmt  = (cols[2] || '').trim();
     const txType  = (cols[3] || '').trim().toUpperCase();
+    // Null when absent, never 0 -- zero is a real balance, and a pasted TSV
+    // that predates this column must not claim the account was empty.
+    const rawBal  = (cols[4] || '').trim().replace(/[$,\s]/g, '');
+    const balance = rawBal !== '' && !isNaN(parseFloat(rawBal)) ? parseFloat(rawBal) : null;
 
     // On an ACH row the description ends "... IND NAME:<account holder> TRN:…".
     // IND NAME is always us — BARAMI WASPE, or MOSHOLU FLOWERS LLC — never the
@@ -365,6 +374,7 @@ function parseImport() {
       desc: cleanDesc,
       date, txYear, txMonth, amount, type: signGuess, category, vendor,
       _txType: txType || '',    // kept so the parser can tell a typeless file
+      bal: balance,             // the statement's running balance after this row
       status: 'review'
     };
 
@@ -549,7 +559,7 @@ function saveStagedRow(id) {
   const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
   addTransaction(yr, mo, {
     date: r.date, desc: r.desc.slice(0, 40), category: r.category,
-    vendor: r.vendor, amount: r.amount, type: r.type
+    vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
   });
   r.status = 'saved';
   renderStagingTable();
@@ -579,7 +589,7 @@ function saveAllStaged() {
     if (alreadyInLedger >= importCounts[key]) { dupes++; r.status = 'dupe'; return; }
     addTransaction(yr, mo, {
       date: r.date, desc: r.desc.slice(0, 40), category: r.category,
-      vendor: r.vendor, amount: r.amount, type: r.type
+      vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
     });
     r.status = 'saved';
     count++;
