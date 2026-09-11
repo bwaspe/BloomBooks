@@ -131,18 +131,6 @@ function nonExpenseNote(c) {
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [
   // IGNORE
-  // Was `ignore: true`, so money the owner took out never reached the ledger at
-  // all and these books could not tie to the bank balance. Recorded now, as a
-  // draw -- which is still not an expense and still changes no tax, but it is
-  // real money leaving and the books have to account for it.
-  //
-  // BOTH directions must be named. resolveRules checks `ignore` before sign, so
-  // one ignore rule covered in and out together; a categorising rule does not.
-  // And an unmatched credit defaults to Revenue, so leaving the `in` side off
-  // would book the owner's own money back into the business as a SALE --
-  // inflating revenue, and with it the sales-tax figures that come off it.
-  { keyword: 'BARAMI WASPE', sign: 'out', category: 'Owner Draw',         vendor: 'Owner' },
-  { keyword: 'BARAMI WASPE', sign: 'in',  category: 'Owner Contribution', vendor: 'Owner' },
   { keyword: 'AMERICAN EXPRESS',          ignore: true },
   { keyword: 'AMEX',                      ignore: true },
   { keyword: 'MP GARDENS',               ignore: true },
@@ -201,6 +189,28 @@ const BUILTIN_RULES = [
   { keyword: 'EXXONMOBIL',              sign: 'any', category: 'Transpo',       vendor: 'Exxon' },
   { keyword: 'PASSNY TOLLBYMAI',         sign: 'any', category: 'Transpo',       vendor: 'NY Tolls' },
   { keyword: 'SP MERI-MERI',            sign: 'any', category: 'Office',        vendor: 'Meri-Meri' },
+
+  // OWNER DRAWS AND CONTRIBUTIONS -- LAST, and narrowly matched.
+  //
+  // These were 'BARAMI WASPE' and sat at the TOP of this list, which was wrong
+  // twice over. Chase puts the account holder in the ACH description, so
+  // "IND NAME:BARAMI WASPE" appears on ordinary supplier payments the owner
+  // authorised -- a $230.29 Delaware Valley flower purchase and two American
+  // Express payments, in a single statement. As an ignore rule that silently
+  // discarded a COGS purchase; as a categorising rule it would have booked one
+  // as an owner draw.
+  //
+  // A genuine draw reads "Zelle payment to Barami Waspe". That is what is
+  // matched now, and these sit last so any named supplier wins first whatever
+  // the description happens to carry. A draw taken some other way -- a cheque,
+  // a transfer -- falls through uncategorised, which is visible and safe; being
+  // quietly wrong is neither.
+  //
+  // BOTH directions, because resolveRules checks `ignore` before sign but a
+  // categorising rule is sign-specific, and an unmatched CREDIT defaults to
+  // Revenue -- which would book the owner's own money back in as a sale.
+  { keyword: 'Zelle payment to Barami',   sign: 'out', category: 'Owner Draw',         vendor: 'Owner' },
+  { keyword: 'Zelle payment from Barami', sign: 'in',  category: 'Owner Contribution', vendor: 'Owner' },
 ];
 
 // ============================================================
