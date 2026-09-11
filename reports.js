@@ -1189,6 +1189,19 @@ function basisAdjustMap() {
   return appData.basisAdjust;
 }
 
+// What was handed to New York in a calendar year. Offered as a starting point
+// for the tax half of the adjustment, never substituted for it: the figure the
+// adjustment actually wants is what was COLLECTED inside that year's deposits,
+// and remitting trails collecting by a quarter -- the four payments in a
+// calendar year cover December through November. Over a run of years the lag
+// mostly cancels; at either end it does not. So it is a suggestion with its
+// own name on it, and the owner can take it or type the real one.
+function salesTaxRemitted(year) {
+  return getYearTx(year)
+    .filter(t => t.type === 'out' && isSalesTax(t))
+    .reduce((s, t) => s + t.amount, 0);
+}
+
 function revenueBasis(year) {
   return (typeof dsRevenueMonth === 'function' && dsRevenueMonth(year, 0))
     ? 'day book' : 'deposits';
@@ -1318,11 +1331,20 @@ function yearlyCategoryTableHtml() {
             deposits figure in a column headed like-for-like would read as an answer.
           </div>
           <div style="display:flex;gap:18px;flex-wrap:wrap">
-            ${needs.map(y => `<div style="display:flex;align-items:baseline;gap:8px">
-              <strong style="min-width:38px">${y}</strong>
-              ${box(y, 'fees', 'processor fees')}
-              ${box(y, 'tax', 'sales tax in deposits')}
-            </div>`).join('')}
+            ${needs.map(y => {
+              const remitted = salesTaxRemitted(y);
+              const entered = (a[y] || {}).tax;
+              const suggest = (remitted > 0.005 && entered == null)
+                ? ` <a href="#" onclick="setBasisAdjust(${y}, 'tax', '${remitted.toFixed(2)}');return false"
+                     style="font-size:0.65rem;color:var(--link)"
+                     title="What was remitted to New York in ${y}. The adjustment wants what was COLLECTED, which trails it by a quarter — take this as a start, not an answer.">use ${fmt(remitted)} remitted</a>`
+                : '';
+              return `<div style="display:flex;align-items:baseline;gap:8px">
+                <strong style="min-width:38px">${y}</strong>
+                ${box(y, 'fees', 'processor fees')}
+                ${box(y, 'tax', 'sales tax in deposits')}${suggest}
+              </div>`;
+            }).join('')}
           </div>
           <div style="margin-top:6px;color:var(--mist);font-size:0.68rem">
             Fees come off Stripe's payout summary; the tax is what those years actually collected.

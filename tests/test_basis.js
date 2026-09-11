@@ -26,6 +26,16 @@ vm.runInNewContext(F.src(['config.js', 'utils.js', 'daily-sales.js', 'ledger.js'
   appData = { years: [2024, 2025, 2026], activeYear: 2026,
               transactions: {}, dailySales: {}, dailyRevenueFrom: '2026-01' };
 
+  // Four quarterly remittances, the shape the relabelled ledger now carries:
+  // paid in Mar/Jun/Sep/Dec, so a calendar year's payments cover December
+  // through November -- which is why this is offered and not substituted.
+  appData.transactions['2025-2']  = [{ date:'2025-03-04', type:'out', amount:7125.19, category:'Taxes', vendor:'Sales Tax' }];
+  appData.transactions['2025-5']  = [{ date:'2025-06-10', type:'out', amount:8387.98, category:'Taxes', vendor:'Sales Tax' }];
+  appData.transactions['2025-8']  = [{ date:'2025-09-12', type:'out', amount:4661.77, category:'Taxes', vendor:'Sales Tax' }];
+  appData.transactions['2025-11'] = [{ date:'2025-12-03', type:'out', amount:5919.45, category:'Sales Tax Remitted', vendor:'Sales Tax' }];
+  // A payroll tax payment in the same category must NOT be swept in.
+  appData.transactions['2025-6']  = [{ date:'2025-07-15', type:'out', amount:1200, category:'Taxes', vendor:'Gusto', desc:'payroll tax' }];
+
   var basis = { y2024: revenueBasis(2024), y2025: revenueBasis(2025), y2026: revenueBasis(2026) };
 
   // Nothing entered yet.
@@ -63,7 +73,9 @@ vm.runInNewContext(F.src(['config.js', 'utils.js', 'daily-sales.js', 'ledger.js'
 
   __OUT__({ basis: basis, blank: blank, filled: filled,
             halfEntered: halfEntered, cleared: cleared,
-            mapAfterClear: mapAfterClear, junk: junk });
+            mapAfterClear: mapAfterClear, junk: junk,
+            remitted2025: Math.round(salesTaxRemitted(2025) * 100) / 100,
+            remitted2026: Math.round(salesTaxRemitted(2026) * 100) / 100 });
 })();`, sb, { filename: 'bb.js' });
 
 const fail = [];
@@ -96,6 +108,17 @@ t('one of the two still states a figure — a blank field is zero, not unknown',
 t('clearing both returns it to unknown', o.cleared === null, String(o.cleared));
 t('and leaves nothing behind in the book', o.mapAfterClear === 'null', o.mapAfterClear);
 t('junk is refused rather than stored as NaN', o.junk === 'null', o.junk);
+
+console.log('\nand the tax half can now be suggested from the ledger');
+const fourQuarters = 7125.19 + 8387.98 + 4661.77 + 5919.45;
+t('the four quarterly remittances add up, across both category shapes',
+  o.remitted2025 === fourQuarters, '$' + o.remitted2025);
+t('and a payroll tax payment filed under Taxes is NOT swept in',
+  o.remitted2025 !== fourQuarters + 1200, 'the $1,200 Gusto row stayed out');
+t('a year with no payments suggests nothing rather than zero-as-an-answer',
+  o.remitted2026 === 0, '$' + o.remitted2026);
+console.log('      (offered, never substituted — remitting trails collecting by a quarter,');
+console.log('       so a calendar year of payments covers December through November)');
 
 console.log(fail.length ? '\n' + fail.length + ' FAILURES:\n' + fail.join('\n') : '\nall assertions passed');
 process.exit(fail.length ? 1 : 0);
