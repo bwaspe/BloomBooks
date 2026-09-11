@@ -1154,6 +1154,67 @@ function renderSupplierPie(canvasId, legendId, data) {
 //
 // Deliberately NOT the accountant's figures. Two tables that look alike and
 // disagree would be worse than one, so each says at the top what it counts.
+// ---------------------------------------------------------------------------
+// PUTTING THE YEARS ON ONE BASIS
+//
+// Revenue comes from two places depending on the year. Up to the switch-over it
+// is bank DEPOSITS: what actually landed, which is net of the processor's cut
+// and includes the sales tax the customer paid. After it, the DAY BOOK: gross
+// of fees and tax-exclusive. Those are different measures, so reading the row
+// across as a trend is reading two things.
+//
+// 2025 is the sharp case -- it has a full day book, 309 days of it, and still
+// reports from deposits because the switch-over is set to 2026-01. The two
+// figures are $7,221 apart.
+//
+// Restating is NOT the answer. 2023 and 2024 have no day book at all, so there
+// is nothing to restate them to; and moving 2025 across would mean entering a
+// year of processor fees as expenses or profit jumps by the whole year's
+// Stripe cut. So the data is left exactly as it is and the ADJUSTMENT is
+// reported instead, from figures the owner supplies once per year:
+//
+//   comparable revenue = deposits + processor fees - sales tax collected
+//
+// Both come off reports that exist -- Stripe's payout summary and the filed
+// returns -- and neither can be derived from this ledger: sales tax remitted
+// here is incomplete before 2025 (one quarterly payment recorded in 2024
+// against four paid), and processor fees were never booked at all in a
+// deposits year because the deposit already had them taken out.
+//
+// A year with no adjustment entered shows nothing rather than its raw figure.
+// A raw deposits figure sitting in a column headed "comparable" is worse than
+// a blank, because it looks like an answer.
+function basisAdjustMap() {
+  if (!appData.basisAdjust) appData.basisAdjust = {};
+  return appData.basisAdjust;
+}
+
+function revenueBasis(year) {
+  return (typeof dsRevenueMonth === 'function' && dsRevenueMonth(year, 0))
+    ? 'day book' : 'deposits';
+}
+
+// Null means "cannot be stated on the common basis", and every caller must
+// render that as a blank rather than falling back to the unadjusted number.
+function comparableRevenue(year, recorded) {
+  if (revenueBasis(year) === 'day book') return recorded;
+  const a = basisAdjustMap()[year];
+  if (!a) return null;
+  const fees = Number(a.fees) || 0, tax = Number(a.tax) || 0;
+  if (!fees && !tax) return null;
+  return Math.round((recorded + fees - tax) * 100) / 100;
+}
+
+function setBasisAdjust(year, field, value) {
+  const map = basisAdjustMap();
+  const rec = map[year] || (map[year] = {});
+  const n = parseFloat(String(value).replace(/[$,\s]/g, ''));
+  if (!value || isNaN(n)) delete rec[field]; else rec[field] = n;
+  if (!Object.keys(rec).length) delete map[year];
+  saveData();
+  renderYearlyPanel();
+}
+
 function yearlyCategoryTableHtml() {
   const years = (appData.years || []).slice().sort((a, b) => a - b);
   if (!years.length) return '';
@@ -1199,6 +1260,26 @@ function yearlyCategoryTableHtml() {
             `<th style="text-align:right">${y}</th>`).join('')}</tr></thead>
           <tbody>
             ${line('Revenue', years.map(rev), { cls: 'amount-in' })}
+            ${(() => {
+              const comp = years.map(y => comparableRevenue(y, rev(y)));
+              if (!comp.some(v => v != null)) return '';
+              const growth = years.map((y, i) => {
+                if (i === 0 || comp[i] == null || comp[i - 1] == null || !comp[i - 1]) return null;
+                return ((comp[i] - comp[i - 1]) / comp[i - 1]) * 100;
+              });
+              return `<tr style="border-bottom:1px solid var(--border)">
+                <td><span class="badge">Revenue, like for like</span>
+                  <span style="font-size:0.65rem;color:var(--mist)">every year gross of fees and without sales tax</span></td>
+                ${comp.map(v => `<td style="text-align:right" class="${v == null ? '' : 'amount-in'}">${
+                  v == null ? '<span style="color:var(--mist)" title="Enter the processor fees and the sales tax inside that year&#39;s deposits, below">—</span>'
+                            : fmt(v)}</td>`).join('')}
+              </tr>
+              <tr><td style="font-size:0.68rem;color:var(--mist);padding-top:0">year on year</td>
+                ${growth.map(g => `<td style="text-align:right;font-size:0.68rem" class="${
+                  g == null ? '' : (g >= 0 ? 'growth-up' : 'growth-down')}">${
+                  g == null ? '' : (g >= 0 ? '▲ ' : '▼ ') + Math.abs(g).toFixed(1) + '%'}</td>`).join('')}
+              </tr>`;
+            })()}
             ${expenseCats.map(c => line(c, rowFor(c), { cls: 'amount-out' })).join('')}
             ${line('Total expenses', years.map(exp),
                    { badge: false, cls: 'amount-out', style: 'font-weight:600;border-top:1px solid var(--border)' })}
@@ -1211,6 +1292,45 @@ function yearlyCategoryTableHtml() {
           </tbody>
         </table>
       </div>
+
+      ${(() => {
+        const needs = years.filter(y => revenueBasis(y) === 'deposits');
+        if (!needs.length) return '';
+        const a = basisAdjustMap();
+        const box = (y, field, label) => {
+          const v = (a[y] || {})[field];
+          return `<label style="display:inline-flex;align-items:baseline;gap:4px;font-size:0.7rem">
+            <span style="color:var(--mist)">${label}</span>
+            <input type="text" inputmode="decimal" value="${v == null ? '' : v}"
+              onchange="setBasisAdjust(${y}, '${field}', this.value)"
+              placeholder="—" style="width:86px;font-size:0.7rem;padding:2px 4px;
+                border:1px solid var(--border);border-radius:4px;background:var(--surface);
+                font-family:Inter,sans-serif;text-align:right">
+          </label>`;
+        };
+        return `<div style="padding:0 16px 14px;font-size:0.74rem;color:var(--ink-soft)">
+          <div style="margin-bottom:6px">
+            ${needs.join(', ')} report revenue from bank <strong>deposits</strong>,
+            which arrive net of the processor's cut and carry the sales tax the customer paid.
+            ${years.filter(y => revenueBasis(y) === 'day book').join(', ')} report from the
+            <strong>day book</strong>, which is gross of fees and excludes tax. Give the two figures
+            below and the like-for-like row above fills in; leave them and it stays blank, because a
+            deposits figure in a column headed like-for-like would read as an answer.
+          </div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap">
+            ${needs.map(y => `<div style="display:flex;align-items:baseline;gap:8px">
+              <strong style="min-width:38px">${y}</strong>
+              ${box(y, 'fees', 'processor fees')}
+              ${box(y, 'tax', 'sales tax in deposits')}
+            </div>`).join('')}
+          </div>
+          <div style="margin-top:6px;color:var(--mist);font-size:0.68rem">
+            Fees come off Stripe's payout summary; the tax is what those years actually collected.
+            Neither can be taken from this ledger — a deposits year never booked the fee at all,
+            and the sales tax recorded here is incomplete before 2025.
+          </div>
+        </div>`;
+      })()}
     </div>`;
 }
 
