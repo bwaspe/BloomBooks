@@ -18,7 +18,8 @@ const CATEGORIES = [
   'Revenue','Payroll','Payroll1','Supplies & Materials - COGS',
   'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
   'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
-  'Capital Expenditure','Loan Repayment','Interest','Owner Draw','Owner Contribution'
+  'Capital Expenditure','Loan Repayment','Interest','Owner Draw','Owner Contribution',
+  'Credit Card Payment'
 ];
 
 // Money that passes through the business without ever being earned or spent.
@@ -93,6 +94,18 @@ const OWNER_DRAW_CATEGORIES = ['Owner Draw'];
 // out: without it a month the owner funded looks like a month that earned.
 const OWNER_CONTRIBUTION_CATEGORIES = ['Owner Contribution'];
 
+// Paying off the business Amex. Not an expense, and for a third distinct
+// reason: the money did leave the bank, but what it bought was already
+// recorded -- the card's own statement is imported separately and every
+// purchase on it comes in as a real expense there. Counting the payment too
+// would charge the same spending twice.
+//
+// The Amex importer has always known this from its side: a negative amount on
+// the card statement is set aside as "a payment to the card, not a purchase".
+// This is the same fact seen from the bank's side, and it has to be RECORDED
+// rather than discarded or the balance chain has a hole in it every month.
+const CARD_PAYMENT_CATEGORIES = ['Credit Card Payment'];
+
 // Money that arrived without being earned. Kept separate from the outflow list
 // because it moves the balance the other way.
 const NON_REVENUE_IN_CATEGORIES = OWNER_CONTRIBUTION_CATEGORIES.slice();
@@ -105,11 +118,13 @@ function isNonRevenueInCat(c) { return NON_REVENUE_IN_CATEGORIES.indexOf(c) >= 0
 // went, or net income quietly stops explaining the balance.
 const NON_EXPENSE_CATEGORIES = CAPITAL_CATEGORIES
   .concat(LOAN_PRINCIPAL_CATEGORIES)
-  .concat(OWNER_DRAW_CATEGORIES);
+  .concat(OWNER_DRAW_CATEGORIES)
+  .concat(CARD_PAYMENT_CATEGORIES);
 
 function isCapitalCat(c) { return CAPITAL_CATEGORIES.indexOf(c) >= 0; }
 function isLoanPrincipalCat(c) { return LOAN_PRINCIPAL_CATEGORIES.indexOf(c) >= 0; }
 function isOwnerDrawCat(c) { return OWNER_DRAW_CATEGORIES.indexOf(c) >= 0; }
+function isCardPaymentCat(c) { return CARD_PAYMENT_CATEGORIES.indexOf(c) >= 0; }
 function isNonExpenseCat(c) { return NON_EXPENSE_CATEGORIES.indexOf(c) >= 0; }
 
 // What a non-expense row should say about itself, wherever it is listed beside
@@ -118,6 +133,7 @@ function nonExpenseNote(c) {
   if (isCapitalCat(c)) return 'not an expense — depreciated';
   if (isLoanPrincipalCat(c)) return 'not an expense — repays what is owed';
   if (isOwnerDrawCat(c)) return 'not an expense — your own money out';
+  if (isCardPaymentCat(c)) return 'not an expense — the purchases came off the card statement';
   if (isNonRevenueInCat(c)) return 'not revenue — your own money in';
   if (PASSTHROUGH_CATEGORIES.indexOf(c) >= 0) return 'not an expense — held for the state';
   return '';
@@ -130,11 +146,17 @@ function nonExpenseNote(c) {
 
 // Built-in hardcoded rules (always applied before user rules)
 const BUILTIN_RULES = [
-  // IGNORE
-  { keyword: 'AMERICAN EXPRESS',          ignore: true },
-  { keyword: 'AMEX',                      ignore: true },
-  { keyword: 'MP GARDENS',               ignore: true },
-  { keyword: 'COUNTRY MARKETS',          ignore: true },
+  // Settling the Amex. 'CO NAME:AMERICAN EXPRESS' is the ACH form, which only
+  // the BANK feed writes -- a bare 'AMEX' would also match a charge ON the card
+  // ("AMEX ANNUAL MEMBERSHIP FEE"), and the Amex statement is run through these
+  // same rules, so that fee would stop being an expense.
+  { keyword: 'CO NAME:AMERICAN EXPRESS', sign: 'out', category: 'Credit Card Payment', vendor: 'American Express' },
+
+  // Nothing else is discarded any more. MP Gardens, Country Markets, Amazon
+  // tips, mobile payments and card rebates all used to vanish; some of them
+  // were the business card used by accident, which is a draw, and a draw is
+  // money that has to be accounted for. They now reach the staging table to be
+  // looked at, which is where a decision belongs.
   // REVENUE
   { keyword: 'FLOWER SHOP',              sign: 'in',  category: 'Revenue',                        vendor: 'Flower Shop' },
   { keyword: 'STRIPE',                   sign: 'any', category: 'Revenue',                        vendor: 'Stripe' },
@@ -157,9 +179,6 @@ const BUILTIN_RULES = [
   // UTILITIES
   { keyword: 'CON ED',                   sign: 'any', category: 'Utilities', vendor: 'Con Edison' },
   // AMEX VENDORS
-  { keyword: 'AMAZON TIPS',              ignore: true },
-  { keyword: 'MOBILE PAYMENT',           ignore: true },
-  { keyword: 'YOUR CASH REWARD',         ignore: true },
   { keyword: 'TRADER JOE',               sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Trader Joes' },
   { keyword: 'ALEXANDER HAY',            sign: 'any', category: 'Supplies & Materials - COGS', vendor: 'Alexander Hay' },
   // 'DELAWARE VALLEY', not 'DELAWARE VALLEY FLOR': Amex writes the long name

@@ -33,7 +33,9 @@ vm.runInNewContext(src + `
   var draw = resolveRules('ZELLE PAYMENT TO BARAMI WASPE 30515148228', 'out');
   var putIn = resolveRules('ZELLE PAYMENT FROM BARAMI WASPE 30515148999', 'in');
   var star = resolveRules('BARAMI *WASPE', 'out');
-  var other = resolveRules('AMERICAN EXPRESS PAYMENT', 'out');
+  // Was an ignore rule; the Amex settlement is now recorded as a card payment
+  // instead, so nothing is discarded and the balance chain stays whole.
+  var other = resolveRules('ORIG CO NAME:AMERICAN EXPRESS ORIG ID:20050321', 'out');
 
   // What an unmatched credit would have become, which is why the 'in' rule
   // has to exist: this is the default in the importer.
@@ -70,8 +72,9 @@ t('money IN from the owner is a contribution, not revenue',
   o.putIn && o.putIn.category === 'Owner Contribution', JSON.stringify(o.putIn));
 t('and that matters: an unmatched credit would default to Revenue',
   o.unmatchedIn === null, 'unmatched -> ' + JSON.stringify(o.unmatchedIn) + ', importer then picks Revenue');
-t('the other built-in ignores are untouched',
-  o.other && o.other.ignore === true, JSON.stringify(o.other));
+t('and the Amex settlement is recorded, not discarded',
+  o.other && !o.other.ignore && o.other.category === 'Credit Card Payment',
+  JSON.stringify(o.other));
 
 console.log('\nthe known gap, stated rather than guessed at');
 t('the "BARAMI *WASPE" spelling still does NOT match', o.star === null,
