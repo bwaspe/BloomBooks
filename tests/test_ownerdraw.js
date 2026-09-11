@@ -26,8 +26,12 @@ vm.runInNewContext(src + `
 ;(function(){
   appData = { years:[2026], activeYear:2026, rules:[], transactions:{}, dailySales:{} };
 
-  var draw = resolveRules('ZELLE PAYMENT TO BARAMI WASPE', 'out');
-  var putIn = resolveRules('ZELLE FROM BARAMI WASPE', 'in');
+  // Chase's actual wording. This used to say 'ZELLE FROM BARAMI WASPE', which
+  // the bank never writes -- it writes "Zelle payment from". The rule was
+  // narrowed to the real phrasing after a bare-name keyword was found matching
+  // supplier payments the owner had merely authorised; see test_ownername.
+  var draw = resolveRules('ZELLE PAYMENT TO BARAMI WASPE 30515148228', 'out');
+  var putIn = resolveRules('ZELLE PAYMENT FROM BARAMI WASPE 30515148999', 'in');
   var star = resolveRules('BARAMI *WASPE', 'out');
   var other = resolveRules('AMERICAN EXPRESS PAYMENT', 'out');
 
