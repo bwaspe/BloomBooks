@@ -57,7 +57,12 @@ const done = vm.runInNewContext(F.src(['config.js', 'utils.js', 'sync.js']) + `
     notes: { '2026-8': 'a note' },
     rules: [{ keyword: 'VALLEY BANK', sign: 'out', category: 'Loan Repayment', vendor: 'Valley Bank' }],
     // The setting that was being lost.
-    basisAdjust: { 2023: { tax: 7903.11 }, 2024: { tax: 24787.55 }, 2025: { tax: 26094.39 } },
+    // Both halves, and a year part-entered: the tax figure comes off the
+    // ledger, the processor's fees come off a Stripe payout summary, and they
+    // arrive weeks apart. A year holding only one of them must keep it.
+    basisAdjust: { 2023: { tax: 7903.11, fees: 4120.88 },
+                   2024: { tax: 24787.55, fees: 11903.42 },
+                   2025: { tax: 26094.39 } },
     // And a stand-in for the NEXT one somebody adds. Nothing in sync.js
     // mentions this key by name; if it comes back, the rule holds generally.
     __futureSetting: { deep: { value: 42 } },
@@ -104,6 +109,8 @@ const done = vm.runInNewContext(F.src(['config.js', 'utils.js', 'sync.js']) + `
     monthRowCount: monthRows,
     back: {
       basisAdjust: JSON.stringify(back.basisAdjust),
+      fees2023: (back.basisAdjust[2023] || {}).fees,
+      fees2025: (back.basisAdjust[2025] || {}).fees,
       future: JSON.stringify(back.__futureSetting),
       rules: (back.rules || []).length,
       notes: (back.notes || {})['2026-8'],
@@ -134,8 +141,12 @@ done.then(() => {
 
   console.log('\nand what comes back');
   t('the year-comparison figures — the ones that were being lost',
-    o.back.basisAdjust === '{"2023":{"tax":7903.11},"2024":{"tax":24787.55},"2025":{"tax":26094.39}}',
+    o.back.basisAdjust === '{"2023":{"tax":7903.11,"fees":4120.88},' +
+      '"2024":{"tax":24787.55,"fees":11903.42},"2025":{"tax":26094.39}}',
     o.back.basisAdjust);
+  t('  both halves of each year, and a year still missing its fees',
+    o.back.fees2023 === 4120.88 && o.back.fees2025 === undefined,
+    '2023 fees $' + o.back.fees2023 + ', 2025 fees not yet entered');
   t('a key sync.js has never heard of, which is the general rule',
     o.back.future === '{"deep":{"value":42}}', o.back.future);
   t('the settings that were lost one at a time before it: rules, notes, years',
