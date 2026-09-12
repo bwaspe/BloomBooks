@@ -1228,6 +1228,84 @@ function setBasisAdjust(year, field, value) {
   renderYearlyPanel();
 }
 
+// ---------------------------------------------------------------------------
+// THE SAME STRETCH OF EVERY YEAR
+//
+// A full-year row compares nine months of this year against twelve of last, so
+// it reports a fall on a year that is running ahead. The fix is to cut every
+// year at the point the current one has reached.
+//
+// The cut is the LAST DATE THE CURRENT YEAR HAS DATA FOR, not today: the day
+// book runs to the 11th and the bank to the 31st of last month, and measuring
+// to today would dock this year for days nobody has entered yet.
+//
+// The adjustment is scaled by each year's own REVENUE share of itself, not by
+// elapsed days. Both halves of it -- the processor's cut and the tax collected
+// -- move with sales rather than with the calendar, and this shop's sales are
+// not spread evenly: February and May carry the year. On 2023 the difference is
+// not subtle. Calendar days to 11 September is 70% of the year; 2023's actual
+// revenue share is 32.9%, because the business only opened that July.
+function ytdCutoff(years) {
+  const latest = Math.max.apply(null, years);
+  let last = null;
+  const seen = iso => { if (iso && (!last || iso > last)) last = iso; };
+  if (appData.dailySales) {
+    for (let m = 0; m < 12; m++) {
+      const mo = appData.dailySales[latest + '-' + m] || {};
+      Object.keys(mo).forEach(d => {
+        const day = mo[d] || {};
+        if (!Object.keys(day).some(c => !c.startsWith('_'))) return;
+        seen(latest + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
+      });
+    }
+  }
+  getYearTx(latest).forEach(t => { if (String(t.date || '').startsWith(String(latest))) seen(t.date); });
+  if (!last) return null;
+  const md = last.slice(5);                       // MM-DD
+  // Nothing to cut if the year is already complete.
+  return md === '12-31' ? null : { year: latest, md: md, iso: last };
+}
+
+// Revenue for one year up to and including MM-DD, on that year's own basis.
+function revenueThrough(year, md) {
+  const upto = year + '-' + md;
+  if (revenueBasis(year) === 'day book') {
+    let s = 0;
+    for (let m = 0; m < 12; m++) {
+      const mo = (appData.dailySales || {})[year + '-' + m] || {};
+      Object.keys(mo).forEach(d => {
+        const iso = year + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        if (iso > upto) return;
+        const day = mo[d] || {};
+        s += dsNum(day._tips);
+        Object.keys(day).forEach(c => {
+          if (c.startsWith('_')) return;
+          s += dsNum((day[c] || {}).s);
+        });
+      });
+    }
+    return s;
+  }
+  return getYearTx(year)
+    .filter(t => t.category === 'Revenue' && t.type === 'in' &&
+                 String(t.date || '') <= upto && String(t.date || '').startsWith(String(year)))
+    .reduce((s, t) => s + t.amount, 0);
+}
+
+// Null wherever it cannot be stated, same rule as the full-year figure.
+function comparableRevenueThrough(year, md, fullRecorded) {
+  const ytd = revenueThrough(year, md);
+  if (revenueBasis(year) === 'day book') return Math.round(ytd * 100) / 100;
+  const a = basisAdjustMap()[year];
+  if (!a) return null;
+  const fees = Number(a.fees) || 0, tax = Number(a.tax) || 0;
+  if (!fees && !tax) return null;
+  // Scaled by revenue, not by days. See the note above.
+  const full = revenueThrough(year, '12-31');
+  const share = full ? ytd / full : 0;
+  return Math.round((ytd + (fees - tax) * share) * 100) / 100;
+}
+
 function yearlyCategoryTableHtml() {
   const years = (appData.years || []).slice().sort((a, b) => a - b);
   if (!years.length) return '';
@@ -1243,7 +1321,22 @@ function yearlyCategoryTableHtml() {
   const otherCats = CATEGORIES.filter(c =>
     (isNonExpenseCat(c) || isNonRevenueInCat(c)) && anyIn(c));
 
-  const rev = y => byYear[y]['Revenue'] || 0;
+  // Revenue comes from the SAME place the month panels and the P&L use -- the
+  // day book after the switch-over, deposits before it -- rather than from the
+  // Revenue-category bank rows this table summed until now.
+  //
+  // That mattered twice. It is what "basis" means, so the like-for-like row was
+  // adjusting deposits years onto the day-book basis while showing 2026 as bank
+  // rows; and the to-date row read the day book, so the same year appeared as
+  // $362,961 on one line and $350,109 on the other. One source, windowed.
+  //
+  // Cash is still in it either way: the day book has a cash channel and a cash
+  // deposit is a Revenue row.
+  const rev = y => {
+    let s = 0;
+    for (let m = 0; m < 12; m++) s += calcMonth(y, m).revenue;
+    return Math.round(s * 100) / 100;
+  };
   const exp = y => expenseCats.reduce((s, c) => s + (byYear[y][c] || 0), 0);
 
   const cells = (vals, cls) => vals.map(v =>
@@ -1287,11 +1380,38 @@ function yearlyCategoryTableHtml() {
                   v == null ? '<span style="color:var(--mist)" title="Enter the processor fees and the sales tax inside that year&#39;s deposits, below">—</span>'
                             : fmt(v)}</td>`).join('')}
               </tr>
-              <tr><td style="font-size:0.68rem;color:var(--mist);padding-top:0">year on year</td>
+              <tr><td style="font-size:0.68rem;color:var(--mist);padding-top:0">year on year, full years</td>
                 ${growth.map(g => `<td style="text-align:right;font-size:0.68rem" class="${
                   g == null ? '' : (g >= 0 ? 'growth-up' : 'growth-down')}">${
                   g == null ? '' : (g >= 0 ? '▲ ' : '▼ ') + Math.abs(g).toFixed(1) + '%'}</td>`).join('')}
-              </tr>`;
+              </tr>
+              ${(() => {
+                // The same stretch of every year. Only worth showing while the
+                // latest year is still running; once it is complete the two
+                // rows say the same thing.
+                const cut = ytdCutoff(years);
+                if (!cut) return '';
+                const ytd = years.map(y => comparableRevenueThrough(y, cut.md, rev(y)));
+                const g2 = years.map((y, i) => {
+                  if (i === 0 || ytd[i] == null || ytd[i - 1] == null || !ytd[i - 1]) return null;
+                  return ((ytd[i] - ytd[i - 1]) / ytd[i - 1]) * 100;
+                });
+                const w = new Date(cut.iso + 'T00:00:00Z');
+                const label = w.getUTCDate() + ' ' + MONTHS_SHORT[w.getUTCMonth()];
+                return `<tr style="background:var(--paper)">
+                    <td><span class="badge">To ${label}, every year</span>
+                      <span style="font-size:0.65rem;color:var(--mist)">the only row where ${cut.year} is measured against the same stretch</span></td>
+                    ${ytd.map(v => `<td style="text-align:right;font-weight:600" class="${
+                      v == null ? '' : 'amount-in'}">${
+                      v == null ? '<span style="color:var(--mist)">—</span>' : fmt(v)}</td>`).join('')}
+                  </tr>
+                  <tr style="background:var(--paper)">
+                    <td style="font-size:0.68rem;color:var(--mist)">year on year, to ${label}</td>
+                    ${g2.map(g => `<td style="text-align:right;font-size:0.74rem;font-weight:600" class="${
+                      g == null ? '' : (g >= 0 ? 'growth-up' : 'growth-down')}">${
+                      g == null ? '' : (g >= 0 ? '▲ ' : '▼ ') + Math.abs(g).toFixed(1) + '%'}</td>`).join('')}
+                  </tr>`;
+              })()}`;
             })()}
             ${expenseCats.map(c => line(c, rowFor(c), { cls: 'amount-out' })).join('')}
             ${line('Total expenses', years.map(exp),
