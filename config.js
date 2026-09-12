@@ -245,6 +245,32 @@ let appData = {
   holidays: {}        // { "2025-0": { valentines: 0, mothers: 0, christmas: 0, other: 0 } }
 };
 
+// The rest of the book, added the first time each feature is used. Everything
+// here syncs to the sheet automatically -- pushToSheet copies the whole of
+// appData bar the two bulk collections -- but a new container still wants a
+// line in normalizeAppData (sync.js) so a book saved before it existed loads
+// without throwing.
+//
+//   dailySales      { "2026-8": { "11": { counter: {s,x,t}, _tips: 0 } } }
+//                   The day book. Bulk: rides in column C of the month rows.
+//   channels        [ {id,label,active} ] -- the sales channels of the day book
+//   channelsVersion the stamp for the channel migration. It must travel WITH
+//                   the channels it describes: without it the sheet reads back
+//                   as v1 and the migration re-runs on every single load,
+//                   silently undoing any channel choice made by hand.
+//   salesSheets     { 2026: "<workbook id>" } for the Holiday Revenue refresh
+//   deferrals       how much of a month's revenue was delivered in an earlier
+//                   one, measured at import, so the year can be drawn on a
+//                   delivery basis without moving anything
+//   holidayBuy      { "2026-1": "2026-02-03" } when buying started, per holiday
+//   monthClose      which month-end uploads are done, and when
+//   dailyRevenueFrom  "2026-01" -- the month revenue switches from bank
+//                   deposits to the day book. The two are not the same measure,
+//                   which is what basisAdjust exists to reconcile.
+//   basisAdjust     { 2025: {fees, tax} } -- the processor's cut and the sales
+//                   tax inside a deposits year, so the yearly table compares
+//                   like with like. Owner-entered; nothing can derive them.
+
 // ============================================================
 // VAULT DATA (historical pre-BloomBooks totals)
 // Source of truth is the private Google Sheet tab defined by VAULT_TAB.

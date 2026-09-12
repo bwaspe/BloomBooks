@@ -95,7 +95,30 @@ function parseAppData(raw) {
       parsed.transactions[k] = parsed.transactions[k].filter(t => !t._vault);
     });
   }
-  return parsed;
+  return normalizeAppData(parsed);
+}
+
+// The containers every book is assumed to have. A copy arriving without one
+// -- an older sheet, an older export, a save made before the setting existed
+// -- otherwise throws the first time something writes into it: a month note,
+// a reconciled tick, an import rule. Every path that replaces appData runs
+// through here, so the shape is guaranteed in one place rather than guarded
+// at each of the thirty-odd places that read it.
+const APPDATA_CONTAINERS = {
+  transactions: 'object', dailySales: 'object', notes: 'object',
+  reconciled: 'object', holidays: 'object', salesSheets: 'object',
+  deferrals: 'object', holidayBuy: 'object', monthClose: 'object',
+  basisAdjust: 'object', rules: 'array', channels: 'array'
+};
+function normalizeAppData(d) {
+  if (!d || typeof d !== 'object') return d;
+  Object.keys(APPDATA_CONTAINERS).forEach(k => {
+    const wantArray = APPDATA_CONTAINERS[k] === 'array';
+    const v = d[k];
+    const ok = wantArray ? Array.isArray(v) : (v && typeof v === 'object' && !Array.isArray(v));
+    if (!ok) d[k] = wantArray ? [] : {};
+  });
+  return d;
 }
 
 // Turns a sync failure into something readable on a phone, where there is
@@ -214,7 +237,7 @@ async function loadFromSheet() {
         const localTs = localData._savedAt || 0;
         if (localTs > sheetTs) {
           console.log('Local data is newer, syncing to sheet');
-          appData = localData;
+          appData = normalizeAppData(localData);
           if (appData.transactions) {
             Object.keys(appData.transactions).forEach(k => {
               appData.transactions[k] = appData.transactions[k].filter(t => !t._vault);
@@ -239,7 +262,7 @@ async function loadFromSheet() {
           }
         } catch(e) {}
       }
-      appData = sheetData;
+      appData = normalizeAppData(sheetData);
       setSyncStatus('saved', 'Synced ✓');
       setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
     }
@@ -294,41 +317,29 @@ async function pushToSheet() {
   try {
     // Row 1: metadata
     // Row 2+: one row per month (year-month key) to stay under 50k char cell limit
-    const meta = {
-      years: appData.years,
-      activeYear: appData.activeYear,
-      notes: appData.notes || {},
-      reconciled: appData.reconciled || {},
-      holidays: appData.holidays || {},
-      // Year -> Sales workbook id, for the Holiday Revenue refresh. This list
-      // is an allowlist, not a spread: anything missing from it is silently
-      // dropped on every sync, so a new top-level key must be added here too.
-      salesSheets: appData.salesSheets || {},
-      // The channel list only. Daily figures are far too big for this cell
-      // (four years is roughly 90KB against a 50k character limit) and go in
-      // column C of the per-month rows below, alongside the transactions.
-      channels: appData.channels || [],
-      // The version stamp must ride along with the channels it describes.
-      // Without it the sheet always reads back as v1, so the migration re-runs
-      // on every single load -- harmless today, since it only reactivates
-      // FloraNext and retires Web, but it would silently undo those choices
-      // for anyone who later decided otherwise.
-      channelsVersion: appData.channelsVersion || null,
-      // How much of each month's revenue was delivered in an earlier one --
-      // measured at import, used to draw the year on a delivery basis without
-      // moving anything. Same allowlist rule as above.
-      deferrals: appData.deferrals || {},
-      // When holiday buying started, per holiday per year. Same allowlist rule:
-      // a top-level key missing from this list is dropped on every sync.
-      holidayBuy: appData.holidayBuy || {},
-      // Which month-end uploads have been done, and when. Same allowlist rule:
-      // omit it here and the record is dropped on every sync, which is exactly
-      // the forgetting it exists to prevent.
-      monthClose: appData.monthClose || {},
-      dailyRevenueFrom: appData.dailyRevenueFrom || null,
-      rules: appData.rules || [],
-      _savedAt: appData._savedAt || Date.now()
-    };
+    // Everything on appData EXCEPT the two bulk collections, which go in
+    // columns B and C of the per-month rows below -- four years of daily
+    // figures is roughly 90KB against a 50k character cell limit.
+    //
+    // This was an allowlist until 2026-09-12, and it lost a setting each time
+    // one was added: salesSheets, deferrals, holidayBuy, monthClose and
+    // finally basisAdjust, the year-comparison figures, which were typed in,
+    // written to localStorage, and then wiped by the next load from the sheet.
+    // That failure is silent and only shows up on a refresh, which is why it
+    // kept recurring despite a warning comment on every entry.
+    //
+    // Listing what must NOT go fails the other way round: a new setting rides
+    // along on its own, and the only thing that can go wrong is a future bulk
+    // collection blowing the cell limit -- which Google answers with an error
+    // instead of quiet data loss.
+    const BULK_KEYS = { transactions: 1, dailySales: 1 };
+    const meta = {};
+    Object.keys(appData).forEach(k => { if (!BULK_KEYS[k]) meta[k] = appData[k]; });
+    // The load side tells the two sheet formats apart by whether A1 carries
+    // transactions, so this cell must never have the key at all.
+    delete meta.transactions;
+    delete meta.dailySales;
+    meta._savedAt = appData._savedAt || Date.now();
     const monthRows = [];
     (appData.years || []).forEach(yr => {
       for (let mi = 0; mi < 12; mi++) {
@@ -414,12 +425,12 @@ function importData(e) {
       const parsed = JSON.parse(ev.target.result);
       if (parsed.version === 2 && parsed.appData) {
         // New combined format
-        appData = parsed.appData;
+        appData = normalizeAppData(parsed.appData);
         ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], ...(parsed.ctData||{}) };
         ctSave();
       } else {
         // Old format — bare appData only, no cost tracker data (pre-dates this feature)
-        appData = parsed;
+        appData = normalizeAppData(parsed);
       }
       ensureVaultData();
       saveData();
