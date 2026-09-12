@@ -612,6 +612,20 @@ function saveStagedRow(id) {
   if (!r) return;
   const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
   const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+  // The same duplicate rule Save All applies, which this button used to skip --
+  // so a row from an overlapping download, the normal way to fetch the rest of
+  // a month, went into the ledger a second time. Identical rows are
+  // interchangeable: the only question is whether the ledger already holds as
+  // many of this row as the statement does. Counting that way also gets two
+  // genuinely identical charges right whichever of them is saved first.
+  const key = dupKey(r.date, r.amount, r.desc);
+  const onStatement = stagingRows.filter(s => dupKey(s.date, s.amount, s.desc) === key).length;
+  if (countExisting(yr, mo, r.date, r.amount, r.desc) >= onStatement) {
+    r.status = 'dupe';
+    renderStagingTable();
+    notify('Already in the ledger — not saved again', true);
+    return;
+  }
   addTransaction(yr, mo, {
     date: r.date, desc: r.desc.slice(0, 40), category: r.category,
     vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
