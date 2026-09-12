@@ -122,7 +122,9 @@ function categoryTotalsFor(yr, opts) {
     if (!opts.withPayroll1 && t.category === 'Payroll1') return;
     if (!opts.withCashRevenue && isCashRevenue(t)) return;
     if (PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0) return;
-    totals[t.category] += t.amount;
+    // Signed: a row facing against its category's natural side is a reversal
+    // and subtracts. See catSigned in config.js for what this cost.
+    totals[t.category] += catSigned(t);
   });
   return totals;
 }
@@ -1309,9 +1311,26 @@ function comparableRevenueThrough(year, md, fullRecorded) {
 function yearlyCategoryTableHtml() {
   const years = (appData.years || []).slice().sort((a, b) => a - b);
   if (!years.length) return '';
-  const opts = { withPayroll1: true, withCashRevenue: true };
+  // Read the SAME breakdown the month panels and the yearly cards read, rather
+  // than summing the ledger a second way. The two ways disagreed: the card put
+  // 2026 expenses at $282,843.48 and this table at $288,802.92, $5,959.44
+  // apart, with no row on either screen to point at. Rows and total now come
+  // from one function, so they cannot drift again.
   const byYear = {};
-  years.forEach(y => { byYear[y] = categoryTotalsFor(y, opts); });
+  const unfiled = {};
+  years.forEach(y => {
+    const acc = {};
+    CATEGORIES.forEach(c => { acc[c] = 0; });
+    let u = 0;
+    for (let m = 0; m < 12; m++) {
+      const c = calcMonth(y, m);
+      CATEGORIES.forEach(k => { acc[k] += c.byCategory[k] || 0; });
+      u += c.unfiledOut || 0;
+    }
+    CATEGORIES.forEach(k => { acc[k] = Math.round(acc[k] * 100) / 100; });
+    byYear[y] = acc;
+    unfiled[y] = Math.round(u * 100) / 100;
+  });
 
   const rowFor = c => years.map(y => byYear[y][c] || 0);
   const anyIn = c => rowFor(c).some(v => Math.abs(v) > 0.005);
@@ -1332,12 +1351,10 @@ function yearlyCategoryTableHtml() {
   //
   // Cash is still in it either way: the day book has a cash channel and a cash
   // deposit is a Revenue row.
-  const rev = y => {
-    let s = 0;
-    for (let m = 0; m < 12; m++) s += calcMonth(y, m).revenue;
-    return Math.round(s * 100) / 100;
-  };
-  const exp = y => expenseCats.reduce((s, c) => s + (byYear[y][c] || 0), 0);
+  const rev = y => byYear[y]['Revenue'] || 0;
+  const exp = y => Math.round(
+    CATEGORIES.filter(c => c !== 'Revenue' && !isNonExpenseCat(c) && !isNonRevenueInCat(c))
+              .reduce((s, c) => s + (byYear[y][c] || 0), 0) * 100) / 100;
 
   const cells = (vals, cls) => vals.map(v =>
     `<td style="text-align:right" class="${cls || ''}">${v ? fmt(v) : '—'}</td>`).join('');
@@ -1422,6 +1439,13 @@ function yearlyCategoryTableHtml() {
                 style="padding-top:10px;font-size:0.7rem;color:var(--mist)">
                 Money that moved but is not revenue or an expense</td></tr>` : ''}
             ${otherCats.map(c => line(c, rowFor(c), { note: nonExpenseNote(c) })).join('')}
+            ${years.some(y => unfiled[y] > 0.005) ? `<tr><td colspan="${years.length + 1}"
+                style="padding-top:10px;font-size:0.7rem;color:var(--red)">
+                Money out that no category above explains — recategorise these and
+                they will join the totals</td></tr>
+              ${line('Not filed under a cost', years.map(y => unfiled[y]),
+                     { cls: 'amount-out',
+                       note: 'sitting under Revenue — a processor debit or a refund' })}` : ''}
           </tbody>
         </table>
       </div>
@@ -1486,8 +1510,9 @@ function renderYearlyPanel() {
       acc.net += c.net;
       acc.capital += c.capital || 0;
       acc.nonExpense += c.nonExpense || 0;
+      acc.unfiledOut += c.unfiledOut || 0;
       return acc;
-    }, { revenue: 0, expenses: 0, net: 0, capital: 0, nonExpense: 0 });
+    }, { revenue: 0, expenses: 0, net: 0, capital: 0, nonExpense: 0, unfiledOut: 0 });
 
     // YoY annual growth
     const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
@@ -1505,6 +1530,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Expenses</span><span class="amount-out">${fmt(r.expenses)}</span></div>
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
           ${r.nonExpense ? `<div class="stat-row"><span title="Capital, loan principal and owner draws — money out that is not an operating cost">Out, not an expense</span><span style="color:var(--mist)">${fmt(r.nonExpense)}</span></div>` : ''}
+          ${r.unfiledOut > 0.005 ? `<div class="stat-row"><span style="color:var(--red)" title="Money out filed under Revenue — a processor debit or a refund. It is not revenue and not yet a cost, so it sits outside both totals until it is recategorised.">Not filed under a cost</span><span style="color:var(--red)">${fmt(r.unfiledOut)}</span></div>` : ''}
           ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}

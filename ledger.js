@@ -194,16 +194,22 @@ function calcMonth(year, month) {
     !passthrough(t) &&
     !(fromDayBook && t.category === 'Revenue' && t.type === 'in'));
 
+  // A refund is money out under Revenue, and it is not revenue. On the deposits
+  // basis that nets straight off -- the sale was reversed. On the day-book
+  // basis revenue comes from the day book instead, so such a row is real cash
+  // out that no category explains; it is reported as `unfiledOut` below rather
+  // than swept into the expense total, which is where it used to disappear.
   const revenue = fromDayBook
     ? dsMonthTotals(year, month).revenue
-    : txs.filter(t => t.category === 'Revenue' && t.type === 'in').reduce((s, t) => s + t.amount, 0);
+    : txs.filter(t => t.category === 'Revenue').reduce((s, t) => s + catSigned(t), 0);
 
-  const cogs = counted.filter(t => t.category === 'Supplies & Materials - COGS').reduce((s, t) => s + t.amount, 0);
+  const cogs = counted.filter(t => t.category === 'Supplies & Materials - COGS')
+                      .reduce((s, t) => s + catSigned(t), 0);
   // Capital comes out of expenses and is reported beside them. `net` therefore
   // means the trading result; `cashOut` and `cashNet` are what the bank did, so
   // the two can be told apart instead of one silently standing for both.
-  const sum = f => counted.filter(t => t.type === 'out' && f(t.category))
-                          .reduce((s, t) => s + t.amount, 0);
+  const sum = f => counted.filter(t => f(t.category))
+                          .reduce((s, t) => s + catSigned(t), 0);
   const capital = sum(isCapitalCat);
   const loanPrincipal = sum(isLoanPrincipalCat);
   const ownerDraw = sum(isOwnerDrawCat);
@@ -211,10 +217,22 @@ function calcMonth(year, month) {
   // The owner's own money coming back IN. Not revenue, so it is outside net --
   // but it did raise the balance, so the cash line has to carry it or a month
   // the owner funded reads as a month that lost less than it did.
-  const nonRevenueIn = counted.filter(t => t.type === 'in' && isNonRevenueInCat(t.category))
-                              .reduce((s, t) => s + t.amount, 0);
-  const expenses = sum(c => !isNonExpenseCat(c));
+  const nonRevenueIn = sum(isNonRevenueInCat);
+  // Revenue is not an expense category, and nor is one this build no longer
+  // has. Both used to fall through `!isNonExpenseCat(c)` into the expense
+  // total, where no row of the yearly table could add up to them.
+  const isExpenseCat = c => isKnownCat(c) && c !== 'Revenue' &&
+                            !isNonExpenseCat(c) && !isNonRevenueInCat(c);
+  const expenses = sum(isExpenseCat);
   const net = revenue - expenses;
+
+  // Real money out that no expense row can explain: filed under Revenue on a
+  // year whose revenue comes from the day book, or under a category that has
+  // since been removed. Reported so it gets a home, instead of inflating a
+  // total nothing itemises.
+  const unfiledOut = counted.filter(t => t.type === 'out' &&
+      (!isKnownCat(t.category) || (fromDayBook && t.category === 'Revenue')))
+    .reduce((s, t) => s + t.amount, 0);
 
   // What the account ACTUALLY did, read off every row rather than inferred
   // from net. That distinction is the whole point: from the switch-over month
@@ -234,11 +252,11 @@ function calcMonth(year, month) {
   const byCategory = {};
   CATEGORIES.forEach(c => { byCategory[c] = 0; });
   counted.forEach(t => {
-    if (byCategory[t.category] !== undefined) byCategory[t.category] += t.amount;
+    if (byCategory[t.category] !== undefined) byCategory[t.category] += catSigned(t);
   });
   if (fromDayBook) byCategory['Revenue'] = revenue;
   return { revenue, cogs, expenses, net, capital, loanPrincipal, ownerDraw, nonExpense,
-           nonRevenueIn, bankIn, bankOut, bankNet, cogsRatio, byCategory };
+           nonRevenueIn, unfiledOut, bankIn, bankOut, bankNet, cogsRatio, byCategory };
 }
 
 function getRevenue(year, month) {

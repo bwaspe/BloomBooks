@@ -5,9 +5,15 @@
 # every sale, every supplier invoice, every bank row. They are found at run
 # time from outside the repo (see tests/fixtures.js) and must never be copied
 # in, so the patterns below are a second line of defence in case one ever is.
-bloom-books-backup-*.json
+# Both shapes: the automatic one on sign-in is bloom-books-backup-<date>-<hhmm>,
+# the manual Export button writes bloom-books-<date>. The narrower pattern
+# missed the second for as long as it existed.
+bloom-books-*.json
 VenmoStatement_*.csv
 Sales_Report_*.csv
+# Bank and card exports, under the names those sites actually hand out.
+Chase*.csv
+activity*.csv
 *.ofx
 *.qfx
 

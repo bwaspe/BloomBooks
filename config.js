@@ -127,6 +127,23 @@ function isOwnerDrawCat(c) { return OWNER_DRAW_CATEGORIES.indexOf(c) >= 0; }
 function isCardPaymentCat(c) { return CARD_PAYMENT_CATEGORIES.indexOf(c) >= 0; }
 function isNonExpenseCat(c) { return NON_EXPENSE_CATEGORIES.indexOf(c) >= 0; }
 
+// Which side of the ledger a category naturally sits on -- and therefore what
+// a row facing the OTHER way means. Revenue and the owner's own money come IN;
+// everything else goes OUT. A row against its category's natural side is a
+// REVERSAL: a returned purchase, a payroll-tax credit from Gusto, a refunded
+// sale. So it subtracts from that category instead of adding to it.
+//
+// All three category summers had this wrong in the same way -- they added the
+// amount whichever way the money went -- so a $6,000 credit read as $6,000
+// MORE cost. The yearly card and the yearly table then disagreed by twice
+// that, because the card dropped the inflow rather than adding it, and no
+// category row on either screen accounted for the difference.
+function catIsInbound(c) { return c === 'Revenue' || isNonRevenueInCat(c); }
+function catSigned(t) {
+  return t.type === (catIsInbound(t.category) ? 'in' : 'out') ? t.amount : -t.amount;
+}
+function isKnownCat(c) { return CATEGORIES.indexOf(c) >= 0; }
+
 // What a non-expense row should say about itself, wherever it is listed beside
 // real expenses.
 function nonExpenseNote(c) {
