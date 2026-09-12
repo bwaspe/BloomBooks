@@ -132,6 +132,9 @@ function categoryTotalsFor(yr, opts) {
 function renderTaxPanel() {
   const yr = appData.activeYear;
   const el = document.getElementById('tax-summary-content');
+  // Same guard renderMonthPanel has. It is now called from ledgerFileUnfiled,
+  // which can run from a screen where this panel is not in the document.
+  if (!el) return;
   const allTx = getYearTx(yr);
 
   const totals = categoryTotalsFor(yr);
@@ -1441,8 +1444,18 @@ function yearlyCategoryTableHtml() {
             ${otherCats.map(c => line(c, rowFor(c), { note: nonExpenseNote(c) })).join('')}
             ${years.some(y => unfiled[y] > 0.005) ? `<tr><td colspan="${years.length + 1}"
                 style="padding-top:10px;font-size:0.7rem;color:var(--red)">
-                Money out that no category above explains — recategorise these and
-                they will join the totals</td></tr>
+                Money out that no category above explains — file it and it joins the totals
+                <label style="margin-left:8px;color:var(--ink-soft);font-weight:400">
+                  <select id="unfiled-target" style="font-size:0.68rem;padding:1px 3px;
+                    border:1px solid var(--border);border-radius:4px;background:var(--surface);
+                    font-family:Inter,sans-serif">
+                    ${CATEGORIES.filter(c => c !== 'Revenue' && !isNonRevenueInCat(c))
+                      .map(c => `<option value="${escHtml(c)}"${
+                        c === 'Payment Processing' ? ' selected' : ''}>${escHtml(c)}</option>`).join('')}
+                  </select>
+                  <button onclick="ledgerFileUnfiled(document.getElementById('unfiled-target').value)"
+                    style="font-size:0.68rem;padding:1px 7px;margin-left:4px">File them</button>
+                </label></td></tr>
               ${line('Not filed under a cost', years.map(y => unfiled[y]),
                      { cls: 'amount-out',
                        note: 'sitting under Revenue — a processor debit or a refund' })}` : ''}

@@ -68,7 +68,24 @@ vm.runInNewContext(F.src(['config.js', 'utils.js', 'daily-sales.js', 'ledger.js'
   // accountant's figure and the owner's disagree.
   var tax26 = categoryTotalsFor(2026, { withPayroll1: true, withCashRevenue: true });
 
+  // The repair. Its rows must be the SAME set the figure totals, or the button
+  // moves something the red line never counted.
+  var rows = ledgerUnfiledRows();
+  var rowTotal = Math.round(rows.reduce(function (s, r) { return s + r.tx.amount; }, 0) * 100) / 100;
+  var refused = false;
+  ledgerFileUnfiled('Nonsense Category');
+  refused = ledgerUnfiledRows().length === rows.length;
+
+  ledgerFileUnfiled('Payment Processing');
+  var after = calcMonth(2026, 0), after25 = calcMonth(2025, 0);
+
   __OUT__({
+    repair: { found: rows.length, total: rowTotal, refused: refused,
+              leftUnfiled: after.unfiledOut,
+              processing: after.byCategory['Payment Processing'],
+              expenses: after.expenses,
+              revenue26: after.revenue,
+              y25Revenue: after25.revenue, y25Expenses: after25.expenses },
     y25: { revenue: y25.revenue, cogs: y25.cogs, expenses: y25.expenses,
            unfiled: y25.unfiledOut, tableExp: tableExp(y25) },
     y26: { revenue: y26.revenue, expenses: y26.expenses, unfiled: y26.unfiledOut,
@@ -119,6 +136,26 @@ t('the yearly card total equals the table\'s own rows, 2025',
 t('and 2026, which is where they were $5,959.44 apart',
   Math.abs(o.y26.expenses - o.y26.tableExp) < 0.005,
   '$' + o.y26.expenses + ' vs $' + o.y26.tableExp);
+
+console.log('');
+console.log('and the red line can be acted on');
+t('the rows it would move are exactly the ones it counts',
+  o.repair.found === 2 && Math.abs(o.repair.total - 25.12) < 0.005,
+  o.repair.found + ' rows, $' + o.repair.total);
+t('a category that does not exist is refused, nothing moved',
+  o.repair.refused === true);
+t('filing them under Payment Processing clears the flag',
+  o.repair.leftUnfiled === 0, '$' + o.repair.leftUnfiled + ' left unfiled');
+t('  the money lands in that category',
+  Math.abs(o.repair.processing - 25.12) < 0.005, '$' + o.repair.processing);
+t('  and joins the expense total, which rose by exactly that',
+  Math.abs(o.repair.expenses - 3384.85) < 0.005,
+  '$3359.73 -> $' + o.repair.expenses);
+t('  revenue is untouched — it comes from the day book',
+  o.repair.revenue26 === 20000, '$' + o.repair.revenue26);
+t('and a refund on a DEPOSITS year is left alone, not swept up',
+  o.repair.y25Revenue === 9750 && o.repair.y25Expenses === 3400,
+  '2025 still nets the $250 off revenue');
 
 // 2023, 2024 and 2025 are filed and closed. Netting reversals is a correction,
 // so the one thing it must not do is restate a year that has already gone to

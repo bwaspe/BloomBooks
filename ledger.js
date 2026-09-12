@@ -127,6 +127,7 @@ function renderCurrentPanel() { switchPanel(currentPanel); }
 // ============================================================
 function renderMonthTabs() {
   const container = document.getElementById('month-tabs');
+  if (!container) return;
   container.innerHTML = MONTHS_SHORT.map((m, i) =>
     `<div class="sidebar-tab${currentPanel === 'month-'+i ? ' active' : ''}" data-panel="month-${i}" onclick="switchPanel('month-${i}')">${m}</div>`
   ).join('');
@@ -171,6 +172,54 @@ function updateTransaction(year, month, id, updates) {
 // ============================================================
 // MONTH CALCULATIONS
 // ============================================================
+// Money out that no expense row can explain. ONE definition, because the
+// figure on screen and the rows the repair below moves have to be the same
+// set -- two copies of this rule drifting apart is how the card and the
+// yearly table came to disagree in the first place.
+function isUnfiledOutRow(t, fromDayBook) {
+  return t.type === 'out' &&
+         (!isKnownCat(t.category) || (fromDayBook && t.category === 'Revenue'));
+}
+
+// Every unfiled row in the book, with the month it sits in. Chase writes
+// 'MERCH SETL' on the daily settlement CREDIT and on the periodic fee DEBIT
+// alike, and the built-in rule for it is sign: 'any', so a fee debit lands
+// under Revenue. That recurs, so this is a repair rather than a one-off.
+function ledgerUnfiledRows() {
+  const found = [];
+  (appData.years || []).forEach(yr => {
+    for (let mi = 0; mi < 12; mi++) {
+      const fromDayBook = typeof dsRevenueMonth === 'function' && dsRevenueMonth(yr, mi);
+      (appData.transactions[`${yr}-${mi}`] || []).forEach(t => {
+        if (t._vault) return;
+        if (PASSTHROUGH_CATEGORIES.indexOf(t.category) >= 0) return;
+        if (isUnfiledOutRow(t, fromDayBook)) found.push({ key: `${yr}-${mi}`, tx: t });
+      });
+    }
+  });
+  return found;
+}
+
+function ledgerFileUnfiled(category) {
+  if (!category || CATEGORIES.indexOf(category) < 0) { notify('Pick a category first', true); return; }
+  const rows = ledgerUnfiledRows();
+  if (!rows.length) { notify('Nothing is unfiled'); return; }
+  const total = rows.reduce((s, r) => s + r.tx.amount, 0);
+  const lines = rows.slice(0, 8)
+    .map(r => '  ' + r.tx.date + '  ' + fmt(r.tx.amount) + '  ' + (r.tx.vendor || ''))
+    .join('\n');
+  const more = rows.length > 8 ? '\n  ...and ' + (rows.length - 8) + ' more' : '';
+  if (!confirm('File ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') +
+               ' totalling ' + fmt(total) + ' under ' + category + '?\n\n' + lines + more +
+               '\n\nOnly the category changes. Dates, amounts and directions are untouched.')) return;
+  rows.forEach(r => { r.tx.category = category; });
+  saveData();
+  notify(`${rows.length} row${rows.length === 1 ? '' : 's'} filed under ${category}`);
+  if (typeof renderYearlyPanel === 'function') renderYearlyPanel();
+  if (typeof renderTaxPanel === 'function') renderTaxPanel();
+  if (typeof renderMonthTabs === 'function') renderMonthTabs();
+}
+
 function calcMonth(year, month) {
   const allTxs = getTransactions(year, month);
   // If real transactions exist, exclude vault entries from totals to avoid double-counting
@@ -230,9 +279,8 @@ function calcMonth(year, month) {
   // year whose revenue comes from the day book, or under a category that has
   // since been removed. Reported so it gets a home, instead of inflating a
   // total nothing itemises.
-  const unfiledOut = counted.filter(t => t.type === 'out' &&
-      (!isKnownCat(t.category) || (fromDayBook && t.category === 'Revenue')))
-    .reduce((s, t) => s + t.amount, 0);
+  const unfiledOut = counted.filter(t => isUnfiledOutRow(t, fromDayBook))
+                            .reduce((s, t) => s + t.amount, 0);
 
   // What the account ACTUALLY did, read off every row rather than inferred
   // from net. That distinction is the whole point: from the switch-over month
