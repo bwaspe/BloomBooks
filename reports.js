@@ -1291,10 +1291,13 @@ function revenueThrough(year, md) {
     }
     return s;
   }
+  // Signed, the same as calcMonth: a refund under Revenue nets off. Without it
+  // a deposits year cut at 31 December would stop equalling its own full-year
+  // revenue the first time one appeared.
   return getYearTx(year)
-    .filter(t => t.category === 'Revenue' && t.type === 'in' &&
+    .filter(t => t.category === 'Revenue' &&
                  String(t.date || '') <= upto && String(t.date || '').startsWith(String(year)))
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + catSigned(t), 0);
 }
 
 // Null wherever it cannot be stated, same rule as the full-year figure.
@@ -1527,11 +1530,34 @@ function renderYearlyPanel() {
       return acc;
     }, { revenue: 0, expenses: 0, net: 0, capital: 0, nonExpense: 0, unfiledOut: 0 });
 
-    // YoY annual growth
-    const prevRevTotal = MONTHS_SHORT.reduce((s, _, mi) => s + getRevenue(yr-1, mi), 0);
-    const annualGrowth = prevRevTotal > 0 ? ((totals.revenue - prevRevTotal) / prevRevTotal * 100) : null;
+    return { yr, ...totals };
+  });
 
-    return { yr, ...totals, annualGrowth };
+  // Year on year, on the SAME basis as the table's like-for-like rows. The raw
+  // figure set deposits (net of fees, carrying tax) against the day book (gross,
+  // tax-exclusive), and a whole year against eight and a half months -- so the
+  // 2026 card read down 19.0% directly above a table reading up 19.9% to the
+  // same date. The year still in progress is measured to the date its data
+  // reaches; complete years whole. Where a side cannot be stated -- a deposits
+  // year with no adjustment entered -- the card shows nothing rather than the
+  // raw figure, the same rule the table keeps.
+  const cut = ytdCutoff(appData.years);
+  const cutLabel = cut ? (() => {
+    const w = new Date(cut.iso + 'T00:00:00Z');
+    return w.getUTCDate() + ' ' + MONTHS_SHORT[w.getUTCMonth()];
+  })() : '';
+  const revOf = {};
+  yearRows.forEach(r => { revOf[r.yr] = Math.round(r.revenue * 100) / 100; });
+  yearRows.forEach(r => {
+    r.annualGrowth = null;
+    r.growthLabel = 'YoY Growth';
+    if (revOf[r.yr - 1] === undefined) return;
+    const toDate = cut && r.yr === cut.year;
+    const cur  = toDate ? comparableRevenueThrough(r.yr, cut.md)     : comparableRevenue(r.yr, revOf[r.yr]);
+    const prev = toDate ? comparableRevenueThrough(r.yr - 1, cut.md) : comparableRevenue(r.yr - 1, revOf[r.yr - 1]);
+    if (cur == null || prev == null || !prev) return;
+    r.annualGrowth = (cur - prev) / prev * 100;
+    if (toDate) r.growthLabel = 'YoY to ' + cutLabel;
   });
 
   grid.innerHTML = `
@@ -1544,7 +1570,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
           ${r.nonExpense ? `<div class="stat-row"><span title="Capital, loan principal and owner draws — money out that is not an operating cost">Out, not an expense</span><span style="color:var(--mist)">${fmt(r.nonExpense)}</span></div>` : ''}
           ${r.unfiledOut > 0.005 ? `<div class="stat-row"><span style="color:var(--red)" title="Money out filed under Revenue — a processor debit or a refund. It is not revenue and not yet a cost, so it sits outside both totals until it is recategorised.">Not filed under a cost</span><span style="color:var(--red)">${fmt(r.unfiledOut)}</span></div>` : ''}
-          ${r.annualGrowth !== null ? `<div class="stat-row"><span>YoY Growth</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
+          ${r.annualGrowth !== null ? `<div class="stat-row"><span title="Like for like: gross of processor fees, without sales tax">${r.growthLabel}</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
     </div>
