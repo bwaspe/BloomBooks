@@ -19,7 +19,7 @@ const CATEGORIES = [
   'Taxes','Sales Tax Remitted','Utilities','Transpo','Vehicles','Office','Insurance',
   'FSN','Payment Processing','Repairs/Maintenance','Rent','Phone/Internet','Marketing',
   'Capital Expenditure','Loan Repayment','Interest','Owner Draw','Owner Contribution',
-  'Credit Card Payment'
+  'Credit Card Payment','ATM Withdrawal'
 ];
 
 // Money that passes through the business without ever being earned or spent.
@@ -106,6 +106,15 @@ const OWNER_CONTRIBUTION_CATEGORIES = ['Owner Contribution'];
 // rather than discarded or the balance chain has a hole in it every month.
 const CARD_PAYMENT_CATEGORIES = ['Credit Card Payment'];
 
+// Money taken out of the bank at a machine. Not a cost in itself: some of it
+// pays Payroll1, which is entered by hand as it is paid, and some of it is a
+// draw. Booking the withdrawal as an expense as well would count the payroll
+// twice -- once leaving the bank, once being paid. So it is recorded, because
+// it genuinely left the account and the statement has to reconcile, and kept
+// out of the expense total. A withdrawal that was a draw is recategorised to
+// Owner Draw by hand; the owner confirmed the mix on 2026-09-12.
+const ATM_WITHDRAWAL_CATEGORIES = ['ATM Withdrawal'];
+
 // Money that arrived without being earned. Kept separate from the outflow list
 // because it moves the balance the other way.
 const NON_REVENUE_IN_CATEGORIES = OWNER_CONTRIBUTION_CATEGORIES.slice();
@@ -119,12 +128,14 @@ function isNonRevenueInCat(c) { return NON_REVENUE_IN_CATEGORIES.indexOf(c) >= 0
 const NON_EXPENSE_CATEGORIES = CAPITAL_CATEGORIES
   .concat(LOAN_PRINCIPAL_CATEGORIES)
   .concat(OWNER_DRAW_CATEGORIES)
-  .concat(CARD_PAYMENT_CATEGORIES);
+  .concat(CARD_PAYMENT_CATEGORIES)
+  .concat(ATM_WITHDRAWAL_CATEGORIES);
 
 function isCapitalCat(c) { return CAPITAL_CATEGORIES.indexOf(c) >= 0; }
 function isLoanPrincipalCat(c) { return LOAN_PRINCIPAL_CATEGORIES.indexOf(c) >= 0; }
 function isOwnerDrawCat(c) { return OWNER_DRAW_CATEGORIES.indexOf(c) >= 0; }
 function isCardPaymentCat(c) { return CARD_PAYMENT_CATEGORIES.indexOf(c) >= 0; }
+function isAtmWithdrawalCat(c) { return ATM_WITHDRAWAL_CATEGORIES.indexOf(c) >= 0; }
 function isNonExpenseCat(c) { return NON_EXPENSE_CATEGORIES.indexOf(c) >= 0; }
 
 // Which side of the ledger a category naturally sits on -- and therefore what
@@ -151,6 +162,7 @@ function nonExpenseNote(c) {
   if (isLoanPrincipalCat(c)) return 'not an expense — repays what is owed';
   if (isOwnerDrawCat(c)) return 'not an expense — your own money out';
   if (isCardPaymentCat(c)) return 'not an expense — the purchases came off the card statement';
+  if (isAtmWithdrawalCat(c)) return 'not an expense — Payroll1 records what it paid; draws go to Owner Draw';
   if (isNonRevenueInCat(c)) return 'not revenue — your own money in';
   if (PASSTHROUGH_CATEGORIES.indexOf(c) >= 0) return 'not an expense — held for the state';
   return '';
@@ -246,6 +258,10 @@ const BUILTIN_RULES = [
   // categorising rule is sign-specific, and an unmatched CREDIT defaults to
   // Revenue -- which would book the owner's own money back in as a sale.
   { keyword: 'Zelle payment to Barami',   sign: 'out', category: 'Owner Draw',         vendor: 'Owner' },
+  // ATM withdrawals. Chase writes 'ATM WITHDRAWAL' in the description and ATM
+  // as the type; the type alone is not enough, since Chase also stamps ATM on
+  // some card reversals that have nothing to do with a machine.
+  { keyword: 'ATM WITHDRAWAL',            sign: 'out', category: 'ATM Withdrawal',     vendor: 'ATM' },
   { keyword: 'Zelle payment from Barami', sign: 'in',  category: 'Owner Contribution', vendor: 'Owner' },
 ];
 
@@ -287,6 +303,9 @@ let appData = {
 //   basisAdjust     { 2025: {fees, tax} } -- the processor's cut and the sales
 //                   tax inside a deposits year, so the yearly table compares
 //                   like with like. Owner-entered; nothing can derive them.
+//   bankRecon       { last: {date, bal}, history: [...] } -- where the last
+//                   reconciled Chase statement ended, so the next upload can be
+//                   checked for a gap. See reconcile.js.
 
 // ============================================================
 // VAULT DATA (historical pre-BloomBooks totals)

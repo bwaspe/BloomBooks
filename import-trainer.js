@@ -162,6 +162,8 @@ function loadStatementFile(evt) {
       if (!tsv.trim()) { notify('That file had no rows I could read', true); return; }
       document.getElementById('import-text').value = tsv;
       parseImport();
+      // A Chase file is checked against the book as it arrives; see reconcile.js.
+      if (source === 'bank' && typeof rcLoad === 'function') rcLoad(String(e.target.result), file.name);
     } catch (err) {
       notify('Could not read that file: ' + (err && err.message || err), true);
     }
@@ -265,12 +267,150 @@ function parseAmex() {
   });
 }
 
+// Does this statement write money leaving the account as a negative number?
+// Chase's export does, on every debit. A paste in the old TC format may not
+// sign anything, and there the Type column is the only guide to direction.
+// Decided once per statement, from its own amounts, and never per line: a
+// single positive debit is exactly the case this exists to tell apart.
+function bankLinesAreSigned(lines) {
+  return lines.some(l => {
+    const amt = (String(l).split('\t')[2] || '').trim();
+    return /^(TC)?-\d/i.test(amt);
+  });
+}
+
+// One bank statement line to one ledger row, exactly as the importer reads it.
+// Shared by the importer and the reconciler: two copies of this parse would
+// drift, and the reconciler would then report rows missing that the importer
+// had saved under a different description or sign. Returns undefined for a
+// line that is not a transaction; otherwise { row, hit }, where `hit` is the
+// rule match and may be an ignore. `fallback` supplies the year and month
+// for a line with no readable date.
+function parseBankLine(line, idx, fallback, opts) {
+  opts = opts || {};
+  const cols = line.split('\t');
+  if (cols.length < 2) return;
+
+  const rawDate = (cols[0] || '').trim();
+  const desc    = (cols[1] || '').trim();
+  const rawAmt  = (cols[2] || '').trim();
+  const txType  = (cols[3] || '').trim().toUpperCase();
+  // Null when absent, never 0 -- zero is a real balance, and a pasted TSV
+  // that predates this column must not claim the account was empty.
+  const rawBal  = (cols[4] || '').trim().replace(/[$,\s]/g, '');
+  const balance = rawBal !== '' && !isNaN(parseFloat(rawBal)) ? parseFloat(rawBal) : null;
+
+  // On an ACH row the description ends "... IND NAME:<account holder> TRN:…".
+  // IND NAME is always us — BARAMI WASPE, or MOSHOLU FLOWERS LLC — never the
+  // counterparty, so matching rules against it can only ever produce false
+  // positives. Measured against a real statement: five of nine keyword
+  // matches fired solely on IND NAME, and two of those were genuine Delaware
+  // Valley purchases being silently discarded. The other three were Amex
+  // payments already matched by their real payee, so nothing is lost by
+  // excluding this tail. A personal transfer where BARAMI WASPE is genuinely
+  // the counterparty carries the name outside IND NAME and still matches.
+  //
+  // txType is appended AFTER stripping, not before: rules like CHECK_PAID
+  // match on the transaction type, and stripping to end-of-string would take
+  // it with them.
+  const descForRules = desc.replace(/IND NAME:.*$/i, '');
+  const upper   = (descForRules + ' ' + txType).toUpperCase();
+
+  // Ignore is decided further down, once the row is fully parsed, so that an
+  // ignored row can be restored without re-parsing it.
+
+  // --- DATE from col0 MM/DD/YYYY, fallback to selectors ---
+  let date, txYear, txMonth;
+  const dm = rawDate.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dm) {
+    txYear  = parseInt(dm[3]);
+    txMonth = parseInt(dm[1]) - 1; // 0-indexed
+    date = `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}`;
+  } else {
+    txYear  = fallback().year;
+    txMonth = fallback().month;
+    date = `${txYear}-${String(txMonth+1).padStart(2,'0')}-01`;
+  }
+
+  // --- AMOUNT from col2: TC327.7 or TC-73.99 or -277.99 or 105 ---
+  let amount = null;
+  let isNegative = false;
+  const tcMatch = rawAmt.match(/^TC(-?)([\d.]+)$/i);
+  if (tcMatch) {
+    isNegative = tcMatch[1] === '-';
+    amount = parseFloat(tcMatch[2]);
+  } else {
+    const plainMatch = rawAmt.match(/^(-?)([\d.,]+)$/);
+    if (plainMatch) {
+      isNegative = plainMatch[1] === '-';
+      amount = parseFloat(plainMatch[2].replace(/,/g,''));
+    }
+  }
+
+  if (!amount || amount <= 0) return;
+
+  // --- SIGN ---
+  // Chase signs its amounts, and its own Balance column proves the sign right.
+  // On a reversed card charge it keeps the purchase's type -- DEBIT_CARD -- and
+  // writes the amount POSITIVE, because the money came back. Treating the type
+  // as authoritative booked that refund as a second purchase, and the running
+  // balance stepped by twice the amount (J. Merullo, 16 July 2026, $376.05 --
+  // found by the reconciler's chain check). So where the file signs its
+  // amounts, the sign decides. The type decides only in a paste with no signs
+  // anywhere, which is what it was written for.
+  const typeSays = /ACH_CREDIT|MISC_CREDIT|CHECK_DEPOSIT/.test(txType) ? 'in'
+                 : /ACH_DEBIT|DEBIT_CARD|MISC_DEBIT|QUICKPAY_DEBIT|CHASE_TO_PARTNERFI|CHECK_PAID/.test(txType) ? 'out'
+                 : null;
+  const signSays = isNegative ? 'out' : 'in';
+  const signGuess = (opts.signedAmounts || !typeSays) ? signSays : typeSays;
+
+  // A reversal undoes an earlier row, so it belongs in THAT row's category
+  // facing the other way, which catSigned then nets off. Looked up in its own
+  // direction instead, the T-Mobile refund filed as Revenue -- and on a day-book
+  // year a bank credit under Revenue counts for nothing, so the phone bill it
+  // cancelled stood at full cost.
+  const reversal = /^\s*REVERSAL:/i.test(desc) ||
+                   !!(opts.signedAmounts && typeSays && typeSays !== signSays);
+  const ruleSign = reversal ? (signGuess === 'in' ? 'out' : 'in') : signGuess;
+
+  // --- CATEGORY / IGNORE via rules (yours first, then built-in) ---
+  const hit = resolveRules(reversal ? upper.replace(/^\s*REVERSAL:\s*/, '') : upper, ruleSign);
+  const category = (hit && !hit.ignore && hit.category) || (ruleSign === 'in' ? 'Revenue' : 'Office');
+  const vendor = (hit && !hit.ignore && hit.vendor) || '';
+
+  // Clean description: prefer ORIG CO NAME — the party actually paid. This
+  // used to prefer IND NAME, which is the account holder, so every ACH row
+  // landed in the ledger as "BARAMI WASPE" or "MOSHOLU FLOWERS LLC" instead
+  // of the vendor. IND NAME stays as the fallback for rows without a company
+  // name, where it is the only party named.
+  const origCo = desc.match(/ORIG CO NAME:\s*(.+?)(?:\s{2,}|\s+ORIG ID:)/i);
+  const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
+  const cleanDesc = (origCo && origCo[1].trim())
+                 || (indName && indName[1].trim())
+                 || desc.slice(0, 60);
+
+  const row = {
+    _id: 'stage-' + idx,
+    line: line.slice(0, 120),
+    desc: cleanDesc,
+    date, txYear, txMonth, amount, type: signGuess, category, vendor,
+    _txType: txType || '',    // kept so the parser can tell a typeless file
+    bal: balance,             // the statement's running balance after this row
+    status: 'review'
+  };
+
+  return { row, hit };
+}
+
 function parseImport() {
   const raw = document.getElementById('import-text').value.trim();
   if (!raw) { notify('Paste some text first', true); return; }
 
   stagingRows = [];
   ignoredRows = [];
+  // A statement check on screen belongs to the file it was run on, not to
+  // whatever is parsed next. An upload puts it back straight after this.
+  if (typeof rcClear === 'function') rcClear();
 
   const source = document.getElementById('import-source-sel').value;
   if (source === 'amex') {
@@ -284,100 +424,15 @@ function parseImport() {
   // TSV format: Date \t Description \t Amount \t TxType (one row per line)
   const lines = raw.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
 
+  const fallback = () => ({
+    year: parseInt(document.getElementById('import-year-sel').value),
+    month: parseInt(document.getElementById('import-month-sel').value)
+  });
+  const opts = { signedAmounts: bankLinesAreSigned(lines) };
   lines.forEach((line, idx) => {
-    const cols = line.split('\t');
-    if (cols.length < 2) return;
-
-    const rawDate = (cols[0] || '').trim();
-    const desc    = (cols[1] || '').trim();
-    const rawAmt  = (cols[2] || '').trim();
-    const txType  = (cols[3] || '').trim().toUpperCase();
-    // Null when absent, never 0 -- zero is a real balance, and a pasted TSV
-    // that predates this column must not claim the account was empty.
-    const rawBal  = (cols[4] || '').trim().replace(/[$,\s]/g, '');
-    const balance = rawBal !== '' && !isNaN(parseFloat(rawBal)) ? parseFloat(rawBal) : null;
-
-    // On an ACH row the description ends "... IND NAME:<account holder> TRN:…".
-    // IND NAME is always us — BARAMI WASPE, or MOSHOLU FLOWERS LLC — never the
-    // counterparty, so matching rules against it can only ever produce false
-    // positives. Measured against a real statement: five of nine keyword
-    // matches fired solely on IND NAME, and two of those were genuine Delaware
-    // Valley purchases being silently discarded. The other three were Amex
-    // payments already matched by their real payee, so nothing is lost by
-    // excluding this tail. A personal transfer where BARAMI WASPE is genuinely
-    // the counterparty carries the name outside IND NAME and still matches.
-    //
-    // txType is appended AFTER stripping, not before: rules like CHECK_PAID
-    // match on the transaction type, and stripping to end-of-string would take
-    // it with them.
-    const descForRules = desc.replace(/IND NAME:.*$/i, '');
-    const upper   = (descForRules + ' ' + txType).toUpperCase();
-
-    // Ignore is decided further down, once the row is fully parsed, so that an
-    // ignored row can be restored without re-parsing it.
-
-    // --- DATE from col0 MM/DD/YYYY, fallback to selectors ---
-    let date, txYear, txMonth;
-    const dm = rawDate.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (dm) {
-      txYear  = parseInt(dm[3]);
-      txMonth = parseInt(dm[1]) - 1; // 0-indexed
-      date = `${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}`;
-    } else {
-      txYear  = parseInt(document.getElementById('import-year-sel').value);
-      txMonth = parseInt(document.getElementById('import-month-sel').value);
-      date = `${txYear}-${String(txMonth+1).padStart(2,'0')}-01`;
-    }
-
-    // --- AMOUNT from col2: TC327.7 or TC-73.99 or -277.99 or 105 ---
-    let amount = null;
-    let isNegative = false;
-    const tcMatch = rawAmt.match(/^TC(-?)([\d.]+)$/i);
-    if (tcMatch) {
-      isNegative = tcMatch[1] === '-';
-      amount = parseFloat(tcMatch[2]);
-    } else {
-      const plainMatch = rawAmt.match(/^(-?)([\d.,]+)$/);
-      if (plainMatch) {
-        isNegative = plainMatch[1] === '-';
-        amount = parseFloat(plainMatch[2].replace(/,/g,''));
-      }
-    }
-
-    if (!amount || amount <= 0) return;
-
-    // --- SIGN: tx type column is authoritative ---
-    let signGuess;
-    if (/ACH_CREDIT|MISC_CREDIT|CHECK_DEPOSIT/.test(txType))                                       signGuess = 'in';
-    else if (/ACH_DEBIT|DEBIT_CARD|MISC_DEBIT|QUICKPAY_DEBIT|CHASE_TO_PARTNERFI|CHECK_PAID/.test(txType)) signGuess = 'out';
-    else signGuess = isNegative ? 'out' : 'in';
-
-    // --- CATEGORY / IGNORE via rules (yours first, then built-in) ---
-    const hit = resolveRules(upper, signGuess);
-    const category = (hit && !hit.ignore && hit.category) || (signGuess === 'in' ? 'Revenue' : 'Office');
-    const vendor = (hit && !hit.ignore && hit.vendor) || '';
-
-    // Clean description: prefer ORIG CO NAME — the party actually paid. This
-    // used to prefer IND NAME, which is the account holder, so every ACH row
-    // landed in the ledger as "BARAMI WASPE" or "MOSHOLU FLOWERS LLC" instead
-    // of the vendor. IND NAME stays as the fallback for rows without a company
-    // name, where it is the only party named.
-    const origCo = desc.match(/ORIG CO NAME:\s*(.+?)(?:\s{2,}|\s+ORIG ID:)/i);
-    const indName = desc.match(/IND NAME:\s*([^\t]+?)(?:\s+TRN:|$)/i);
-    const cleanDesc = (origCo && origCo[1].trim())
-                   || (indName && indName[1].trim())
-                   || desc.slice(0, 60);
-
-    const row = {
-      _id: 'stage-' + idx,
-      line: line.slice(0, 120),
-      desc: cleanDesc,
-      date, txYear, txMonth, amount, type: signGuess, category, vendor,
-      _txType: txType || '',    // kept so the parser can tell a typeless file
-      bal: balance,             // the statement's running balance after this row
-      status: 'review'
-    };
-
+    const parsed = parseBankLine(line, idx, fallback, opts);
+    if (!parsed) return;
+    const { row, hit } = parsed;
     if (hit && hit.ignore) ignoredRows.push({ ...row, reason: hit.reason, source: hit.source });
     else stagingRows.push(row);
   });
@@ -564,6 +619,7 @@ function saveStagedRow(id) {
   r.status = 'saved';
   renderStagingTable();
   notify('Transaction saved to ledger');
+  if (typeof rcRefresh === 'function') rcRefresh();
 }
 
 function cancelImport() {
@@ -595,6 +651,7 @@ function saveAllStaged() {
     count++;
   });
   renderStagingTable();
+  if (typeof rcRefresh === 'function') rcRefresh();
   let msg = `${count} transactions saved to ledger`;
   if (dupes > 0) msg += ` — ${dupes} possible duplicate(s) flagged`;
   notify(msg, dupes > 0);

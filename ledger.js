@@ -292,8 +292,16 @@ function calcMonth(year, month) {
   //
   // The two agree only while revenue still comes from deposits. After that they
   // are different questions, so they get different names.
-  const bankIn  = txs.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
-  const bankOut = txs.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
+  // Payroll1 is paid from money already withdrawn, and entered by hand as it
+  // is paid -- it never leaves the bank as itself. Where a month's ATM
+  // withdrawals are in the ledger they ARE that money leaving the bank, so
+  // counting Payroll1 as well would take the same payroll out of the account
+  // twice. Where they are not (months imported before withdrawals were
+  // recorded), Payroll1 is the only trace of that money and stays in.
+  const hasWithdrawals = txs.some(t => t.type === 'out' && isAtmWithdrawalCat(t.category));
+  const movesBank = t => !(hasWithdrawals && t.category === 'Payroll1');
+  const bankIn  = txs.filter(t => t.type === 'in'  && movesBank(t)).reduce((s, t) => s + t.amount, 0);
+  const bankOut = txs.filter(t => t.type === 'out' && movesBank(t)).reduce((s, t) => s + t.amount, 0);
   const bankNet = bankIn - bankOut;
   const cogsRatio = revenue > 0 ? (cogs / revenue * 100) : 0;
   // Category breakdown

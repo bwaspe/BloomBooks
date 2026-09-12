@@ -108,7 +108,7 @@ const APPDATA_CONTAINERS = {
   transactions: 'object', dailySales: 'object', notes: 'object',
   reconciled: 'object', holidays: 'object', salesSheets: 'object',
   deferrals: 'object', holidayBuy: 'object', monthClose: 'object',
-  basisAdjust: 'object', rules: 'array', channels: 'array'
+  basisAdjust: 'object', bankRecon: 'object', rules: 'array', channels: 'array'
 };
 function normalizeAppData(d) {
   if (!d || typeof d !== 'object') return d;
