@@ -174,7 +174,15 @@ function reconcileStatement(text) {
   const rows = parsed.rows;
   const chain = rcChain(rows);
   const recon = appData.bankRecon || {};
-  const continuity = rcContinuity(rows, chain, recon.last || null);
+  // Once this statement is recorded, the remembered end point IS its own end,
+  // and judging it against that would report it joining itself. Judge it
+  // against the point that stood before it was recorded.
+  let last = recon.last || null;
+  const entry = (recon.history || []).find(h => h.from === chain.from && h.to === chain.to);
+  if (entry && last && last.date === chain.to && Math.abs(last.bal - chain.closing) < 0.005) {
+    last = entry.prev || null;
+  }
+  const continuity = rcContinuity(rows, chain, last);
   const match = rcMatch(rows, chain);
   const clean = chain.breaks.length === 0 &&
                 ['first', 'joins', 'older'].indexOf(continuity.status) >= 0 &&
@@ -189,8 +197,14 @@ function reconcileStatement(text) {
 function rcRecord(res, name) {
   const br = appData.bankRecon || (appData.bankRecon = {});
   const end = { date: res.chain.to, bal: res.chain.closing };
+  const earlier = (br.history || []).find(h => h.from === res.chain.from && h.to === res.chain.to);
+  // What this statement was checked against, kept so it can be shown again.
+  const prev = earlier ? (earlier.prev || null)
+             : (br.last && br.last.date <= end.date &&
+                !(br.last.date === end.date && Math.abs(br.last.bal - end.bal) < 0.005) ? br.last : null);
   if (!br.last || end.date >= br.last.date) br.last = end;
   const entry = {
+    prev: prev ? { date: prev.date, bal: prev.bal } : null,
     from: res.chain.from, to: res.chain.to,
     opening: res.chain.opening, closing: res.chain.closing,
     clean: !!res.clean, file: String(name || '').slice(0, 60),
@@ -295,7 +309,7 @@ function rcRender(autoRecord) {
       (m.redated.length ? ` ${m.redated.length} carr${m.redated.length === 1 ? 'ies' : 'y'} a different date there.` : '')));
   } else {
     const net = rcRound(m.missing.reduce((s, r) => s + rcSigned(r), 0));
-    parts.push(line(bad, `<strong>${m.missing.length} of ${toCheck} rows aren't in your book</strong> — ${fmt(Math.abs(net))} ${net < 0 ? 'out' : 'in'} net.
+    parts.push(line(bad, `<strong>${m.missing.length} of ${toCheck} rows ${m.missing.length === 1 ? "isn't" : "aren't"} in your book</strong> — ${fmt(Math.abs(net))} ${net < 0 ? 'out' : 'in'} net.
       If you're importing this statement now, they're in the review table below; saving them clears this.` +
       list(m.missing, rowText)));
   }

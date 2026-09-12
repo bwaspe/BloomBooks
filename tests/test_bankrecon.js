@@ -80,6 +80,12 @@ t('  the rows both downloads share are already in the book; only the new ones ar
 a.saveAll();
 t('  saved, it reconciles through 31 Jul', a.last().date === '2026-07-31' && /Reconciled/.test(a.card()),
   JSON.stringify(a.last()));
+r = a.sb.reconcileStatement(CSV[1]);
+t('  and once recorded it still reports joining the 15 Jul statement, not itself',
+  r.continuity.status === 'joins' && r.continuity.last.date === '2026-07-15' && /ended 15 Jul/.test(a.card()),
+  r.continuity.status + ' ' + (r.continuity.last || {}).date);
+t('  and the earlier one, checked again, reads as older rather than as a gap',
+  a.sb.reconcileStatement(CSV[0]).continuity.status === 'older');
 
 r = a.upload(2);
 t('3 Aug-14 Aug looks like a gap by date, but opens on the exact balance 31 Jul closed on',
