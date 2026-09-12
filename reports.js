@@ -1300,6 +1300,51 @@ function revenueThrough(year, md) {
     .reduce((s, t) => s + catSigned(t), 0);
 }
 
+// Supplies & Materials - COGS for one year up to and including MM-DD, signed
+// the way calcMonth counts it, from the same month lists. Cut at 12-31 it is
+// the year's whole COGS -- the check that the two cannot disagree.
+function cogsThrough(year, md) {
+  const upto = year + '-' + md;
+  return getYearTx(year)
+    .filter(t => t.category === 'Supplies & Materials - COGS' &&
+                 (md === '12-31' || String(t.date || '') <= upto))
+    .reduce((s, t) => s + catSigned(t), 0);
+}
+
+// COGS as a share of revenue for a whole year, on the like-for-like basis the
+// rest of the yearly page uses.
+//
+// A month cannot answer this well. Revenue is booked when FloraNext records
+// it, and a house account paid in arrears books months of orders on the day
+// its cheques arrive -- $14,589 on 11 Sep 2026, for funeral work delivered May
+// to August -- while the flowers were paid for in the months they were used.
+// So September read 10% and the summer months read high. Over a year the
+// timing washes out.
+//
+// Complete years whole; the year in progress to the date its data reaches. A
+// year's share to mid-September differs from its full-year figure by about two
+// points either way (2024: 39.5 vs 41.7; 2025: 44.7 vs 42.7), which would
+// otherwise read as a change that is really the season. Null where
+// like-for-like revenue cannot be stated, the same rule growth keeps.
+function cogsShare(year, cut) {
+  const toDate = !!(cut && year === cut.year);
+  let rev;
+  if (toDate) {
+    rev = comparableRevenueThrough(year, cut.md);
+  } else {
+    let recorded = 0;
+    for (let m = 0; m < 12; m++) recorded += calcMonth(year, m).revenue;
+    rev = comparableRevenue(year, Math.round(recorded * 100) / 100);
+  }
+  if (rev == null || !(rev > 0)) return null;
+  const cogs = cogsThrough(year, toDate ? cut.md : '12-31');
+  const w = toDate ? new Date(cut.iso + 'T00:00:00Z') : null;
+  return {
+    pct: cogs / rev * 100, cogs, revenue: rev, toDate,
+    label: toDate ? 'COGS % to ' + w.getUTCDate() + ' ' + MONTHS_SHORT[w.getUTCMonth()] : 'COGS %'
+  };
+}
+
 // Null wherever it cannot be stated, same rule as the full-year figure.
 function comparableRevenueThrough(year, md, fullRecorded) {
   const ytd = revenueThrough(year, md);
@@ -1559,6 +1604,7 @@ function renderYearlyPanel() {
     r.annualGrowth = (cur - prev) / prev * 100;
     if (toDate) r.growthLabel = 'YoY to ' + cutLabel;
   });
+  yearRows.forEach(r => { r.cogsShare = cogsShare(r.yr, cut); });
 
   grid.innerHTML = `
     <div class="yearly-grid">
@@ -1570,6 +1616,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
           ${r.nonExpense ? `<div class="stat-row"><span title="Capital, loan principal and owner draws — money out that is not an operating cost">Out, not an expense</span><span style="color:var(--mist)">${fmt(r.nonExpense)}</span></div>` : ''}
           ${r.unfiledOut > 0.005 ? `<div class="stat-row"><span style="color:var(--red)" title="Money out filed under Revenue — a processor debit or a refund. It is not revenue and not yet a cost, so it sits outside both totals until it is recategorised.">Not filed under a cost</span><span style="color:var(--red)">${fmt(r.unfiledOut)}</span></div>` : ''}
+          ${r.cogsShare ? `<div class="stat-row"><span title="Supplies &amp; Materials - COGS as a share of like-for-like revenue. A whole year, so a house account paid months after its orders does not skew it.">${r.cogsShare.label}</span><span>${r.cogsShare.pct.toFixed(1)}%</span></div>` : ''}
           ${r.annualGrowth !== null ? `<div class="stat-row"><span title="Like for like: gross of processor fees, without sales tax">${r.growthLabel}</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>
       `).join('')}
@@ -1635,15 +1682,29 @@ function renderYearlyPanel() {
       labels: appData.years.map(String),
       datasets: [
         { label: 'Revenue', data: annTotals.map(t=>t.rev), backgroundColor: 'rgba(74,124,89,0.8)', borderRadius: 4 },
-        { label: 'Expenses', data: annTotals.map(t=>t.exp), backgroundColor: 'rgba(192,57,43,0.7)', borderRadius: 4 }
+        { label: 'Expenses', data: annTotals.map(t=>t.exp), backgroundColor: 'rgba(192,57,43,0.7)', borderRadius: 4 },
+        // The same figure the cards show, so the line and the card cannot
+        // disagree. Drawn over the bars on its own axis.
+        { type: 'line', label: 'COGS %', yAxisID: 'pct', order: -1,
+          data: appData.years.map(yr => { const c = cogsShare(yr, cut); return c ? Math.round(c.pct * 10) / 10 : null; }),
+          borderColor: '#e67e22', backgroundColor: '#e67e22', borderWidth: 2.5,
+          pointRadius: 5, pointHoverRadius: 7, tension: 0, spanGaps: true }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { font: { family: 'Inter' } } } },
+      plugins: {
+        legend: { labels: { font: { family: 'Inter' } } },
+        tooltip: { callbacks: { label: c => c.dataset.yAxisID === 'pct'
+          ? ` COGS: ${c.parsed.y.toFixed(1)}% of like-for-like revenue${cut && appData.years[c.dataIndex] === cut.year ? ', to ' + cutLabel : ''}`
+          : ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } }
+      },
       scales: {
         x: { ticks: { font: { family: 'Inter' } } },
-        y: { ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } }
+        y: { ticks: { font: { family: 'Inter' }, callback: v => fmtK(v) } },
+        pct: { position: 'right', beginAtZero: true, suggestedMax: 60,
+               grid: { drawOnChartArea: false },
+               ticks: { font: { family: 'Inter' }, callback: v => v + '%' } }
       }
     }
   });
