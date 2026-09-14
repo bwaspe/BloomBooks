@@ -22,7 +22,7 @@ const AUDIT_QUEUE_KEY = 'bb_audit_queue';
 const AUDIT_RECENT_KEY = 'bb_audit_recent';
 const AUDIT_RECENT_KEEP = 400;
 const AUDIT_CELL_MAX = 45000;          // under the sheet's 50,000-character cell limit
-const AUDIT_SKIP = { transactions: 1, dailySales: 1, _savedAt: 1, activeYear: 1 };
+const AUDIT_SKIP = { transactions: 1, dailySales: 1, _savedAt: 1, _savedBy: 1, _savedSession: 1, activeYear: 1 };
 const AUDIT_SETTING_NAMES = {
   basisAdjust: 'Like-for-like figures', lockedYears: 'Closed years', rules: 'Import rules',
   bankRecon: 'Bank reconciliation record', notes: 'Month notes', reconciled: 'Reconciled ticks',

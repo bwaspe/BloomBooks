@@ -93,6 +93,10 @@ const done = vm.runInNewContext(F.src(['config.js', 'utils.js', 'sync.js']) + `
   __SHEET__.rows[0][0] = JSON.stringify(older);
   var after = null;
   appData = {};
+  // In a browser with no book of its own. A load now leaves a copy of the
+  // sheet's book in the browser, and the load keeps the browser's rules when
+  // the sheet has none -- which would answer for the missing container here.
+  localStorage.store = {};
   await loadFromSheet();
   try {
     appData.notes['2026-8'] = 'written into a container the sheet never had';

@@ -112,6 +112,7 @@ function switchPanel(panelId) {
       if (panelId === 'import')       renderImportPanel();
       if (panelId === 'trainer')      renderTrainerPanel();
       if (panelId === 'audit' && typeof renderAuditPanel === 'function') renderAuditPanel();
+      if (panelId === 'versions' && typeof versionsOpen === 'function') versionsOpen();
       if (panelId === 'daily-sales')  renderDailySalesPanel();
       if (panelId === 'sales-tax')    renderSalesTaxPanel();
       if (panelId === 'ct-dashboard') renderCtDashboard();

@@ -12,6 +12,65 @@ let tokenClient = null;
 let gapiReady   = false;
 let gisReady    = false;
 
+// ---- which copy of the sheet this page is built on (see versions.js) -------
+// The _savedAt the sheet's copy carried when this page last read or wrote it:
+// undefined until it has been read, null if the sheet was empty. Every save
+// first checks the sheet still carries it. Anything else means another
+// computer has saved since, and writing now would throw that work away.
+let sheetKnownSavedAt = undefined;
+// Set when that check fails. Saves carry on into this browser, but nothing goes
+// to the sheet until the owner has chosen which version to keep.
+let syncConflict = null;
+// Tells this page's own writes from another computer's -- including a write
+// that reached Google but whose reply never came back.
+const SYNC_SESSION = Math.random().toString(36).slice(2, 10);
+// The same fact for the book kept in this browser, which outlives the page:
+// the sheet copy that book was built on. When the page next loads it answers
+// two questions the clock cannot -- does this browser hold changes that never
+// reached the sheet, and has the sheet been saved from elsewhere since? -- and
+// so tells "send them" apart from "ask first".
+//
+// The record names the book it belongs to (by its _savedAt), so it cannot be
+// believed about a different one: a book whose write failed, or one another
+// tab wrote over. Then the load compares times, as it always did.
+const SHEET_BASE_KEY = 'bb_sheet_base';
+let localBookWrittenAt = null;   // _savedAt of the book this page last wrote here; null if that write failed
+let localSheetBase = null;       // the record, for a page running on this browser's book because the sheet could not be read
+
+function sheetStoredBase(bookSavedAt) {
+  try {
+    const rec = JSON.parse(localStorage.getItem(SHEET_BASE_KEY) || 'null');
+    return rec && typeof rec.base === 'number' && rec.book === bookSavedAt ? rec.base : null;
+  } catch (e) { return null; }
+}
+function sheetRecordBase(base, bookSavedAt) {
+  try {
+    if (typeof base === 'number') localStorage.setItem(SHEET_BASE_KEY, JSON.stringify({ base, book: bookSavedAt }));
+    else localStorage.removeItem(SHEET_BASE_KEY);
+  } catch (e) {}
+}
+function writeLocalBook() {
+  try {
+    localStorage.setItem('bloombooks_v2', JSON.stringify(appData));
+  } catch (e) {
+    // The book already there is untouched, and so is the record naming it.
+    localBookWrittenAt = null;
+    return false;
+  }
+  localBookWrittenAt = appData._savedAt || 0;
+  sheetRecordBase(typeof sheetKnownSavedAt === 'number' ? sheetKnownSavedAt
+                  : sheetKnownSavedAt === null ? null : localSheetBase, localBookWrittenAt);
+  return true;
+}
+// Has the sheet been saved by anyone else since `base`? Compared for equality,
+// not "newer": two computers' clocks disagree, and a copy stamped a minute
+// earlier by a slow clock is still somebody else's work.
+function sheetChangedSince(meta, base) {
+  if (!meta) return false;
+  if ((meta._savedAt || 0) === (base || 0)) return false;
+  return meta._savedSession !== SYNC_SESSION;
+}
+
 function setSyncStatus(s, msg) {
   const el = document.getElementById('sync-status');
   const btn = document.getElementById('signin-btn');
@@ -163,95 +222,158 @@ async function diagnoseNetworkBlock() {
   }
 }
 
-async function loadFromSheet() {
+// A book from the rows of one sheet tab: A1 the metadata, then one row per
+// month with the transactions in B and the day book in C. The same layout
+// serves the live tab and every saved version.
+function sheetBookFromRows(rows) {
+  const meta = JSON.parse(rows[0][0]);
+  meta.transactions = {};
+  meta.dailySales = {};
+  rows.slice(1).forEach(row => {
+    const key = row[0];
+    if (!key) return;
+    const txJson = row[1];
+    const dailyJson = row[2];
+    if (txJson) {
+      try { meta.transactions[key] = JSON.parse(txJson); } catch(e) {}
+    }
+    if (dailyJson) {
+      try { meta.dailySales[key] = JSON.parse(dailyJson); } catch(e) {}
+    }
+  });
+  return meta;
+}
+
+// A tab name as the Sheets API wants it inside a range. BloomData passes as it
+// is; a version's name has spaces, so it is quoted.
+function sheetRange(tab, a1) {
+  return (/^[A-Za-z0-9_]+$/.test(tab) ? tab : "'" + String(tab).replace(/'/g, "''") + "'") + '!' + a1;
+}
+
+// Reads the whole book from one tab.
+// Returns { status: 'ok', book } | { status: 'empty' } | { status: 'auth' }.
+async function sheetReadBook(tab) {
+  // Fetch multiple rows — A1=metadata, A2+=year transactions
+  const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(sheetRange(tab, 'A1:A20'))}`;
+  const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+  if (res.status === 401) return { status: 'auth' };
+  // Keep the status code on the error. The body alone doesn't say whether
+  // this was a 403 on the sheet or a 429 from the API, and on a phone
+  // there's no console to go and check.
+  if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
+  const data = await res.json();
+  const rows = (data.values || []).map(r => r[0] || '');
+  if (rows.length === 0 || !rows[0]) return { status: 'empty' };
+
+  // Parse sheet data
+  // New format: A1=metadata, then rows with col A=key, col B=transactions JSON
+  // Old format: A1=entire JSON blob
+  //
+  // A failure anywhere here is thrown to the caller, which says so and shows
+  // the browser's copy. This used to catch it and "fall back" to parsing A1 as
+  // the old format -- which succeeds on the metadata cell alone, so a failed
+  // second fetch loaded a book with no transactions in it, silently, and the
+  // next save sent that empty book to the sheet.
+  let book;
+  const meta = JSON.parse(rows[0]);
+  if (meta.transactions !== undefined) {
+    // Old format — entire appData in A1
+    book = meta;
+  } else {
+    // New format. Need cols B and C too: B holds the month's transactions,
+    // C its daily sales. Older sheets have no column C, which reads back as
+    // undefined and simply leaves dailySales empty.
+    const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(sheetRange(tab, 'A1:C200'))}`;
+    const resB = await fetchRetry(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!resB.ok) throw new Error(resB.status + ' ' + (await resB.text()).slice(0, 300));
+    const dataB = await resB.json();
+    book = sheetBookFromRows(dataB.values || [[rows[0]]]);
+  }
+  if (book.transactions) {
+    Object.keys(book.transactions).forEach(k => {
+      book.transactions[k] = book.transactions[k].filter(t => !t._vault);
+    });
+  }
+  return { status: 'ok', book };
+}
+
+// Just the metadata cell: enough to see when, and from where, a tab was saved.
+async function sheetReadMeta(tab) {
+  const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(sheetRange(tab, 'A1'))}`;
+  const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+  if (res.status === 401) return { status: 'auth' };
+  if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
+  const cell = ((((await res.json()).values || [])[0]) || [])[0];
+  if (!cell) return { status: 'empty' };
+  try { return { status: 'ok', meta: JSON.parse(cell) }; } catch (e) { return { status: 'empty' }; }
+}
+
+// opts.preferSheet: take the sheet's copy even when this browser's is newer --
+// the owner has chosen another computer's version over this one's.
+// Returns true once the sheet has been read.
+async function loadFromSheet(opts) {
+  opts = opts || {};
+  let loaded = false;
   setSyncStatus('loading', 'Loading from cloud...');
   await loadVaultTotals();
   try {
-    // Fetch multiple rows — A1=metadata, A2+=year transactions
-    const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:A20')}`;
-    const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-    if (res.status === 401) { handleAuthExpiry(); ensureVaultData(); return; }
-    // Keep the status code on the error. The body alone doesn't say whether
-    // this was a 403 on the sheet or a 429 from the API, and on a phone
-    // there's no console to go and check.
-    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
-    const data = await res.json();
-    const rows = (data.values || []).map(r => r[0] || '');
-
-    if (rows.length === 0 || !rows[0]) {
+    const got = await sheetReadBook(SHEET_TAB);
+    if (got.status === 'auth') { handleAuthExpiry(); ensureVaultData(); return false; }
+    if (got.status === 'empty') {
+      sheetKnownSavedAt = null;
       setSyncStatus('saved', 'New sheet — ready');
       ensureVaultData();
-      return;
+      return true;
     }
+    const sheetData = got.book;
+    // What the sheet holds now, whichever copy is used below.
+    sheetKnownSavedAt = sheetData._savedAt || 0;
 
-    // Parse sheet data
-    // New format: A1=metadata, then rows with col A=key, col B=transactions JSON
-    // Old format: A1=entire JSON blob
-    let sheetData;
-    try {
-      const meta = JSON.parse(rows[0]);
-      if (meta.transactions !== undefined) {
-        // Old format — entire appData in A1
-        sheetData = meta;
-      } else {
-        // New format — meta in A1, month rows after
-        meta.transactions = {};
-        meta.dailySales = {};
-        // Need cols B and C too: B holds the month's transactions, C its daily
-        // sales. Older sheets have no column C, which reads back as undefined
-        // and simply leaves dailySales empty.
-        const urlB = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1:C200')}`;
-        const resB = await fetchRetry(urlB, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-        // Unchecked before: a failed second fetch left dataB.values undefined,
-        // so rowsB became [] and the app loaded with every transaction missing
-        // and no indication anything had gone wrong.
-        if (!resB.ok) throw new Error(resB.status + ' ' + (await resB.text()).slice(0, 300));
-        const dataB = await resB.json();
-        const rowsB = dataB.values || [];
-        rowsB.slice(1).forEach(row => {
-          const key = row[0];
-          if (!key) return;
-          const txJson = row[1];
-          const dailyJson = row[2];
-          if (txJson) {
-            try { meta.transactions[key] = JSON.parse(txJson); } catch(e) {}
-          }
-          if (dailyJson) {
-            try { meta.dailySales[key] = JSON.parse(dailyJson); } catch(e) {}
-          }
-        });
-        sheetData = meta;
-      }
-    } catch(e) {
-      // Fallback: try parsing entire A1 as old format
-      try { sheetData = parseAppData(rows[0]); } catch(e2) { throw e; }
-    }
-    if (sheetData.transactions) {
-      Object.keys(sheetData.transactions).forEach(k => {
-        sheetData.transactions[k] = sheetData.transactions[k].filter(t => !t._vault);
-      });
-    }
-
-    // Timestamp conflict resolution
+    // This browser's book, or the sheet's?
     const localRaw = localStorage.getItem('bloombooks_v2');
     let useSheet = true;
-    if (localRaw) {
+    if (localRaw && !opts.preferSheet) {
       try {
         const localData = JSON.parse(localRaw);
         const sheetTs = sheetData._savedAt || 0;
         const localTs = localData._savedAt || 0;
-        if (localTs > sheetTs) {
-          console.log('Local data is newer, syncing to sheet');
+        const base = sheetStoredBase(localTs);
+        // Knowing the copy this book was built on, the clocks are not needed:
+        // it holds unsent changes if it has been saved since, and the sheet has
+        // moved on if it no longer carries that copy. With no record -- a book
+        // saved before there was one, or whose last write failed -- the newer
+        // time wins, as it always did.
+        const unsent = base === null ? localTs > sheetTs : localTs !== base;
+        const moved = base !== null && sheetTs !== base;
+        if (unsent) {
           appData = normalizeAppData(localData);
           if (appData.transactions) {
             Object.keys(appData.transactions).forEach(k => {
               appData.transactions[k] = appData.transactions[k].filter(t => !t._vault);
             });
           }
+          localBookWrittenAt = localTs;
           ensureVaultData();
           useSheet = false;
-          setSyncStatus('saving', 'Syncing local to cloud...');
-          await pushToSheet();
+          if (moved && typeof versionsOnConflict === 'function') {
+            // Changes here that never reached the sheet, AND the sheet saved
+            // from somewhere else since. Sending them now is exactly how one
+            // computer's work used to vanish under another's. Ask instead.
+            // The book on screen is built on the older copy, and saves here
+            // must go on saying so, or a reload would take the sheet's copy
+            // for this book's own and send the changes over it after all.
+            sheetKnownSavedAt = base;
+            versionsOnConflict(sheetData, sheetData);
+          } else {
+            // Only unsent changes, on top of what the sheet still holds. With no
+            // record, that is a guess, so the sheet's copy is kept first.
+            console.log('Local data is newer, syncing to sheet');
+            if (base === null && typeof versionsKeepBeforeNextWrite === 'function') {
+              versionsKeepBeforeNextWrite('Kept before this computer sent changes it had not yet saved to the sheet');
+            }
+            setSyncStatus('saving', 'Syncing local to cloud...');
+            await pushToSheet();
+          }
         }
       } catch(e) {}
     }
@@ -268,10 +390,15 @@ async function loadFromSheet() {
         } catch(e) {}
       }
       appData = normalizeAppData(sheetData);
+      // This browser's book now is the sheet's copy, and records that it is.
+      // (When another computer's version has just been chosen, this is also
+      // what stops the old book here being sent back over the choice.)
+      writeLocalBook();
       setSyncStatus('saved', 'Synced ✓');
       setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
     }
     if (accessToken) sessionStorage.setItem('bb_token', accessToken);
+    loaded = true;
   } catch(e) {
     console.warn('Sheet load error:', e);
     const reason = describeSheetError(e);
@@ -284,12 +411,17 @@ async function loadFromSheet() {
     }
   }
   ensureVaultData();
+  return loaded;
 }
 
 function loadFromLocal() {
   try {
     const raw = localStorage.getItem('bloombooks_v2');
-    if (raw) { appData = parseAppData(raw); }
+    if (raw) {
+      appData = parseAppData(raw);
+      localBookWrittenAt = appData._savedAt || 0;
+      localSheetBase = sheetStoredBase(localBookWrittenAt);
+    }
   } catch(e) {}
   loadVaultFromCache();
   ensureVaultData();
@@ -318,62 +450,108 @@ function compactTx(t) {
   };
 }
 
-async function pushToSheet() {
+// The whole book as the rows of one sheet tab: the live one, or a version.
+// Row 1: metadata
+// Row 2+: one row per month (year-month key) to stay under 50k char cell limit
+function sheetBookValues(book) {
+  // Everything on the book EXCEPT the two bulk collections, which go in
+  // columns B and C of the per-month rows below -- four years of daily
+  // figures is roughly 90KB against a 50k character cell limit.
+  //
+  // This was an allowlist until 2026-09-12, and it lost a setting each time
+  // one was added: salesSheets, deferrals, holidayBuy, monthClose and
+  // finally basisAdjust, the year-comparison figures, which were typed in,
+  // written to localStorage, and then wiped by the next load from the sheet.
+  // That failure is silent and only shows up on a refresh, which is why it
+  // kept recurring despite a warning comment on every entry.
+  //
+  // Listing what must NOT go fails the other way round: a new setting rides
+  // along on its own, and the only thing that can go wrong is a future bulk
+  // collection blowing the cell limit -- which Google answers with an error
+  // instead of quiet data loss.
+  const BULK_KEYS = { transactions: 1, dailySales: 1 };
+  const meta = {};
+  Object.keys(book).forEach(k => { if (!BULK_KEYS[k]) meta[k] = book[k]; });
+  // The load side tells the two sheet formats apart by whether A1 carries
+  // transactions, so this cell must never have the key at all.
+  delete meta.transactions;
+  delete meta.dailySales;
+  meta._savedAt = book._savedAt || Date.now();
+  // Where it was saved from: named in a conflict, and how this page knows its
+  // own write when the reply to it was lost.
+  meta._savedBy = typeof auditDevice === 'function' ? auditDevice() : '';
+  meta._savedSession = SYNC_SESSION;
+  const monthRows = [];
+  (book.years || []).forEach(yr => {
+    for (let mi = 0; mi < 12; mi++) {
+      const key = `${yr}-${mi}`;
+      const txs = ((book.transactions || {})[key] || []).filter(t => !t._vault).map(compactTx);
+      const daily = (book.dailySales || {})[key] || {};
+      // Col A = key, col B = transactions JSON, col C = daily sales JSON.
+      // Daily sales ride alongside the transactions rather than in the
+      // metadata cell for the same reason transactions do: the cell caps at
+      // 50k characters and four years of daily figures is well past it.
+      monthRows.push([key, JSON.stringify(txs), Object.keys(daily).length ? JSON.stringify(daily) : '']);
+    }
+  });
+  return [[JSON.stringify(meta), ''], ...monthRows];
+}
+
+// One push at a time. Two overlapping -- a slow save with the next one close
+// behind -- would each check the sheet before the other had written.
+let _pushChain = Promise.resolve();
+function pushToSheet() {
+  const run = _pushChain.then(pushToSheetNow);
+  _pushChain = run.catch(() => {});
+  return run;
+}
+
+// Returns true once the sheet holds this page's book.
+async function pushToSheetNow() {
   try {
-    // Row 1: metadata
-    // Row 2+: one row per month (year-month key) to stay under 50k char cell limit
-    // Everything on appData EXCEPT the two bulk collections, which go in
-    // columns B and C of the per-month rows below -- four years of daily
-    // figures is roughly 90KB against a 50k character cell limit.
-    //
-    // This was an allowlist until 2026-09-12, and it lost a setting each time
-    // one was added: salesSheets, deferrals, holidayBuy, monthClose and
-    // finally basisAdjust, the year-comparison figures, which were typed in,
-    // written to localStorage, and then wiped by the next load from the sheet.
-    // That failure is silent and only shows up on a refresh, which is why it
-    // kept recurring despite a warning comment on every entry.
-    //
-    // Listing what must NOT go fails the other way round: a new setting rides
-    // along on its own, and the only thing that can go wrong is a future bulk
-    // collection blowing the cell limit -- which Google answers with an error
-    // instead of quiet data loss.
-    const BULK_KEYS = { transactions: 1, dailySales: 1 };
-    const meta = {};
-    Object.keys(appData).forEach(k => { if (!BULK_KEYS[k]) meta[k] = appData[k]; });
-    // The load side tells the two sheet formats apart by whether A1 carries
-    // transactions, so this cell must never have the key at all.
-    delete meta.transactions;
-    delete meta.dailySales;
-    meta._savedAt = appData._savedAt || Date.now();
-    const monthRows = [];
-    (appData.years || []).forEach(yr => {
-      for (let mi = 0; mi < 12; mi++) {
-        const key = `${yr}-${mi}`;
-        const txs = (appData.transactions[key] || []).filter(t => !t._vault).map(compactTx);
-        const daily = (appData.dailySales || {})[key] || {};
-        // Col A = key, col B = transactions JSON, col C = daily sales JSON.
-        // Daily sales ride alongside the transactions rather than in the
-        // metadata cell for the same reason transactions do: the cell caps at
-        // 50k characters and four years of daily figures is well past it.
-        monthRows.push([key, JSON.stringify(txs), Object.keys(daily).length ? JSON.stringify(daily) : '']);
-      }
-    });
-    const values = [[JSON.stringify(meta), ''], ...monthRows];
+    if (syncConflict) {
+      setSyncStatus('error', 'Not sent to the sheet — changed on another computer');
+      return false;
+    }
+    // Is the sheet still the copy this page is built on? When the load failed
+    // and the page is running on the browser's copy, that copy's own record
+    // stands in for it.
+    const base = sheetKnownSavedAt !== undefined ? sheetKnownSavedAt : localSheetBase;
+    const remote = await sheetReadMeta(SHEET_TAB);
+    if (remote.status === 'auth') { handleAuthExpiry(); return false; }
+    if (sheetChangedSince(remote.meta, base)) {
+      if (typeof versionsOnConflict === 'function') versionsOnConflict(remote.meta);
+      else { syncConflict = { at: remote.meta._savedAt || 0, by: remote.meta._savedBy || '' };
+             setSyncStatus('error', 'Not sent to the sheet — changed on another computer'); }
+      return false;
+    }
+    // Keep what the sheet holds as a version before replacing it, when one is
+    // due. It never stops the save: see versions.js.
+    if (remote.meta && typeof versionBeforeWrite === 'function') await versionBeforeWrite(remote.meta);
+
+    const values = sheetBookValues(appData);
     const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(SHEET_TAB + '!A1')}?valueInputOption=RAW`;
     const res = await fetchRetry(url, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ values })
     });
-    if (res.status === 401) { handleAuthExpiry(); return; }
+    if (res.status === 401) { handleAuthExpiry(); return false; }
     if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 300));
+    sheetKnownSavedAt = JSON.parse(values[0][0])._savedAt;
+    // The book in this browser is now built on what was just sent -- provided
+    // this page wrote it. If that write failed, the record still names the
+    // older book that is there, and stays right about it.
+    if (localBookWrittenAt !== null && localBookWrittenAt >= sheetKnownSavedAt) sheetRecordBase(sheetKnownSavedAt, localBookWrittenAt);
     setSyncStatus('saved', 'Saved to cloud ✓');
     setTimeout(() => setSyncStatus('idle', 'Synced'), 2000);
+    return true;
   } catch(e) {
     const msg = e.message || '';
-    if (isAuthError(msg)) { handleAuthExpiry(); return; }
+    if (isAuthError(msg)) { handleAuthExpiry(); return false; }
     setSyncStatus('error', 'Save failed: ' + describeSheetError(e) + ' — local only');
     console.error('Sheet save error:', e);
+    return false;
   }
 }
 
@@ -385,8 +563,11 @@ function saveData() {
   // Then record what actually changed -- after the lock, so a refused change
   // is not logged as made. See audit.js.
   if (typeof auditCapture === 'function') auditCapture();
-  appData._savedAt = Date.now();
-  try { localStorage.setItem('bloombooks_v2', JSON.stringify(appData)); } catch(e) {}
+  // Always later than the copy it was built on, even on a computer whose clock
+  // is behind the one that saved that copy. Otherwise the next load would
+  // judge these changes older than the sheet and quietly drop them.
+  appData._savedAt = Math.max(Date.now(), (appData._savedAt || 0) + 1);
+  writeLocalBook();
   if (!accessToken) { setSyncStatus('login', 'Sign in to sync →'); return; }
   // Debounce cloud saves — wait 2s after last change before pushing to sheet
   setSyncStatus('saving', 'Saving...');
@@ -444,6 +625,8 @@ function importData(e) {
         appData = normalizeAppData(parsed);
       }
       if (typeof auditEvent === 'function') auditEvent('Restored the whole book from a backup file');
+      // Whatever the sheet held is kept first, however recently a version was.
+      if (typeof versionsKeepBeforeNextWrite === 'function') versionsKeepBeforeNextWrite('Kept before a backup file was restored');
       ensureVaultData();
       saveData();
       initApp();

@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=20260914c">
+<link rel="stylesheet" href="styles.css?v=20260914d">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -58,6 +58,7 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="sidebar-tab" data-panel="import" onclick="switchPanel('import')">📥 Bulk Import</div>
 <div class="sidebar-tab" data-panel="trainer" onclick="switchPanel('trainer')">🧠 Logic Trainer</div>
 <div class="sidebar-tab" data-panel="audit" onclick="switchPanel('audit')">📜 Audit Trail</div>
+<div class="sidebar-tab" data-panel="versions" onclick="switchPanel('versions')">🕘 Saved Versions</div>
 <div class="sidebar-divider"></div>
 <div class="sidebar-section-label">Cost Tracker</div>
 <div class="sidebar-tab" data-panel="ct-dashboard" onclick="switchPanel('ct-dashboard')">📦 Cost Dashboard</div>
@@ -66,6 +67,8 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="sidebar-tab" data-panel="ct-prices" onclick="switchPanel('ct-prices')">💰 Price History</div>
 </nav>
 <main id="main-content">
+<!-- shown when another computer saved over this one; see versions.js -->
+<div id="sync-conflict" style="display:none"></div>
 <!-- MONTHLY PANELS (generated) -->
 <div id="month-panels"></div>
 
@@ -101,6 +104,13 @@ box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:'Inter',sans-serif">← Back<
 <div class="page-title">Audit Trail</div>
 <div class="page-subtitle">Every change to the book: what changed, when, on which computer, and what it was before</div>
 <div id="audit-content"></div>
+</div>
+
+<!-- SAVED VERSIONS PANEL -->
+<div id="panel-versions" class="panel">
+<div class="page-title">Saved Versions</div>
+<div class="page-subtitle">Copies of the whole book kept in the Google Sheet, so a bad save, or two computers saving over each other, can be undone</div>
+<div id="versions-content"></div>
 </div>
 
 <div id="panel-tax" class="panel">
@@ -511,22 +521,23 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260914c"></script>
-<script src="utils.js?v=20260914c"></script>
-<script src="sync.js?v=20260914c"></script>
-<script src="periodlock.js?v=20260914c"></script>
-<script src="audit.js?v=20260914c"></script>
-<script src="ledger.js?v=20260914c"></script>
-<script src="reports.js?v=20260914c"></script>
-<script src="holiday-sync.js?v=20260914c"></script>
-<script src="epx.js?v=20260914c"></script>
-<script src="venmo.js?v=20260914c"></script>
-<script src="payouts.js?v=20260914c"></script>
-<script src="daily-sales.js?v=20260914c"></script>
-<script src="import-trainer.js?v=20260914c"></script>
-<script src="reconcile.js?v=20260914c"></script>
-<script src="cost-tracker.js?v=20260914c"></script>
-<script src="init.js?v=20260914c"></script>
+<script src="config.js?v=20260914d"></script>
+<script src="utils.js?v=20260914d"></script>
+<script src="sync.js?v=20260914d"></script>
+<script src="periodlock.js?v=20260914d"></script>
+<script src="audit.js?v=20260914d"></script>
+<script src="versions.js?v=20260914d"></script>
+<script src="ledger.js?v=20260914d"></script>
+<script src="reports.js?v=20260914d"></script>
+<script src="holiday-sync.js?v=20260914d"></script>
+<script src="epx.js?v=20260914d"></script>
+<script src="venmo.js?v=20260914d"></script>
+<script src="payouts.js?v=20260914d"></script>
+<script src="daily-sales.js?v=20260914d"></script>
+<script src="import-trainer.js?v=20260914d"></script>
+<script src="reconcile.js?v=20260914d"></script>
+<script src="cost-tracker.js?v=20260914d"></script>
+<script src="init.js?v=20260914d"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
