@@ -121,6 +121,8 @@ function normalizeAppData(d) {
   // Whatever arrives by replacing the whole book is the accepted state of its
   // closed years: a load, or a backup deliberately restored.
   if (typeof lockOnLoad === 'function') lockOnLoad(d);
+  // And the point the audit trail compares the next save against.
+  if (typeof auditOnLoad === 'function') auditOnLoad(d);
   return d;
 }
 
@@ -380,6 +382,9 @@ function saveData() {
   // A closed year is put back before anything is written anywhere -- the
   // browser copy or the sheet. See periodlock.js.
   if (typeof lockGuard === 'function') lockGuard();
+  // Then record what actually changed -- after the lock, so a refused change
+  // is not logged as made. See audit.js.
+  if (typeof auditCapture === 'function') auditCapture();
   appData._savedAt = Date.now();
   try { localStorage.setItem('bloombooks_v2', JSON.stringify(appData)); } catch(e) {}
   if (!accessToken) { setSyncStatus('login', 'Sign in to sync →'); return; }
@@ -438,6 +443,7 @@ function importData(e) {
         // Old format — bare appData only, no cost tracker data (pre-dates this feature)
         appData = normalizeAppData(parsed);
       }
+      if (typeof auditEvent === 'function') auditEvent('Restored the whole book from a backup file');
       ensureVaultData();
       saveData();
       initApp();

@@ -657,6 +657,8 @@ function saveAllStaged() {
   let count = 0, dupes = 0, locked = 0;
   // Track how many of each duplicate key we're importing in this batch
   const importCounts = {};
+  // Every addTransaction saves; the audit trail records the whole import as one entry.
+  if (typeof auditBegin === 'function') auditBegin('Bulk import');
   stagingRows.forEach(r => {
     if (r.status !== 'review') return;
     const yr = r.txYear || parseInt(document.getElementById('import-year-sel').value);
@@ -674,6 +676,7 @@ function saveAllStaged() {
     r.status = 'saved';
     count++;
   });
+  if (typeof auditEnd === 'function') auditEnd();
   renderStagingTable();
   if (typeof rcRefresh === 'function') rcRefresh();
   let msg = `${count} transactions saved to ledger`;

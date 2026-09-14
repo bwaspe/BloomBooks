@@ -111,6 +111,7 @@ function switchPanel(panelId) {
       if (panelId === 'holidays')     renderHolidayPanel();
       if (panelId === 'import')       renderImportPanel();
       if (panelId === 'trainer')      renderTrainerPanel();
+      if (panelId === 'audit' && typeof renderAuditPanel === 'function') renderAuditPanel();
       if (panelId === 'daily-sales')  renderDailySalesPanel();
       if (panelId === 'sales-tax')    renderSalesTaxPanel();
       if (panelId === 'ct-dashboard') renderCtDashboard();
@@ -219,6 +220,7 @@ function ledgerFileUnfiled(category) {
                ' totalling ' + fmt(total) + ' under ' + category + '?\n\n' + lines + more +
                '\n\nOnly the category changes. Dates, amounts and directions are untouched.')) return;
   rows.forEach(r => { r.tx.category = category; });
+  if (typeof auditLabel === 'function') auditLabel('Filed unfiled rows under ' + category);
   saveData();
   notify(`${rows.length} row${rows.length === 1 ? '' : 's'} filed under ${category}`);
   if (typeof renderYearlyPanel === 'function') renderYearlyPanel();
@@ -729,6 +731,7 @@ function ledgerRefile(year) {
     if (!appData.transactions[to]) appData.transactions[to] = [];
     appData.transactions[to].push(r.tx);
   });
+  if (typeof auditLabel === 'function') auditLabel('Re-filed rows into the month of their date');
   saveData();
   notify(`${rows.length} re-filed by date`);
   renderCurrentPanel();

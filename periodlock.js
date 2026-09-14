@@ -127,6 +127,7 @@ function lockGuard() {
   });
   if (refused.length) {
     const which = refused.join(' and ');
+    if (typeof auditEvent === 'function') auditEvent(`Refused a change to closed ${which}`);
     notify(`${which} ${refused.length === 1 ? 'is' : 'are'} closed, so that change was not saved. ` +
            `Unlock the year from its month page or the Yearly Summary to edit it.`, true);
     // After the caller has finished, so the screen shows the year as it stands.
@@ -145,6 +146,7 @@ function lockUnlockForSession(yr) {
   if (!confirm(`Unlock ${yr} for this session?\n\n${yr} is filed, so change it only if you mean to. ` +
                `It locks again when you reload the page, or when you press Lock again.`)) return;
   lockSessionOpen[yr] = true;
+  if (typeof auditEvent === 'function') auditEvent(`Unlocked ${yr} for the session`);
   lockRefreshViews();
   notify(`${yr} is unlocked until you reload or lock it again`);
 }
@@ -155,6 +157,7 @@ function lockRelock(yr) {
   if (!lockSessionOpen[yr]) return;
   delete lockSessionOpen[yr];
   lockTakeBaseline(appData, yr);
+  if (typeof auditEvent === 'function') auditEvent(`Locked ${yr} again`);
   lockRefreshViews();
   notify(`${yr} is locked again`);
 }
@@ -164,6 +167,7 @@ function lockCloseYear(yr) {
   if (isYearClosed(yr)) return;
   if (!confirm(`Close ${yr}?\n\nIts ledger and day book will refuse changes from now on. ` +
                `You can still unlock it for a session when you need to.`)) return;
+  if (typeof auditLabel === 'function') auditLabel(`Closed ${yr}`);
   appData.lockedYears = lockedYears().concat([yr]).sort((a, b) => a - b);
   delete lockSessionOpen[yr];
   lockTakeBaseline(appData, yr);
@@ -178,6 +182,7 @@ function lockReopenYear(yr) {
   yr = +yr;
   if (!isYearClosed(yr)) return;
   if (!confirm(`Reopen ${yr} for good?\n\nIt will stay editable on every computer until you close it again.`)) return;
+  if (typeof auditLabel === 'function') auditLabel(`Reopened ${yr} for good`);
   appData.lockedYears = lockedYears().filter(y => y !== yr);
   delete lockSessionOpen[yr];
   delete lockBaselines[yr];
