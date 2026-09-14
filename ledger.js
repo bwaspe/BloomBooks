@@ -114,6 +114,12 @@ function switchPanel(panelId) {
       if (panelId === 'daily-sales')  renderDailySalesPanel();
       if (panelId === 'sales-tax')    renderSalesTaxPanel();
       if (panelId === 'ct-dashboard') renderCtDashboard();
+      // The standing orders are drawn into this tab, and only the upload review
+      // flow drew them -- so after a refresh the Perri button was simply missing
+      // until a file had been uploaded. Draw the list on opening the tab.
+      // renderCtTemplates alone, not the whole upload area, so review cards
+      // part-way through being checked are left exactly as they are.
+      if (panelId === 'ct-upload' && typeof renderCtTemplates === 'function') renderCtTemplates();
       if (panelId === 'ct-prices')    renderCtPrices();
       if (panelId === 'ct-gmail')     renderCtGmailPanel();
     }
