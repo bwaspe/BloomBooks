@@ -374,6 +374,7 @@ function renderMonthPanel(mi) {
       ${isReconciled ? '<span style="font-size:0.7rem;background:var(--accent2);color:var(--ink);padding:2px 8px;border-radius:99px;margin-left:8px;vertical-align:middle">✓ Reconciled</span>' : ''}
     </div>
     <div class="page-subtitle">Monthly ledger & performance</div>
+    ${typeof lockBannerHtml === 'function' ? lockBannerHtml(year) : ''}
 
     <div class="kpi-row">
       <div class="kpi-card revenue">

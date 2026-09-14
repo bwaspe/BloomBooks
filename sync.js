@@ -118,6 +118,9 @@ function normalizeAppData(d) {
     const ok = wantArray ? Array.isArray(v) : (v && typeof v === 'object' && !Array.isArray(v));
     if (!ok) d[k] = wantArray ? [] : {};
   });
+  // Whatever arrives by replacing the whole book is the accepted state of its
+  // closed years: a load, or a backup deliberately restored.
+  if (typeof lockOnLoad === 'function') lockOnLoad(d);
   return d;
 }
 
@@ -374,6 +377,9 @@ async function pushToSheet() {
 
 let _saveTimer = null;
 function saveData() {
+  // A closed year is put back before anything is written anywhere -- the
+  // browser copy or the sheet. See periodlock.js.
+  if (typeof lockGuard === 'function') lockGuard();
   appData._savedAt = Date.now();
   try { localStorage.setItem('bloombooks_v2', JSON.stringify(appData)); } catch(e) {}
   if (!accessToken) { setSyncStatus('login', 'Sign in to sync →'); return; }

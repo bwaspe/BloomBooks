@@ -1616,6 +1616,7 @@ function renderYearlyPanel() {
           <div class="stat-row"><span>Net Income</span><span style="color:${r.net>=0?'var(--green)':'var(--red)'}">${fmt(r.net)}</span></div>
           ${r.nonExpense ? `<div class="stat-row"><span title="Capital, loan principal and owner draws — money out that is not an operating cost">Out, not an expense</span><span style="color:var(--mist)">${fmt(r.nonExpense)}</span></div>` : ''}
           ${r.unfiledOut > 0.005 ? `<div class="stat-row"><span style="color:var(--red)" title="Money out filed under Revenue — a processor debit or a refund. It is not revenue and not yet a cost, so it sits outside both totals until it is recategorised.">Not filed under a cost</span><span style="color:var(--red)">${fmt(r.unfiledOut)}</span></div>` : ''}
+          ${typeof lockCardHtml === 'function' ? lockCardHtml(r.yr) : ''}
           ${r.cogsShare ? `<div class="stat-row"><span title="Supplies &amp; Materials - COGS as a share of like-for-like revenue. A whole year, so a house account paid months after its orders does not skew it.">${r.cogsShare.label}</span><span>${r.cogsShare.pct.toFixed(1)}%</span></div>` : ''}
           ${r.annualGrowth !== null ? `<div class="stat-row"><span title="Like for like: gross of processor fees, without sales tax">${r.growthLabel}</span><span class="${r.annualGrowth>=0?'growth-up':'growth-down'}">${r.annualGrowth>=0?'▲':'▼'} ${Math.abs(r.annualGrowth).toFixed(1)}%</span></div>` : ''}
         </div>

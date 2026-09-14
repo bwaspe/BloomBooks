@@ -513,7 +513,7 @@ function renderStagingTable() {
           <tbody>
             ${stagingRows.map(r => {
               if (r.status === 'saved') return '';
-              const cls = r.status === 'rejected' ? 'staging-row-rejected' : r.status === 'dupe' ? 'staging-row-dupe' : 'staging-row-review';
+              const cls = r.status === 'rejected' ? 'staging-row-rejected' : (r.status === 'dupe' || r.status === 'locked') ? 'staging-row-dupe' : 'staging-row-review';
               return `<tr class="${cls}" id="stage-row-${r._id}">
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.65rem;color:var(--mist)">${escHtml(r.line)}</td>
                 <td><input class="inline-input" style="width:120px" value="${r.date}" onchange="updateStageRow('${r._id}','date',this.value)"></td>
@@ -532,6 +532,7 @@ function renderStagingTable() {
                 </td>
                 <td>
                   ${r.status === 'dupe' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">⚠ Dupe?</span> ' : ''}
+                  ${r.status === 'locked' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">🔒 Closed year</span> ' : ''}
                   <button class="btn btn-primary btn-xs" onclick="saveStagedRow('${r._id}')">Save</button>
                   <button class="btn btn-danger btn-xs" style="margin-left:3px" onclick="rejectStagedRow('${r._id}')">Reject</button>
                 </td>
@@ -612,6 +613,14 @@ function saveStagedRow(id) {
   if (!r) return;
   const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
   const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+  // A closed year refuses the row at saveData anyway; saying so here keeps the
+  // table from reporting it saved when it was put straight back.
+  if (typeof isYearLocked === 'function' && isYearLocked(yr)) {
+    r.status = 'locked';
+    renderStagingTable();
+    notify(yr + ' is closed — unlock it to add this row', true);
+    return;
+  }
   // The same duplicate rule Save All applies, which this button used to skip --
   // so a row from an overlapping download, the normal way to fetch the rest of
   // a month, went into the ledger a second time. Identical rows are
@@ -645,13 +654,14 @@ function cancelImport() {
 }
 
 function saveAllStaged() {
-  let count = 0, dupes = 0;
+  let count = 0, dupes = 0, locked = 0;
   // Track how many of each duplicate key we're importing in this batch
   const importCounts = {};
   stagingRows.forEach(r => {
     if (r.status !== 'review') return;
     const yr = r.txYear || parseInt(document.getElementById('import-year-sel').value);
     const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+    if (typeof isYearLocked === 'function' && isYearLocked(yr)) { locked++; r.status = 'locked'; return; }
     const key = `${yr}-${mo}|` + dupKey(r.date, r.amount, r.desc);
     importCounts[key] = (importCounts[key] || 0) + 1;
     const alreadyInLedger = countExisting(yr, mo, r.date, r.amount, r.desc);
@@ -668,7 +678,8 @@ function saveAllStaged() {
   if (typeof rcRefresh === 'function') rcRefresh();
   let msg = `${count} transactions saved to ledger`;
   if (dupes > 0) msg += ` — ${dupes} possible duplicate(s) flagged`;
-  notify(msg, dupes > 0);
+  if (locked > 0) msg += ` — ${locked} in a closed year, not saved`;
+  notify(msg, dupes > 0 || locked > 0);
 }
 
 // ============================================================

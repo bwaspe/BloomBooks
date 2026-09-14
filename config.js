@@ -303,6 +303,8 @@ let appData = {
 //   basisAdjust     { 2025: {fees, tax} } -- the processor's cut and the sales
 //                   tax inside a deposits year, so the yearly table compares
 //                   like with like. Owner-entered; nothing can derive them.
+//   lockedYears     [2023, 2024, 2025] -- filed years. Their ledger rows and day
+//                   book refuse changes at saveData. See periodlock.js.
 //   bankRecon       { last: {date, bal}, history: [...] } -- where the last
 //                   reconciled Chase statement ended, so the next upload can be
 //                   checked for a gap. See reconcile.js.
