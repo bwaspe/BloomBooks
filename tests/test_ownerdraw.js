@@ -30,8 +30,8 @@ vm.runInNewContext(src + `
   // the bank never writes -- it writes "Zelle payment from". The rule was
   // narrowed to the real phrasing after a bare-name keyword was found matching
   // supplier payments the owner had merely authorised; see test_ownername.
-  var draw = resolveRules('ZELLE PAYMENT TO BARAMI WASPE 30515148228', 'out');
-  var putIn = resolveRules('ZELLE PAYMENT FROM BARAMI WASPE 30515148999', 'in');
+  var draw = resolveRules('ZELLE PAYMENT TO BARAMI WASPE 30000000001', 'out');
+  var putIn = resolveRules('ZELLE PAYMENT FROM BARAMI WASPE 30000000003', 'in');
   var star = resolveRules('BARAMI *WASPE', 'out');
   // Was an ignore rule; the Amex settlement is now recorded as a card payment
   // instead, so nothing is discarded and the balance chain stays whole.

@@ -698,11 +698,13 @@ function printMonthSummary(mi) {
   const catRows = CATEGORIES.filter(c => (calc.byCategory[c]||0) > 0).map(c => {
     const amt = calc.byCategory[c];
     const pct = calc.revenue > 0 ? (amt/calc.revenue*100).toFixed(1) : '—';
-    return `<tr><td>${c}</td><td>${fmt(amt)}</td><td>${pct}%</td></tr>`;
+    return `<tr><td>${escHtml(c)}</td><td>${fmt(amt)}</td><td>${pct}%</td></tr>`;
   }).join('');
 
+  // Escaped: the descriptions and vendors come off bank and card statements,
+  // and this window is written as a page of the app's own, not a sandbox.
   const txRows = txs.map(t =>
-    `<tr><td>${t.date}</td><td>${t.desc||''}</td><td>${t.category}</td><td>${t.vendor||''}</td><td>${t.type==='in'?'+':'-'}${fmt(t.amount)}</td></tr>`
+    `<tr><td>${escHtml(t.date || '')}</td><td>${escHtml(t.desc || '')}</td><td>${escHtml(t.category || '')}</td><td>${escHtml(t.vendor || '')}</td><td>${t.type==='in'?'+':'-'}${fmt(t.amount)}</td></tr>`
   ).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -729,7 +731,7 @@ function printMonthSummary(mi) {
     <div class="kpi"><div class="kpi-label">Net Income</div><div class="kpi-value">${fmt(calc.net)}</div></div>
     <div class="kpi"><div class="kpi-label">COGS %</div><div class="kpi-value">${calc.cogsRatio.toFixed(1)}%</div></div>
   </div>
-  ${note ? `<div class="note">📝 ${note}</div>` : ''}
+  ${note ? `<div class="note">📝 ${escHtml(note)}</div>` : ''}
   <h2>Category Breakdown</h2>
   <table><thead><tr><th>Category</th><th>Total</th><th>% of Revenue</th></tr></thead><tbody>${catRows}</tbody></table>
   <h2>Transactions (${txs.length})</h2>
@@ -784,7 +786,7 @@ function renderRulesList() {
         <span class="rule-keyword">"${escHtml(r.keyword)}"</span>
         <span class="rule-sign">+ ${r.sign === 'any' ? 'Any' : r.sign === 'in' ? 'Money In' : 'Money Out'}</span>
         <span class="rule-arrow">→</span>
-        <span class="rule-cat">${r.category}</span>
+        <span class="rule-cat">${escHtml(r.category || '')}</span>
         ${r.vendor ? `<span style="color:var(--mist);font-size:0.68rem">(${escHtml(r.vendor)})</span>` : ''}
         <button class="btn btn-danger btn-xs" style="margin-left:auto" onclick="deleteRule(${i})">Remove</button>
       </div>

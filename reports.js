@@ -1145,7 +1145,7 @@ function renderSupplierPie(canvasId, legendId, data) {
     legendEl.innerHTML = data.map((d,i) => `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <div style="width:12px;height:12px;border-radius:2px;background:${colors[i]};flex-shrink:0"></div>
-        <span style="flex:1;color:var(--ink)">${d[0]}</span>
+        <span style="flex:1;color:var(--ink)">${escHtml(d[0])}</span>
         <span style="color:var(--green);font-weight:500">${fmt(d[1])}</span>
         <span style="color:var(--mist)">${(d[1]/total*100).toFixed(1)}%</span>
       </div>`).join('');

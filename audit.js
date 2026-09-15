@@ -363,7 +363,7 @@ function auditChangeHtml(c) {
     }
     case 'set':  return `<strong>${escHtml(AUDIT_SETTING_NAMES[c.k] || c.k)}</strong> changed` +
                         `<div style="font-size:0.68rem;color:var(--mist);word-break:break-all">was ${escHtml(c.b)}<br>now ${escHtml(c.a)}</div>`;
-    case 'more': return `…and ${c.n} more change${c.n === 1 ? '' : 's'} (kept in full on the computer that made them)`;
+    case 'more': return `…and ${Number(c.n) || 0} more change${c.n === 1 ? '' : 's'} (kept in full on the computer that made them)`;
     default:     return escHtml(JSON.stringify(c));
   }
 }

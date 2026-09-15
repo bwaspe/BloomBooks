@@ -177,6 +177,18 @@ function normalizeAppData(d) {
     const ok = wantArray ? Array.isArray(v) : (v && typeof v === 'object' && !Array.isArray(v));
     if (!ok) d[k] = wantArray ? [] : {};
   });
+  // Years are written straight into buttons and menus as numbers, so they are
+  // made numbers here. A book arrives from the sheet or a backup file, and a
+  // "year" that was really text would otherwise run as part of those buttons.
+  const isYear = y => Number.isInteger(y) && y >= 1900 && y <= 2200;
+  if (Array.isArray(d.years)) {
+    d.years = d.years.map(y => Number(y)).filter((y, i, a) => isYear(y) && a.indexOf(y) === i);
+  }
+  if (d.activeYear !== undefined && !isYear(Number(d.activeYear))) {
+    d.activeYear = Array.isArray(d.years) && d.years.length ? Math.max.apply(null, d.years) : new Date().getFullYear();
+  } else if (d.activeYear !== undefined) {
+    d.activeYear = Number(d.activeYear);
+  }
   // Whatever arrives by replacing the whole book is the accepted state of its
   // closed years: a load, or a backup deliberately restored.
   if (typeof lockOnLoad === 'function') lockOnLoad(d);

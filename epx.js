@@ -400,7 +400,7 @@ function epxReportHtml() {
   const rows = p.days.map(d => {
     const hit = rec && rec.matched.filter(m => m.day === d)[0];
     if (hit) {
-      return dayRow(d, `in the books ${hit.tx.date}` + (hit.guessed ? ' (amount matched only)' : ''),
+      return dayRow(d, `in the books ${escHtml(hit.tx.date || '')}` + (hit.guessed ? ' (amount matched only)' : ''),
                     hit.guessed ? 'var(--amber, #b8860b)' : 'var(--mist)');
     }
     if (rec && rec.pending.indexOf(d) >= 0) {
@@ -618,6 +618,10 @@ async function epxLoadPdfLib() {
   const WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   await new Promise((res, rej) => {
     const s = document.createElement('script');
+    // Pinned to the exact file: this runs in the page that holds the Google
+    // sign-in, so a changed copy on the CDN is refused rather than run.
+    s.integrity = 'sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==';
+    s.crossOrigin = 'anonymous';
     s.src = SRC; s.onload = res; s.onerror = () => rej(new Error('Could not load the PDF reader'));
     document.head.appendChild(s);
   });
@@ -631,7 +635,11 @@ async function epxLoadPdfLib() {
 async function epxPdfText(file) {
   const lib = await epxLoadPdfLib();
   const buf = await file.arrayBuffer();
-  const doc = await lib.getDocument({ data: buf }).promise;
+  // isEvalSupported off: pdf.js 3.x can be made to run code from a crafted
+  // font in a PDF (CVE-2024-4367), and turning off its generated-code path is
+  // the published fix for versions before 4.2.67. Only text is read here, so
+  // nothing is lost.
+  const doc = await lib.getDocument({ data: buf, isEvalSupported: false }).promise;
   const pages = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);

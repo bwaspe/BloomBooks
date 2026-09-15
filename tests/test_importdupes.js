@@ -9,9 +9,9 @@
 const F = require('./fixtures');
 const vm = require('vm');
 
-const A = F.file('Chase3398_Activity_20260720 (1).csv');   // 1-15 Jul
-const B = F.file('Chase3398_Activity_20260803.csv');       // 15-31 Jul, overlapping on the 15th
-if (!A || !B) F.skip('needs the 20 Jul and 3 Aug Chase3398_Activity downloads');
+const A = F.file('Chase*_Activity_20260720 (1).csv');   // 1-15 Jul
+const B = F.file('Chase*_Activity_20260803.csv');       // 15-31 Jul, overlapping on the 15th
+if (!A || !B) F.skip('needs the 20 Jul and 3 Aug Chase checking Activity downloads');
 
 function makeApp() {
   const els = {

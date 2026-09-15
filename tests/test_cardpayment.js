@@ -22,7 +22,7 @@ const sb = F.sandbox({});
 let out = null;
 sb.__OUT__ = o => { out = o; };
 
-// Verbatim from Chase3398_Activity_20260902.csv
+// In Chase's own wording (ORIG ID is American Express's, the same for every customer).
 const REAL = {
   amexAch: 'ORIG CO NAME:AMERICAN EXPRESS       ORIG ID:20050321 IND NAME:BARAMI WASPE',
   // ...and the kind of line that appears on the CARD statement instead.

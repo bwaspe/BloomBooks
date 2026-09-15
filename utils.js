@@ -13,6 +13,16 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// A string passed as '${jsArg(x)}' inside an inline handler such as onclick.
+// escHtml alone is not enough there: it leaves the apostrophe, and the page
+// decodes the attribute before the handler runs, so a name with a ' or a \ in
+// it ends the string and carries on as code. Order matters: backslash, then
+// apostrophe and line breaks, then HTML.
+function jsArg(s) {
+  return escHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r').replace(/\n/g, '\\n'));
+}
+
 // ============================================================
 // NETWORK
 // ============================================================

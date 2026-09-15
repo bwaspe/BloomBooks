@@ -18,16 +18,17 @@ const sb = F.sandbox({});
 let out = null;
 sb.__OUT__ = o => { out = o; };
 
-// Verbatim from Chase3398_Activity_20260902.csv
+// In Chase's own wording. The reference numbers are made up: the real ones are
+// the shop's bank records, and this repository is public.
 const REAL = {
-  draw1: 'Zelle payment to Barami Waspe 30515148228',
-  draw2: 'Zelle payment to Barami Waspe 30427625671',
+  draw1: 'Zelle payment to Barami Waspe 30000000001',
+  draw2: 'Zelle payment to Barami Waspe 30000000002',
   dvflora: 'ORIG CO NAME:DELAWARE VALLEY        ORIG ID:4222779770 DESC DATE:B26238 ' +
-           'CO ENTRY DESCR:8564687000SEC:WEB    TRACE#:091000012738289 EED:260827   ' +
-           'IND ID:2WSVGXZSEMU5VCO              IND NAME:BARAMI WASPE TRN: 2392738289TC',
+           'CO ENTRY DESCR:8564687000SEC:WEB    TRACE#:091000010000001 EED:260827   ' +
+           'IND ID:1ABCDEFGHJKLMNO              IND NAME:BARAMI WASPE TRN: 2390000001TC',
   amex: 'ORIG CO NAME:AMERICAN EXPRESS       ORIG ID:20050321 IND NAME:BARAMI WASPE',
   // The shape a contribution would take.
-  contribution: 'Zelle payment from Barami Waspe 30515148999'
+  contribution: 'Zelle payment from Barami Waspe 30000000003'
 };
 
 vm.runInNewContext(F.src(['config.js', 'utils.js', 'import-trainer.js']) + `

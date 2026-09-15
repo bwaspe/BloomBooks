@@ -23,8 +23,18 @@ function fixtureDirs() {
   return dirs.filter(d => { try { return fs.statSync(d).isDirectory(); } catch (e) { return false; } });
 }
 
+// A * in the name stands for any run of characters, so a suite can name a bank
+// download without its account digits -- Chase puts the last four in the file
+// name, and the names are written into this public repository. When several
+// files match, the first in sorted order is used.
 function findFile(name) {
   for (const dir of fixtureDirs()) {
+    if (name.indexOf('*') >= 0) {
+      const re = new RegExp('^' + name.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+      const hit = fs.readdirSync(dir).filter(f => re.test(f)).sort()[0];
+      if (hit) return path.join(dir, hit);
+      continue;
+    }
     const p = path.join(dir, name);
     if (fs.existsSync(p)) return p;
   }

@@ -631,15 +631,15 @@ function renderTxRow(t, mi, year) {
   const isVault = t._vault;
   const amtClass = t.type === 'in' ? 'amount-in' : 'amount-out';
   const sign = t.type === 'in' ? '+' : '−';
-  return `<tr id="row-${t.id}" ${isVault ? 'style="opacity:0.75"' : ''}>
-    <td>${t.date}</td>
+  return `<tr id="row-${escHtml(t.id)}" ${isVault ? 'style="opacity:0.75"' : ''}>
+    <td>${escHtml(t.date || '')}</td>
     <td>${escHtml(t.desc || '')}${isVault ? ' <span style="font-size:0.6rem;color:var(--mist)">[vault]</span>' : ''}</td>
-    <td><span class="badge">${t.category}</span></td>
+    <td><span class="badge">${escHtml(t.category || '')}</span></td>
     <td>${escHtml(t.vendor || '')}</td>
     <td class="${amtClass}">${sign}${fmt(t.amount)}</td>
     <td>
-      ${!isVault ? `<button class="btn btn-outline btn-xs" onclick="openEditModal('${t.id}',${mi},${year})">Edit</button>
-      <button class="btn btn-danger btn-xs" style="margin-left:4px" onclick="deleteTx('${t.id}',${mi},${year})">Del</button>` : '<span style="font-size:0.62rem;color:var(--mist)">Vault</span>'}
+      ${!isVault ? `<button class="btn btn-outline btn-xs" onclick="openEditModal('${jsArg(t.id)}',${+mi},${+year})">Edit</button>
+      <button class="btn btn-danger btn-xs" style="margin-left:4px" onclick="deleteTx('${jsArg(t.id)}',${+mi},${+year})">Del</button>` : '<span style="font-size:0.62rem;color:var(--mist)">Vault</span>'}
     </td>
   </tr>`;
 }

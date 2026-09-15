@@ -13,9 +13,9 @@
 const F = require('./fixtures');
 const vm = require('vm');
 
-const CHASE = F.file('Chase3398_Activity_20260902.csv');
+const CHASE = F.file('Chase*_Activity_20260902.csv');
 const AMEX = F.file('activity (13).csv');
-if (!CHASE) F.skip('needs Chase3398_Activity_20260902.csv — put it in Downloads or set BLOOMBOOKS_FIXTURES');
+if (!CHASE) F.skip('needs the Chase checking Activity download of 2 Sep 2026 — put it in Downloads or set BLOOMBOOKS_FIXTURES');
 
 const sb = F.sandbox({});
 let out = null;

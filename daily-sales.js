@@ -417,7 +417,7 @@ function renderSalesTaxPanel() {
   const label = id => (dsChannels().find(c => c.id === id) || {}).label || id;
   const modeSel = id => {
     const m = dsTaxMode(dsChannels().find(c => c.id === id) || { id });
-    return `<select onchange="dsSetTaxMode('${id}', this.value)"
+    return `<select onchange="dsSetTaxMode('${jsArg(id)}', this.value)"
               style="font-size:0.68rem;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--surface);font-family:Inter,sans-serif">
       <option value="detail" ${m === 'detail' ? 'selected' : ''}>per order</option>
       <option value="all" ${m === 'all' ? 'selected' : ''}>all taxable</option>
@@ -1681,7 +1681,7 @@ function dsAutoStep(id, year, month) {
     if (!through) return { done: false, detail: 'nothing entered yet' };
     return through >= end
       ? { done: true, detail: 'through ' + end.slice(5) }
-      : { done: false, detail: 'only to ' + through.slice(5) };
+      : { done: false, detail: 'only to ' + escHtml(through.slice(5)) };
   }
   if (id === 'fee') {
     const rows = (appData.transactions[`${year}-${month}`] || []).filter(t =>
@@ -1795,7 +1795,7 @@ function renderDailySalesPanel() {
   const cell = (day, ch, field) => {
     const v = ((dsMonth(year, month)[day] || {})[ch.id] || {})[field];
     return `<input type="number" step="0.01" value="${v == null ? '' : v}"
-      onchange="dsSet(${year},${month},${day},'${ch.id}','${field}',this.value)"
+      onchange="dsSet(${year},${month},${day},'${jsArg(ch.id)}','${field}',this.value)"
       class="ds-cell" inputmode="decimal">`;
   };
 
@@ -1908,7 +1908,7 @@ function renderDailySalesPanel() {
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         ${dsChannels().map(c => `
           <button class="btn btn-sm ${c.active ? 'btn-primary' : 'btn-outline'}"
-                  onclick="dsToggleChannel('${c.id}')"
+                  onclick="dsToggleChannel('${jsArg(c.id)}')"
                   title="${c.active ? 'Retire this channel' : 'Bring this channel back'}">
             ${escHtml(c.label)}${c.active ? '' : ' · retired'}
           </button>`).join('')}

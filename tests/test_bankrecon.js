@@ -11,10 +11,10 @@
 const F = require('./fixtures');
 const vm = require('vm');
 
-const FILES = ['Chase3398_Activity_20260720 (1).csv', 'Chase3398_Activity_20260803.csv',
-               'Chase3398_Activity_20260822.csv', 'Chase3398_Activity_20260902.csv'];
+const FILES = ['Chase*_Activity_20260720 (1).csv', 'Chase*_Activity_20260803.csv',
+               'Chase*_Activity_20260822.csv', 'Chase*_Activity_20260902.csv'];
 const CSV = FILES.map(f => F.file(f));
-if (CSV.some(c => !c)) F.skip('needs the four Chase3398_Activity downloads (Jul 20 - Sep 2) in Downloads');
+if (CSV.some(c => !c)) F.skip('needs the four Chase checking Activity downloads (Jul 20 - Sep 2) in Downloads');
 
 function makeApp() {
   const els = {

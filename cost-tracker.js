@@ -28,6 +28,42 @@ function ctLoad() {
   } catch(e) {}
 }
 
+// --- What the invoice reader returns ---
+// Written by a model reading a supplier's document or email, so it is data
+// from outside, and nothing stops a field arriving in the wrong shape: a
+// quantity as text, a unit or a date carrying markup. Numbers are made numbers,
+// and units and dates are kept to the characters they can have, here at the
+// door, so no screen downstream has to take their shape on trust.
+function ctNum(v) {
+  if (v === null || v === undefined || v === '') return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function ctCleanDate(d) {
+  if (!d) return d;
+  return String(d).replace(/[^0-9\/.-]/g, '').slice(0, 10) || null;
+}
+function ctPlainText(v) {
+  return v == null ? v : String(v).replace(/[<>"'`&\\]/g, '');
+}
+function ctCleanItems(items) {
+  return (Array.isArray(items) ? items : []).filter(i => i && typeof i === 'object').map(i => ({
+    ...i,
+    name: i.name == null ? '' : String(i.name),
+    qty: ctNum(i.qty),
+    unit_price: ctNum(i.unit_price),
+    total: ctNum(i.total),
+    stems_per_bunch: ctNum(i.stems_per_bunch),
+    uom: ctPlainText(i.uom)
+  }));
+}
+// Only ever posted to a Google Apps Script web app. The address is read from
+// the saved book, and a backup file that pointed it elsewhere would otherwise
+// send invoices and the weekly figures to whatever server it named.
+function ctAppsScriptUrlOk(url) {
+  return /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+\/|macros\/)s\/[A-Za-z0-9_-]+\/exec\b/.test(String(url || ''));
+}
+
 // --- Fuzzy category lookup ---
 function ctCatalogKey(name) {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
@@ -223,6 +259,7 @@ async function ctProcessOneFile(file, idx) {
     const isPdf = file.type === 'application/pdf';
     const mediaType = isPdf ? 'application/pdf' : file.type;
 
+    if (!ctAppsScriptUrlOk(ctData.appsScriptUrl)) throw new Error('The Apps Script address in Gmail Scan setup is not a script.google.com /exec address');
     // Sent as text/plain to avoid a CORS preflight, which Apps Script web apps don't handle
     const response = await fetch(ctData.appsScriptUrl, {
       method: 'POST',
@@ -234,6 +271,11 @@ async function ctProcessOneFile(file, idx) {
     if (!result.parsed.items || result.parsed.items.length === 0) throw new Error("Claude couldn't extract line items from this file. Try a clearer image.");
 
     const parsed = result.parsed;
+    parsed.items = ctCleanItems(parsed.items);
+    parsed.date = ctCleanDate(parsed.date);
+    parsed.delivery_date = ctCleanDate(parsed.delivery_date);
+    parsed.delivery_fee = ctNum(parsed.delivery_fee);
+    parsed.total = ctNum(parsed.total);
     const enriched = parsed.items.map(item => ({
       ...item,
       category: ctGuessCategory(item.name),
@@ -318,7 +360,7 @@ function ctBuildUploadCardHtml(p, idx) {
           <button onclick="ctApplyPackMultiplier(${idx}, ${i})" style="border:none;background:none;color:var(--link);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
         </div>` : ''}</div>
       <div class="ct-item-meta">
-        <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
+        <input type="number" step="0.01" min="0" value="${escHtml(item.qty)}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
         <select onchange="ctUpdateUploadItemUom(${idx}, ${i}, this.value)" style="font-size:0.72rem" title="Unit — pick a pack unit like Box or Case to record how many are in one">
           ${CT_UOMS.map(u => `<option value="${u}" ${u === item.uom ? 'selected' : ''}>${u}</option>`).join('')}
         </select>${stemsInput ? ' ' + stemsInput : ''}</div>
@@ -636,7 +678,7 @@ function ctUnitsInput(uom, value, handler) {
   const title = pack
     ? 'How many units in one ' + u.toLowerCase() + ' — the line is worth that many times the unit price'
     : 'Stems per bunch, if known — enables per-stem pricing';
-  return '<input type="number" min="1" placeholder="' + label + '" value="' + (value || '') +
+  return '<input type="number" min="1" placeholder="' + label + '" value="' + escHtml(value || '') +
          '" onchange="' + handler + '" style="font-size:0.7rem;padding:2px 4px;width:66px" title="' +
          title + '">';
 }
@@ -897,7 +939,8 @@ function ctApplyOneRepair(kind, invId, name) {
 // Order matters: backslash, then apostrophe, then HTML. The name survives
 // intact, which it must, because it is looked up by it.
 function ctJsArg(s) {
-  return escHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  return escHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r').replace(/\n/g, '\\n'));
 }
 
 function ctOpenLineBtn(invId, title) {
@@ -909,10 +952,12 @@ function ctOpenLineBtn(invId, title) {
 
 // The three little controls every repair row carries.
 function ctRowActions(kind, invId, name) {
-  const q = v => String(v).replace(/'/g, "\\'");
+  // ctJsArg, not a quote-only escape: an item name like 5" X 10" Cylinder
+  // closed the attribute, which broke these buttons and let a name add its own.
+  const q = ctJsArg;
   return `<span style="white-space:nowrap;margin-left:6px">
     <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
-            onclick="ctApplyOneRepair('${kind}', '${q(invId)}', '${q(name || '')}')">fix</button>
+            onclick="ctApplyOneRepair('${q(kind)}', '${q(invId)}', '${q(name || '')}')">fix</button>
     <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
             onclick="ctOpenInvoice('${q(invId)}')">open</button>
     <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
@@ -988,7 +1033,7 @@ function renderCtRepairs() {
               <span style="color:var(--mist)">${escHtml(String(p.supplier || '').slice(0, 18))}${p.number ? ' #' + escHtml(String(p.number).slice(0, 14)) : ''}</span>
               ${ctRowActions('pack', p.id, p.name)}
               ${p.why ? `<div style="color:var(--ink-soft);font-size:0.68rem">
-                also recorded as ${p.why.qty} ${escHtml(p.why.uom || '')} at ${fmt(p.why.price)}
+                also recorded as ${escHtml(p.why.qty)} ${escHtml(p.why.uom || '')} at ${fmt(p.why.price)}
                 on ${escHtml(p.why.date)}, so that price is per unit</div>` : ''}
             </li>`).join('')}
           </ul>
@@ -1105,7 +1150,7 @@ function ctTakeAltEditing(itemIdx) {
 function ctAltNoteSaved(invoiceId, itemIndex) {
   const inv = (ctData.invoices || []).find(i => i.id === invoiceId);
   return ctAltNote(inv && inv.items[itemIndex],
-                   `ctTakeAltSaved('${invoiceId}', ${itemIndex})`);
+                   `ctTakeAltSaved('${ctJsArg(invoiceId)}', ${+itemIndex})`);
 }
 
 function ctTakeAltSaved(invoiceId, itemIndex) {
@@ -1651,8 +1696,8 @@ function ctCountingHtml() {
             ${p.rows.map(l => `<tr>
               <td style="color:var(--mist)">${esc(l.date)}</td>
               <td>${esc(String(l.name).slice(0, 30))}</td>
-              <td style="text-align:right;white-space:nowrap">${l.qty} ${esc(l.uom)}${
-                l.per ? ' ×' + l.per : ''}${l.isPack && l.per > 1 ? `
+              <td style="text-align:right;white-space:nowrap">${esc(l.qty)} ${esc(l.uom)}${
+                l.per ? ' ×' + esc(l.per) : ''}${l.isPack && l.per > 1 ? `
                 <span style="margin-left:4px" title="Is ×${l.per} the stems in the box, or the bunches?">
                   <button class="btn btn-outline btn-sm" style="font-size:0.6rem;padding:0 5px"
                     onclick="ctSetPackCounts('${arg(l.name)}', 'stems')">stems</button>
@@ -1944,10 +1989,10 @@ function ctIssuesHtml(item, setUom) {
     // never asked again -- on this invoice or any later one.
     const ask = i.ask ? `
       <a href="#" style="color:var(--link);margin-left:6px"
-         onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'pack');return false"
+         onclick="ctSetPackAnswer('${ctJsArg(i.ask)}', 'pack');return false"
          >it's the pack of ${i.per}</a> ·
       <a href="#" style="color:var(--link)"
-         onclick="ctSetPackAnswer(${JSON.stringify(i.ask).replace(/"/g, '&quot;')}, 'each');return false"
+         onclick="ctSetPackAnswer('${ctJsArg(i.ask)}', 'each');return false"
          >it's one</a>` : '';
     return `
       <div style="font-size:0.66rem;margin-top:2px;text-align:right;
@@ -2541,7 +2586,7 @@ function renderCtSupplierSuggestions() {
       ${pairs.map(p => `
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0">
           <button class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:3px 10px"
-                  onclick="ctApplySuggestion(${JSON.stringify(p.keep).replace(/"/g, '&quot;')}, ${JSON.stringify(p.drop).replace(/"/g, '&quot;')})">Merge</button>
+                  onclick="ctApplySuggestion('${ctJsArg(p.keep)}', '${ctJsArg(p.drop)}')">Merge</button>
           <span style="font-size:0.76rem">
             <strong>${escHtml(p.drop)}</strong> <span style="color:var(--mist)">(${p.dropCount})</span>
             → <strong>${escHtml(p.keep)}</strong> <span style="color:var(--mist)">(${p.keepCount})</span>
@@ -2623,7 +2668,7 @@ function ctParseSheetsApiDate(raw) {
   if (iso) return iso[0];
   const parsed = new Date(s);
   if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0,10);
-  return s.slice(0,10);
+  return ctCleanDate(s) || new Date().toISOString().slice(0,10);
 }
 
 async function ctFetchGmailInvoices(silent) {
@@ -2664,7 +2709,7 @@ async function ctFetchGmailInvoices(silent) {
       const messageId = r[iMsgId];
       if (!messageId || seen.has(messageId)) return;
       let items = [];
-      try { items = JSON.parse(r[iItems] || '[]'); } catch(e) { return; }
+      try { items = ctCleanItems(JSON.parse(r[iItems] || '[]')); } catch(e) { return; }
       if (!items.length) return;
       const rawDeliveryDate = iDeliveryDate >= 0 ? r[iDeliveryDate] : null;
       candidates.push({
@@ -2706,7 +2751,7 @@ async function ctFetchGmailInvoices(silent) {
   } catch(err) {
     ctData.gmailLastChecked = Date.now();
     ctSave();
-    if (resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--red);padding:12px">⚠️ ${err.message}</div>`;
+    if (resultsEl) resultsEl.innerHTML = `<div style="font-size:0.82rem;color:var(--red);padding:12px">⚠️ ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -2952,7 +2997,7 @@ function ctBuildGmailCardHtml(inv, invIdx) {
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
       <div class="ct-item-meta">
-        <input type="number" step="0.01" min="0" value="${item.qty}"
+        <input type="number" step="0.01" min="0" value="${escHtml(item.qty)}"
                onchange="ctUpdateGmailItemQty(${invIdx}, ${itemIdx}, this.value)"
                style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
         <select onchange="ctUpdateGmailItemUom(${invIdx}, ${itemIdx}, this.value)"
@@ -3315,10 +3360,10 @@ function renderCtTemplates() {
           <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);
                        border-radius:6px;padding:4px 6px 4px 10px;background:var(--surface)">
             <button class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:3px 10px"
-                    onclick="ctStartFromTemplate('${escHtml(t.id)}')">
+                    onclick="ctStartFromTemplate('${ctJsArg(t.id)}')">
               ${escHtml(t.name)} <span style="opacity:.7">· ${t.items.length} items</span>
             </button>
-            <button onclick="ctDeleteTemplate('${escHtml(t.id)}')" title="Delete this standing order"
+            <button onclick="ctDeleteTemplate('${ctJsArg(t.id)}')" title="Delete this standing order"
                     style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.85rem">✕</button>
           </span>`).join('')}
       </div>
@@ -3878,7 +3923,7 @@ function renderCtMissingInvoices() {
                 <td class="amount-out" style="text-align:right">${fmt(t.amount)}</td>
                 <td style="font-size:0.68rem;color:var(--ink-soft)">${escHtml(t._why || '')}</td>
                 <td style="white-space:nowrap">
-                  <select id="ct-link-${escHtml(t.id)}" onchange="ctLinkVendor('${escHtml(t.id)}')"
+                  <select id="ct-link-${escHtml(t.id)}" onchange="ctLinkVendor('${ctJsArg(t.id)}')"
                           style="font-size:0.7rem;padding:2px 4px;max-width:130px"
                           title="If this is a supplier you already have invoices from, link the names">
                     <option value="">link to…</option>
@@ -3887,10 +3932,10 @@ function renderCtMissingInvoices() {
                       .map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
                   </select>
                   <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
-                          onclick="ctDismissPayment('${escHtml(t.id)}')"
+                          onclick="ctDismissPayment('${ctJsArg(t.id)}')"
                           title="Hide just this payment">dismiss</button>
                   <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:2px 7px"
-                          onclick="ctIgnoreVendor('${escHtml(t.id)}')"
+                          onclick="ctIgnoreVendor('${ctJsArg(t.id)}')"
                           title="Never expect an invoice from this vendor">never</button>
                 </td>
               </tr>`).join('')}
@@ -4244,7 +4289,7 @@ function renderCtBudget() {
   el.innerHTML = `
     <div style="display:flex;gap:24px;margin-bottom:10px;flex-wrap:wrap">
       <div><div style="font-size:0.68rem;text-transform:uppercase;color:var(--mist)">${monthName} ${selYear} Actual</div><div style="font-size:1.3rem;font-weight:600">$${actual.toLocaleString('en-US',{maximumFractionDigits:0})}</div></div>
-      <div><div style="font-size:0.68rem;text-transform:uppercase;color:var(--mist)">Baseline (avg of ${priorYears.length} prior ${monthName}${priorYears.length!==1?'s':''}: ${priorYears.join(', ')})</div><div style="font-size:1.3rem;font-weight:600">$${baseline.toLocaleString('en-US',{maximumFractionDigits:0})}</div></div>
+      <div><div style="font-size:0.68rem;text-transform:uppercase;color:var(--mist)">Baseline (avg of ${priorYears.length} prior ${monthName}${priorYears.length!==1?'s':''}: ${escHtml(priorYears.join(', '))})</div><div style="font-size:1.3rem;font-weight:600">$${baseline.toLocaleString('en-US',{maximumFractionDigits:0})}</div></div>
       <div><div style="font-size:0.68rem;text-transform:uppercase;color:var(--mist)">vs Baseline</div><div style="font-size:1.3rem;font-weight:600;color:${diff>0?'var(--red)':'var(--green)'}">${diff>=0?'+':''}$${diff.toLocaleString('en-US',{maximumFractionDigits:0})} (${diffPct>=0?'+':''}${diffPct.toFixed(0)}%)</div></div>
     </div>`;
 }
@@ -4299,7 +4344,7 @@ function renderCtStaleMargin() {
       <span style="color:var(--mist)">retail $${s.retailPrice.toFixed(2)}</span>
       <span class="ct-flag ${s.direction}">${s.direction==='up'?'▲':'▼'} suggests $${s.suggested.toFixed(2)}</span>
       ${ctOpenLineBtn(s.invoiceId, 'Open the invoice this cost came from')}
-      <button onclick="event.stopPropagation(); ctDismissStaleMargin('${s.key}', ${s.suggested})" title="Dismiss — reappears if the price gap changes again" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 2px">✕</button>
+      <button onclick="event.stopPropagation(); ctDismissStaleMargin('${ctJsArg(s.key)}', ${+s.suggested})" title="Dismiss — reappears if the price gap changes again" style="border:none;background:none;color:var(--mist);cursor:pointer;font-size:0.9rem;padding:0 2px">✕</button>
     </div>`).join('');
 }
 
@@ -4381,6 +4426,7 @@ async function ctPushWeeklySummary() {
   if (last && (Date.now() - last.getTime()) < 20*3600e3) return;
 
   try {
+    if (!ctAppsScriptUrlOk(ctData.appsScriptUrl)) return;
     const summary = ctComputeWeeklySummary();
     await fetch(ctData.appsScriptUrl, {
       method: 'POST',
@@ -4482,7 +4528,7 @@ function ctRenderEditInvoice() {
           <button onclick="ctEditApplyPack(${i})" style="border:none;background:none;color:var(--link);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
         </div>` : ''}</div>
       <div class="ct-item-meta">
-        <input type="number" step="0.01" min="0" value="${item.qty}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
+        <input type="number" step="0.01" min="0" value="${escHtml(item.qty)}" onchange="ctEditUpdateItemField(${i}, 'qty', this.value)" style="width:50px;font-size:0.75rem;padding:2px 4px">
         ${ctAltNote(item, `ctTakeAltEditing(${i})`)}
         <select onchange="ctEditUpdateItemField(${i}, 'uom', this.value)" style="font-size:0.75rem">
           ${CT_UOMS.map(u=>`<option value="${u}" ${u===item.uom?'selected':''}>${u}</option>`).join('')}
@@ -5102,7 +5148,7 @@ function renderCtPrices() {
 
     const pill = (value, label, count) => {
       const active = cat === value;
-      return `<button onclick="ctSetPriceCategory('${value.replace(/'/g,"\\'")}')" style="
+      return `<button onclick="ctSetPriceCategory('${ctJsArg(value)}')" style="
         font-size:0.78rem;padding:6px 14px;border-radius:20px;cursor:pointer;
         border:1px solid ${active ? 'var(--ink)' : 'var(--border)'};
         background:${active ? 'var(--ink)' : 'var(--surface)'};
@@ -5188,7 +5234,7 @@ function renderCtPrices() {
     // different UOMs (e.g. Bunch + Each), since "42 Bunch + 10 Each" as one number would be meaningless
     const qtyByUom = {};
     item.records.forEach(r => { qtyByUom[r.uom] = (qtyByUom[r.uom]||0) + r.qty; });
-    const qtyLine = Object.entries(qtyByUom).map(([uom,q]) => `${q} ${uom}${q!==1?'s':''}`).join(', ');
+    const qtyLine = Object.entries(qtyByUom).map(([uom,q]) => `${escHtml(q)} ${escHtml(uom)}${q!==1?'s':''}`).join(', ');
 
     // Best (lowest) price seen, and which supplier — only meaningful if 2+ distinct suppliers
     const distinctSuppliers = [...new Set(item.records.map(r=>r.supplier))];
@@ -5226,19 +5272,19 @@ function renderCtPrices() {
 
     const history = [...item.records].reverse().slice(0,5).map(r => {
       const stemsField = r.uom === 'Bunch'
-        ? `<input type="number" min="1" placeholder="stems/bu" value="${r.stemsPerBu||''}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'stemsPerBu', this.value)" style="font-size:0.68rem;padding:1px 4px;width:56px;margin-left:4px" title="Stems per bunch">`
+        ? `<input type="number" min="1" placeholder="stems/bu" value="${escHtml(r.stemsPerBu||'')}" onchange="ctEditPriceHistoryRecord('${ctJsArg(r.invoiceId)}', ${+r.itemIndex}, 'stemsPerBu', this.value)" style="font-size:0.68rem;padding:1px 4px;width:56px;margin-left:4px" title="Stems per bunch">`
         : '';
       return `<div style="display:flex;gap:8px;font-size:0.72rem;color:var(--mist);padding:3px 0;border-bottom:1px solid var(--border-soft);align-items:center">
-        <span style="min-width:90px">${r.date}</span>
+        <span style="min-width:90px">${escHtml(r.date)}</span>
         <span style="flex:1">${escHtml(r.supplier)}</span>
         ${ctAltNoteSaved(r.invoiceId, r.itemIndex)}
-        <input type="number" step="0.01" min="0" value="${r.qty}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'qty', this.value)"
+        <input type="number" step="0.01" min="0" value="${escHtml(r.qty)}" onchange="ctEditPriceHistoryRecord('${ctJsArg(r.invoiceId)}', ${+r.itemIndex}, 'qty', this.value)"
           style="width:48px;font-size:0.72rem;padding:1px 4px">
-        <select onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'uom', this.value)" style="font-size:0.7rem;padding:1px 2px">
+        <select onchange="ctEditPriceHistoryRecord('${ctJsArg(r.invoiceId)}', ${+r.itemIndex}, 'uom', this.value)" style="font-size:0.7rem;padding:1px 2px">
           ${['Stem','Bunch','Each','Box','Roll','Other'].map(u=>`<option value="${u}" ${u===r.uom?'selected':''}>${u}</option>`).join('')}
         </select>
         ${stemsField}
-        <input type="number" step="0.01" min="0" value="${r.price.toFixed(2)}" onchange="ctEditPriceHistoryRecord('${r.invoiceId}', ${r.itemIndex}, 'unitPrice', this.value)"
+        <input type="number" step="0.01" min="0" value="${r.price.toFixed(2)}" onchange="ctEditPriceHistoryRecord('${ctJsArg(r.invoiceId)}', ${+r.itemIndex}, 'unitPrice', this.value)"
           style="font-weight:600;color:var(--ink);min-width:55px;width:65px;text-align:right;font-size:0.72rem;padding:1px 4px;margin-left:auto">
         ${ctOpenLineBtn(r.invoiceId, 'Open this purchase’s invoice')}
       </div>`;
@@ -5263,7 +5309,7 @@ function renderCtPrices() {
       ? `<span style="margin-left:8px" onclick="event.stopPropagation()">
           <label style="font-size:0.68rem;color:var(--mist)">Retail:</label>
           <input type="number" step="0.01" min="0" placeholder="not set" value="${ctData.retail[item.key] ?? ''}"
-            onchange="ctUpdatePriceHistoryRetail('${item.key}', this.value)" style="width:70px;font-size:0.75rem;padding:2px 4px">
+            onchange="ctUpdatePriceHistoryRetail('${ctJsArg(item.key)}', this.value)" style="width:70px;font-size:0.75rem;padding:2px 4px">
         </span>`
       : '';
 
@@ -5271,7 +5317,7 @@ function renderCtPrices() {
       <div class="ct-price-table-header" style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
         <div style="flex:1">
           <div style="font-weight:600;font-size:0.9rem">${escHtml(item.name)} ${groupBy === 'item' ? familyDisplay : ''}</div>
-          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px;display:flex;align-items:center;flex-wrap:wrap"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${latest.uom} · ${statsLine}${retailControl}</div>
+          <div style="font-size:0.72rem;color:var(--mist);margin-top:2px;display:flex;align-items:center;flex-wrap:wrap"><span class="badge">${escHtml(item.category)}</span> &nbsp; ${item.records.length} purchase${item.records.length!==1?'s':''} · latest $${latest.price.toFixed(2)}/${escHtml(latest.uom)} · ${statsLine}${retailControl}</div>
           ${groupBy === 'family' ? familyDisplay : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center">${trendHtml} <span style="color:var(--mist);font-size:0.8rem">▼</span></div>

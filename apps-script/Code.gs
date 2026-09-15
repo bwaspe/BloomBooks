@@ -180,15 +180,22 @@ function doPost(e) {
 // than failing outright. The check on the first scanned invoice is therefore
 // "does the total match the paper".
 function pdfToImageBase64(pdfBlob) {
+  let tempFile = null;
   try {
-    const tempFile = DriveApp.createFile(pdfBlob.setName('_bb_ocr_temp.pdf'));
+    tempFile = DriveApp.createFile(pdfBlob.setName('_bb_ocr_temp.pdf'));
     const exportUrl = 'https://docs.google.com/document/d/' + tempFile.getId() + '/export?format=png';
     const token = ScriptApp.getOAuthToken();
-    const resp = UrlFetchApp.fetch(exportUrl, {
-      headers: { 'Authorization': 'Bearer ' + token },
-      muteHttpExceptions: true
-    });
-    tempFile.setTrashed(true); // clean up temp file
+    let resp;
+    try {
+      resp = UrlFetchApp.fetch(exportUrl, {
+        headers: { 'Authorization': 'Bearer ' + token },
+        muteHttpExceptions: true
+      });
+    } finally {
+      // Even when the fetch throws. It used to be skipped then, and each such
+      // upload left a copy of the invoice sitting in Drive.
+      try { tempFile.setTrashed(true); } catch (e) {}
+    }
     if (resp.getResponseCode() !== 200) {
       Logger.log('PDF-to-image conversion failed: HTTP ' + resp.getResponseCode());
       return null;
@@ -717,18 +724,34 @@ function reconcileInvoiceDate(parsedDate, msgDate, vendorName, msgId) {
   return parsedDate;
 }
 
+// Anything taken from an email or read off a document is written as TEXT.
+// appendRow reads a value the way a person typing into the cell would, so a
+// subject or supplier name beginning with = + - or @ would be stored as a
+// formula and run whenever the sheet is opened -- including one that fetches
+// a web address with other cells attached. A leading apostrophe makes the cell
+// plain text; the apostrophe itself is not kept in the value.
+function sheetText(v) {
+  const s = v == null ? '' : String(v);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+// And a money field is a number or nothing, never text that could be a formula.
+function sheetNumber(v) {
+  const n = Number(String(v == null ? '' : v).replace(/[$,\s]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+
 function appendToSheet(parsed, vendor, msg) {
   const sheet = getSheet();
   const values = {
     'Timestamp': new Date(),
     'MessageId': msg.getId(),
-    'Vendor': vendor.name,
-    'Supplier': parsed.supplier || vendor.name,
+    'Vendor': sheetText(vendor.name),
+    'Supplier': sheetText(parsed.supplier || vendor.name),
     'Date': reconcileInvoiceDate(parsed.date, msg.getDate(), vendor.name, msg.getId()),
-    'DeliveryDate': parsed.delivery_date || '',
-    'DeliveryFee': parsed.delivery_fee || 0,
-    'InvoiceNumber': parsed.invoice_number || '',
-    'Total': parsed.total || 0,
+    'DeliveryDate': sheetText(parsed.delivery_date || ''),
+    'DeliveryFee': sheetNumber(parsed.delivery_fee || 0),
+    'InvoiceNumber': sheetText(parsed.invoice_number || ''),
+    'Total': sheetNumber(parsed.total || 0),
     'ItemsJSON': JSON.stringify(parsed.items)
   };
 
@@ -773,7 +796,7 @@ function recordSkip(vendorName, msg, reason) {
     sheet = ss.insertSheet('Skipped');
     sheet.appendRow(['Timestamp', 'Vendor', 'MessageId', 'Subject', 'Reason']);
   }
-  sheet.appendRow([new Date(), vendorName, msg.getId(), msg.getSubject(), reason]);
+  sheet.appendRow([new Date(), sheetText(vendorName), msg.getId(), sheetText(msg.getSubject()), sheetText(reason)]);
 }
 
 // A delivery happened. No line items, nothing to parse, and no API call --
@@ -787,8 +810,8 @@ function recordDelivery(vendorName, msg) {
     sheet.appendRow(['Timestamp', 'Vendor', 'MessageId', 'DeliveryDate', 'Subject']);
   }
   const tz = Session.getScriptTimeZone();
-  sheet.appendRow([new Date(), vendorName, msg.getId(),
-                   Utilities.formatDate(msg.getDate(), tz, 'yyyy-MM-dd'), msg.getSubject()]);
+  sheet.appendRow([new Date(), sheetText(vendorName), msg.getId(),
+                   Utilities.formatDate(msg.getDate(), tz, 'yyyy-MM-dd'), sheetText(msg.getSubject())]);
 }
 
 // How many times each message has thrown. A transient failure should be
@@ -850,7 +873,7 @@ function logError(vendorName, msgId, message) {
       errSheet = ss.insertSheet('Errors');
       errSheet.appendRow(['Timestamp', 'Vendor', 'MessageId', 'Error']);
     }
-    errSheet.appendRow([new Date(), vendorName, msgId, message]);
+    errSheet.appendRow([new Date(), sheetText(vendorName), msgId, sheetText(message)]);
   } catch (e) {
     Logger.log('Could not log error to sheet: ' + e.message);
   }

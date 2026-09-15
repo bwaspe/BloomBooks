@@ -19,18 +19,10 @@ The counts say exactly that: 55 Perri errors across 24 days, averaging 2.3,
 with **nine days landing on exactly 3**. The single 7-error day is 3 July,
 the first run, clearing a 30-day backlog.
 
-The money agrees. Invoiced against paid, 1 July to 3 September:
-
-```
-                  invoiced      paid    difference
-  Perri              $6,674    $7,516         $841
-  Main Wholesale     $6,350    $6,108        -$242
-  Juliet             $1,923    $2,697         $773
-  Fisch              $2,054    $2,086          $32
-  DVFlora            $1,468    $1,487          $19
-```
-
-Differences that size are payment timing. Nothing is missing.
+The money agrees. Invoiced against paid, 1 July to 3 September, every
+supplier's two figures sat within a few percent of each other -- the gaps
+were payment timing, and nothing was missing. (The figures themselves are
+the shop's accounts and are kept out of this public repository.)
 
 **The 5 JSON failures are different.** The model returned prose beginning
 "This docum..." and "The email ..." rather than JSON — it was looking at a
@@ -121,8 +113,8 @@ Gmail's own classification needs no guessing at all:
 **"Completed" is evidence, and I was wrong to throw it away.**
 
 Perri sometimes place an order that never triggers an acknowledgment email at
-all. On 7 August two of them went missing: $159.52 of paperwork captured
-against a $244.97 card charge, with $85.45 simply absent. Nothing in the
+all. On 7 August two of them went missing: the paperwork captured came to about
+two-thirds of that day's card charge, and the rest was simply absent. Nothing in the
 scanner can conjure an email that was never sent — but the delivery-morning
 mails still arrive, and **"Completed" is the only independent record that a
 Perri delivery happened on a given day.**
@@ -387,8 +379,8 @@ document is the **invoice**, and that is where the $16.50 appears. An
 acknowledgment says what was ordered; an invoice says what is being billed,
 and freight only exists on the second.
 
-**11 delivery days carry no charge at all — roughly $180.** Not the $820 the
-raw payment gap suggests; most of that is payment timing. Small money, but it
+**11 delivery days carry no charge at all.** Far less than the raw payment
+gap suggests; most of that is payment timing. Small money, but it
 accrues on every delivery day where no invoice is uploaded alongside.
 
 Two oddities in the same data, both worth a look rather than a fix here:
