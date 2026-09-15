@@ -617,8 +617,10 @@ function trendsFindings(B, season, avgMonth) {
         const pg = (b.payroll / a.payroll - 1) * 100, rg = (b.rev / a.rev - 1) * 100;
         out.push({ tone: pg > rg ? 'warn' : 'good', t: `Payroll ${pg >= 0 ? 'up' : 'down'} ${Math.abs(pg).toFixed(1)}%, ${span}`,
                    d: `${trMoney(a.payroll)} in ${a.y} to ${trMoney(b.payroll)} in ${b.y}, against revenue ${trPct(rg)}: ${(a.payroll / a.rev * 100).toFixed(1)}% of revenue then, ${(b.payroll / b.rev * 100).toFixed(1)}% now. Includes Payroll1.` });
-        out.push({ tone: '', t: `Marketing, ${span}`,
-                   d: stretch.map(s => `${s.y} ${(s.marketing / s.rev * 100).toFixed(1)}%`).join(' · ') + ' of revenue.' });
+        if (stretch.some(s => s.marketing > 0)) {
+          out.push({ tone: '', t: `Marketing, ${span}`,
+                     d: stretch.map(s => `${s.y} ${(s.marketing / s.rev * 100).toFixed(1)}%`).join(' · ') + ' of revenue.' });
+        }
       }
     }
   }
