@@ -942,6 +942,8 @@ function renderTrendsPanel() {
   updateYearSelects();
   renderTrendsChart();
   renderCogsChart();
+  // Targets, the shape of the year and where the money goes: trends.js.
+  if (typeof renderTrendsExtras === 'function') renderTrendsExtras();
 }
 
 function renderCogsChart() {

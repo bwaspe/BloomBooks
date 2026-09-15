@@ -28,7 +28,8 @@ const AUDIT_SETTING_NAMES = {
   bankRecon: 'Bank reconciliation record', notes: 'Month notes', reconciled: 'Reconciled ticks',
   years: 'Years', channels: 'Day book channels', channelsVersion: 'Day book channel version',
   deferrals: 'Delivery-basis deferrals', holidays: 'Holiday revenue', holidayBuy: 'Holiday buying dates',
-  monthClose: 'Month-end checklist', salesSheets: 'Holiday sales workbooks', dailyRevenueFrom: 'Revenue source switch'
+  monthClose: 'Month-end checklist', salesSheets: 'Holiday sales workbooks', dailyRevenueFrom: 'Revenue source switch',
+  trends: 'Trends targets, adjustments and notes'
 };
 const AUDIT_DAY_FIELDS = { s: 'sales', x: 'exempt', t: 'tax', _tips: 'tips' };
 
