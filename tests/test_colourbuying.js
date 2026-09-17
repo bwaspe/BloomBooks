@@ -226,6 +226,40 @@ console.log('\nthe Holiday Revenue report uses the same colours');
 
 function near(a, b) { return Math.abs(a - b) < 0.005; }
 
+console.log('\nholiday buying is left out of an average');
+{
+  // The Feb 2026 invoice added above sits in the Valentine's buying window.
+  const flags = J(`cbHolidayPeriods(['2026-02-09', '2026-02-23', '2026-05-04', '2026-06-22'], 'week')`);
+  t('the Valentine\'s and Mother\'s Day buying weeks are known, and ordinary ones are not',
+    flags['2026-02-09'] === "Valentine's" && flags['2026-05-04'] === "Mother's Day" &&
+    !flags['2026-02-23'] && !flags['2026-06-22'], JSON.stringify(flags));
+
+  S(`cbView = { flower: 'roses', period: 'week', count: 52, measure: 'stems', layout: 'avg', month: '', holidays: 'out' }; renderColourBuying();`);
+  let html = els['ct-colours-content'].innerHTML;
+  // The first table is the report; the second lists the items to fix, and its
+  // colour menus name every colour, so look only at the first.
+  const table = h => h.split('</table>')[0];
+  const avgOf = h => { const row = table(h).split('</tr>').find(r => />Light Pink</.test(r)) || ''; return (row.match(/<td[^>]*>([^<]*)<\/td>/g) || []).map(c => c.replace(/<[^>]+>/g, '').trim()); };
+  t('with holidays out, the holiday weeks are not columns, not in the average, and are named',
+    /12 holiday weeks left out \(Christmas, Valentine's, Mother's Day\)/.test(html) &&
+    /over the 2 weeks/.test(html) && !/Light Pink/.test(table(html)),
+    (html.match(/\d+ holiday weeks? left out \([^)]*\)/) || [''])[0]);
+  S(`cbSet('holidays', 'in');`);
+  html = els['ct-colours-content'].innerHTML;
+  t('  and putting them back counts that week and its 100 stems',
+    /over the 3 weeks/.test(html) && />Light Pink</.test(table(html)) && avgOf(html)[0] === '33', JSON.stringify(avgOf(html)));
+  S(`cbSet('holidays', 'out');`);
+
+  // A month that is all holiday buying has nothing ordinary left to average.
+  S(`cbSet('count', 'month'); cbSet('month', '2026-02');`);
+  html = els['ct-colours-content'].innerHTML;
+  t('February with holidays out has no ordinary weeks left, and says which were dropped',
+    /holiday weeks? left out \(Valentine's\)/.test(html) && /No invoices in the cost tracker cover February 2026/.test(html));
+  S(`cbSet('holidays', 'in');`);
+  t('  putting them back shows the month', />Light Pink</.test(table(els['ct-colours-content'].innerHTML)));
+  S(`cbSet('holidays', 'out'); cbSet('count', '12');`);
+}
+
 console.log('\nyour real invoices, if they are here');
 {
   const fs = require('fs'), path = require('path');

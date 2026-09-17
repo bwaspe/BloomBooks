@@ -199,7 +199,10 @@ function cbViewState() {
     layout: saved.layout === 'avg' ? 'avg' : 'all',
     // '' for the last N weeks or months; 'YYYY-MM' for one month; 'latest' for
     // the month of the newest delivery, resolved when the screen is drawn.
-    month: (/^\d{4}-\d{2}$/.test(saved.month || '') || saved.month === 'latest') ? saved.month : ''
+    month: (/^\d{4}-\d{2}$/.test(saved.month || '') || saved.month === 'latest') ? saved.month : '',
+    // Holiday buying is left out by default: the question this screen answers
+    // is what an ordinary week takes, and a Mother's Day week is ten of them.
+    holidays: saved.holidays === 'in' ? 'in' : 'out'
   };
   return cbView;
 }
@@ -227,6 +230,35 @@ function cbMonthWeeks(month) {
 // a fortnight around Mother's Day 2025, then nothing until June 2026 -- and a
 // week with no invoice at all is a week nobody entered paperwork for, not a
 // week nothing was bought. Counting those as zero halved every average.
+// Which of these weeks or months are holiday buying, and for which holiday.
+//
+// Valentine's and Mother's Day are the whole reason an average needs this: one
+// Mother's Day week held 2,746 rose stems against a normal week's 300, so a
+// range containing it reports an "average week" the shop never has. The windows
+// are the Holiday Revenue report's own -- three weeks before the day by
+// default, or whatever start date the owner set there -- so the two screens
+// agree about when holiday buying began.
+function cbHolidayPeriods(periods, period) {
+  const flagged = {};
+  if (typeof ctHolidayOf !== 'function') return flagged;
+  periods.forEach(p => {
+    const days = [];
+    if (period === 'month') {
+      const y = +p.slice(0, 4), m = +p.slice(5, 7) - 1;
+      const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      for (let d = 1; d <= last; d++) days.push(p + '-' + String(d).padStart(2, '0'));
+    } else {
+      const d0 = new Date(p + 'T00:00:00Z');
+      for (let i = 0; i < 7; i++) { days.push(d0.toISOString().slice(0, 10)); d0.setUTCDate(d0.getUTCDate() + 1); }
+    }
+    for (const d of days) {
+      const hit = ctHolidayOf(d);
+      if (hit) { flagged[p] = hit; break; }
+    }
+  });
+  return flagged;
+}
+
 function cbInvoiceDates() {
   const out = [];
   ((typeof ctData !== 'undefined' && ctData && ctData.invoices) || []).forEach(inv => {
@@ -247,13 +279,13 @@ function cbCoveredPeriods(period, dates) {
 // the month -- so a short week at either edge is a part of a week, not a whole
 // one, and a month whose only nearby invoice belongs to the next month counts
 // as not covered at all.
-function cbMonthCoverage(month, dates) {
+function cbMonthCoverage(month, dates, skip) {
   const inMonth = {};
   (dates || cbInvoiceDates()).forEach(d => { if (String(d).slice(0, 7) === month) inMonth[cbPeriodKey(d, 'week')] = 1; });
   const weeks = cbMonthWeeks(month);
   let days = 0, from = '', to = '';
   weeks.forEach(w => {
-    if (!inMonth[w.key]) return;
+    if (!inMonth[w.key] || (skip && skip[w.key])) return;
     days += Math.round((Date.parse(w.to + 'T00:00:00Z') - Date.parse(w.from + 'T00:00:00Z')) / 86400000) + 1;
     if (!from) from = w.from;
     to = w.to;
@@ -276,6 +308,7 @@ function cbSet(field, value) {
   else if (field === 'month') { if (/^\d{4}-\d{2}$/.test(String(value || ''))) v.month = String(value); }
   else if (field === 'measure') v.measure = value === 'spend' ? 'spend' : 'stems';
   else if (field === 'layout') v.layout = value === 'avg' ? 'avg' : 'all';
+  else if (field === 'holidays') v.holidays = value === 'in' ? 'in' : 'out';
   try { localStorage.setItem(CB_VIEW_KEY, JSON.stringify(v)); } catch (e) {}
   renderColourBuying();
 }
@@ -336,17 +369,21 @@ function renderColourBuying() {
   const invoiceDates = cbInvoiceDates();
   const monthMode = !!v.month;
   const month = v.month === 'latest' ? latest.slice(0, 7) : v.month;
-  let periods, table, inRange, n, unit, periodLabel, rangeNote;
+  let periods, table, inRange, n, unit, periodLabel, rangeNote, holidayFlags = {}, dropped = [];
   if (monthMode) {
     // One month, week by week. The average is the month's total over the weeks
     // it covers, so a short week at either edge doesn't count as a whole one.
     const weeks = cbMonthWeeks(month);
     const byKey = {};
     weeks.forEach(w => { byKey[w.key] = w; });
-    periods = weeks.map(w => w.key);
-    inRange = l => l.date.slice(0, 7) === month;
+    const allKeys = weeks.map(w => w.key);
+    holidayFlags = cbHolidayPeriods(allKeys, 'week');
+    const skip = v.holidays === 'out' ? holidayFlags : {};
+    dropped = allKeys.filter(p => skip[p]);
+    periods = allKeys.filter(p => !skip[p]);
+    inRange = l => l.date.slice(0, 7) === month && !skip[cbPeriodKey(l.date, 'week')];
     table = cbTable(lines.filter(inRange), periods, 'week');
-    const cover = cbMonthCoverage(month, invoiceDates);
+    const cover = cbMonthCoverage(month, invoiceDates, skip);
     n = cover.weeks;
     unit = 'week';
     const day = iso => +iso.slice(8, 10);
@@ -358,7 +395,11 @@ function renderColourBuying() {
           : `the ${cover.days} days in weeks the invoices cover (${escHtml(cover.from.slice(5))} to ${escHtml(cover.to.slice(5))})`}, times seven.`
       : `No invoices in the cost tracker cover ${monthName}.`;
   } else {
-    periods = cbPeriods(latest, v.period, v.count);
+    const allKeys = cbPeriods(latest, v.period, v.count);
+    holidayFlags = cbHolidayPeriods(allKeys, v.period);
+    const skip = v.holidays === 'out' ? holidayFlags : {};
+    dropped = allKeys.filter(p => skip[p]);
+    periods = allKeys.filter(p => !skip[p]);
     inRange = (() => { const keys = {}; periods.forEach(p => { keys[p] = 1; }); return l => !!keys[cbPeriodKey(l.date, v.period)]; })();
     table = cbTable(lines, periods, v.period);
     const covered = cbCoveredPeriods(v.period, invoiceDates);
@@ -443,9 +484,14 @@ function renderColourBuying() {
           style="font-size:0.82rem;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">` : ''}
       ${sel(`onchange="cbSet('measure', this.value)" aria-label="Show"`, [['stems', 'Stems'], ['spend', 'Spend']], v.measure)}
       ${sel(`onchange="cbSet('layout', this.value)" aria-label="Columns"`, [['all', unit === 'month' ? 'Every month' : 'Every week'], ['avg', 'Averages only']], avgOnly ? 'avg' : 'all')}
+      ${sel(`onchange="cbSet('holidays', this.value)" aria-label="Holidays"`,
+        [['out', `Ordinary ${unit}s only`], ['in', 'Holidays included']], v.holidays)}
     </div>
     <div style="font-size:0.74rem;color:var(--mist);margin-bottom:10px">
       ${rangeNote}
+      ${dropped.length
+        ? `${dropped.length} holiday ${unit}${dropped.length === 1 ? '' : 's'} left out (${escHtml(dropped.map(p => holidayFlags[p]).filter((h, i, a) => a.indexOf(h) === i).join(', '))}) — buying for those is nothing like an ordinary ${unit}.`
+        : (v.holidays === 'out' && Object.keys(holidayFlags).length === 0 ? '' : '')}
       ${v.measure === 'stems' ? '"bu" is bunches with no stem count — gypsophila is bought by the bunch.' : ''}
       Only as complete as the invoices in the cost tracker.
     </div>
