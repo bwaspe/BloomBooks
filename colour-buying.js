@@ -196,9 +196,42 @@ function cbViewState() {
     period: saved.period === 'month' ? 'month' : 'week',
     count: [6, 12, 26, 52].indexOf(+saved.count) >= 0 ? +saved.count : 12,
     measure: saved.measure === 'spend' ? 'spend' : 'stems',
-    layout: saved.layout === 'avg' ? 'avg' : 'all'
+    layout: saved.layout === 'avg' ? 'avg' : 'all',
+    // '' for the last N weeks or months; 'YYYY-MM' for one month; 'latest' for
+    // the month of the newest delivery, resolved when the screen is drawn.
+    month: (/^\d{4}-\d{2}$/.test(saved.month || '') || saved.month === 'latest') ? saved.month : ''
   };
   return cbView;
+}
+
+// The weeks of one month, Monday to Sunday, cut at the month's edges:
+// [{ key: Monday of the week, from, to }].
+function cbMonthWeeks(month) {
+  const y = +month.slice(0, 4), m = +month.slice(5, 7) - 1;
+  const days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const weeks = [];
+  for (let d = 1; d <= days; d++) {
+    const iso = month + '-' + String(d).padStart(2, '0');
+    const key = cbPeriodKey(iso, 'week');
+    const last = weeks[weeks.length - 1];
+    if (last && last.key === key) last.to = iso;
+    else weeks.push({ key, from: iso, to: iso });
+  }
+  return weeks;
+}
+
+// How many weeks of one month the invoices cover: from the later of the month's
+// start and the first invoice, to the earlier of its end and the newest
+// delivery -- so a month still under way is averaged over the days it has had.
+function cbMonthCoverage(month, firstInvoice, latest) {
+  const y = +month.slice(0, 4), m = +month.slice(5, 7) - 1;
+  const monthStart = month + '-01';
+  const monthEnd = month + '-' + String(new Date(Date.UTC(y, m + 1, 0)).getUTCDate()).padStart(2, '0');
+  const from = firstInvoice && firstInvoice > monthStart ? firstInvoice : monthStart;
+  const to = latest && latest < monthEnd ? latest : monthEnd;
+  if (to < from) return { days: 0, weeks: 0, from, to, whole: false };
+  const days = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000) + 1;
+  return { days, weeks: days / 7, from, to, whole: from === monthStart && to === monthEnd };
 }
 
 function cbSet(field, value) {
@@ -208,7 +241,11 @@ function cbSet(field, value) {
     v.period = value === 'month' ? 'month' : 'week';
     if (v.period === 'month' && v.count > 26) v.count = 12;
   }
-  else if (field === 'count') v.count = [6, 12, 26, 52].indexOf(+value) >= 0 ? +value : 12;
+  else if (field === 'count') {
+    if (value === 'month') v.month = v.month || 'latest';
+    else { v.month = ''; v.count = [6, 12, 26, 52].indexOf(+value) >= 0 ? +value : 12; }
+  }
+  else if (field === 'month') { if (/^\d{4}-\d{2}$/.test(String(value || ''))) v.month = String(value); }
   else if (field === 'measure') v.measure = value === 'spend' ? 'spend' : 'stems';
   else if (field === 'layout') v.layout = value === 'avg' ? 'avg' : 'all';
   try { localStorage.setItem(CB_VIEW_KEY, JSON.stringify(v)); } catch (e) {}
@@ -266,21 +303,52 @@ function renderColourBuying() {
     return;
   }
   const latest = lines.reduce((m, l) => (l.date > m ? l.date : m), '');
-  const periods = cbPeriods(latest, v.period, v.count);
-  const table = cbTable(lines, periods, v.period);
   // Coverage starts with the first invoice of ANY kind, not the first of these
   // flowers: a week with invoices but no gerberas is a week with no gerberas.
   const firstInvoice = (ctData.invoices || []).reduce((m, inv) => {
     const d = String((typeof ctEffDate === 'function' ? ctEffDate(inv) : (inv.deliveryDate || inv.date)) || '').slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(d) && (!m || d < m) ? d : m;
   }, '');
-  const counted = cbCountedPeriods(periods, firstInvoice || periods[0], v.period);
-  const n = counted.length;
+  const latestYear = +latest.slice(0, 4);
+  const monthMode = !!v.month;
+  const month = v.month === 'latest' ? latest.slice(0, 7) : v.month;
+  let periods, table, inRange, n, unit, periodLabel, rangeNote;
+  if (monthMode) {
+    // One month, week by week. The average is the month's total over the weeks
+    // it covers, so a short week at either edge doesn't count as a whole one.
+    const weeks = cbMonthWeeks(month);
+    const byKey = {};
+    weeks.forEach(w => { byKey[w.key] = w; });
+    periods = weeks.map(w => w.key);
+    inRange = l => l.date.slice(0, 7) === month;
+    table = cbTable(lines.filter(inRange), periods, 'week');
+    const cover = cbMonthCoverage(month, firstInvoice, latest);
+    n = cover.weeks;
+    unit = 'week';
+    const day = iso => +iso.slice(8, 10);
+    periodLabel = p => { const w = byKey[p]; return MONTHS_SHORT[+month.slice(5, 7) - 1] + ' ' + day(w.from) + (w.to !== w.from ? '–' + day(w.to) : ''); };
+    const monthName = MONTHS[+month.slice(5, 7) - 1] + ' ' + month.slice(0, 4);
+    rangeNote = cover.days
+      ? `Delivered in ${monthName}, by week (Monday to Sunday, cut at the month's edges). <strong style="color:var(--ink)">Average per week</strong> is the month's total over ${cover.whole
+          ? `its ${cover.days} days`
+          : `the ${cover.days} days the invoices cover (${escHtml(cover.from.slice(5))} to ${escHtml(cover.to.slice(5))})`}, times seven.`
+      : `No invoices in the cost tracker cover ${monthName}.`;
+  } else {
+    periods = cbPeriods(latest, v.period, v.count);
+    inRange = (() => { const keys = {}; periods.forEach(p => { keys[p] = 1; }); return l => !!keys[cbPeriodKey(l.date, v.period)]; })();
+    table = cbTable(lines, periods, v.period);
+    const counted = cbCountedPeriods(periods, firstInvoice || periods[0], v.period);
+    n = counted.length;
+    unit = v.period === 'month' ? 'month' : 'week';
+    periodLabel = p => cbPeriodLabel(p, v.period, latestYear);
+    rangeNote = `${v.measure === 'spend' ? 'Spend' : 'Stems'} by delivery date, ${unit} by ${unit}${v.period === 'week' ? ' (starting Monday)' : ''}, through ${escHtml(latest)}.
+      <strong style="color:var(--ink)">Average per ${unit}</strong> is over ${n} ${unit}${n === 1 ? '' : 's'}${n < periods.length
+        ? `, from ${escHtml(cbPeriodLabel(counted[0], v.period, 0))} — earlier ${unit}s have no invoices in the cost tracker, so they aren't counted`
+        : ''}; ${unit}s with nothing bought count as none.`;
+  }
   const avgOnly = v.layout === 'avg';
   const shownPeriods = avgOnly ? [] : periods;
-  const unit = v.period === 'month' ? 'month' : 'week';
   const flowers = CB_FLOWERS.filter(f => v.flower === 'all' || f.key === v.flower);
-  const latestYear = +latest.slice(0, 4);
   const sel = (attrs, opts, cur) => `<select ${attrs} style="font-size:0.82rem;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
     ${opts.map(o => `<option value="${escHtml(o[0])}" ${String(o[0]) === String(cur) ? 'selected' : ''}>${escHtml(o[1])}</option>`).join('')}</select>`;
   const th = 'padding:6px 8px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--mist);text-align:right;white-space:nowrap';
@@ -321,11 +389,9 @@ function renderColourBuying() {
   }).join('');
 
   // Every item bought in the range, for correcting its colour. Unrecorded first.
-  const inRange = {};
-  periods.forEach(p => { inRange[p] = 1; });
   const items = {};
   lines.forEach(l => {
-    if (!inRange[cbPeriodKey(l.date, v.period)]) return;
+    if (!inRange(l)) return;
     if (v.flower !== 'all' && l.flower !== v.flower) return;
     const it = items[l.key] || (items[l.key] = { key: l.key, name: l.name, flower: l.flower, colour: l.colour, source: l.source,
                                                   lines: 0, stems: 0, bunches: 0 });
@@ -342,18 +408,19 @@ function renderColourBuying() {
   el.innerHTML = `
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       ${sel(`onchange="cbSet('flower', this.value)" aria-label="Flower"`, [['all', 'All flowers']].concat(CB_FLOWERS.map(f => [f.key, f.label])), v.flower)}
-      ${sel(`onchange="cbSet('period', this.value)" aria-label="Period"`, [['week', 'Weekly'], ['month', 'Monthly']], v.period)}
-      ${sel(`onchange="cbSet('count', this.value)" aria-label="How many"`, v.period === 'month'
+      ${monthMode ? '' : sel(`onchange="cbSet('period', this.value)" aria-label="Period"`, [['week', 'Weekly'], ['month', 'Monthly']], v.period)}
+      ${sel(`onchange="cbSet('count', this.value)" aria-label="Range"`, (v.period === 'month' && !monthMode
         ? [[6, 'Last 6 months'], [12, 'Last 12 months'], [26, 'Last 26 months']]
-        : [[6, 'Last 6 weeks'], [12, 'Last 12 weeks'], [26, 'Last 26 weeks'], [52, 'Last 52 weeks']], v.count)}
+        : [[6, 'Last 6 weeks'], [12, 'Last 12 weeks'], [26, 'Last 26 weeks'], [52, 'Last 52 weeks']]).concat([['month', 'A single month']]),
+        monthMode ? 'month' : v.count)}
+      ${monthMode ? `<input type="month" aria-label="Month" value="${escHtml(month)}" min="${escHtml((firstInvoice || latest).slice(0, 7))}" max="${escHtml(latest.slice(0, 7))}"
+          onchange="cbSet('month', this.value)"
+          style="font-size:0.82rem;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">` : ''}
       ${sel(`onchange="cbSet('measure', this.value)" aria-label="Show"`, [['stems', 'Stems'], ['spend', 'Spend']], v.measure)}
-      ${sel(`onchange="cbSet('layout', this.value)" aria-label="Columns"`, [['all', v.period === 'month' ? 'Every month' : 'Every week'], ['avg', 'Averages only']], avgOnly ? 'avg' : 'all')}
+      ${sel(`onchange="cbSet('layout', this.value)" aria-label="Columns"`, [['all', unit === 'month' ? 'Every month' : 'Every week'], ['avg', 'Averages only']], avgOnly ? 'avg' : 'all')}
     </div>
     <div style="font-size:0.74rem;color:var(--mist);margin-bottom:10px">
-      ${v.measure === 'spend' ? 'Spend' : 'Stems'} by delivery date, ${unit} by ${unit}${v.period === 'week' ? ' (starting Monday)' : ''}, through ${escHtml(latest)}.
-      <strong style="color:var(--ink)">Average per ${unit}</strong> is over ${n} ${unit}${n === 1 ? '' : 's'}${n < periods.length
-        ? `, from ${escHtml(cbPeriodLabel(counted[0], v.period, 0))} — earlier ${unit}s have no invoices in the cost tracker, so they aren't counted`
-        : ''}; ${unit}s with nothing bought count as none.
+      ${rangeNote}
       ${v.measure === 'stems' ? '"bu" is bunches with no stem count — gypsophila is bought by the bunch.' : ''}
       Only as complete as the invoices in the cost tracker.
     </div>
@@ -362,7 +429,7 @@ function renderColourBuying() {
         <thead><tr>
           <th style="${th};text-align:left">Color</th>
           <th style="${th};color:var(--ink);background:var(--paper)">Avg / ${unit === 'month' ? 'mo' : 'wk'}</th>
-          ${shownPeriods.map(p => `<th style="${th}">${escHtml(cbPeriodLabel(p, v.period, latestYear))}</th>`).join('')}
+          ${shownPeriods.map(p => `<th style="${th}">${escHtml(periodLabel(p))}</th>`).join('')}
           <th style="${th}">Total</th>
         </tr></thead>
         <tbody>${sections || `<tr><td style="padding:14px;color:var(--mist)" colspan="${shownPeriods.length + 3}">Nothing bought in this range.</td></tr>`}</tbody>

@@ -171,6 +171,39 @@ console.log('\naverages');
   t('monthly averages are per month', /Avg \/ mo/.test(els['ct-colours-content'].innerHTML));
 }
 
+console.log('\none month');
+{
+  const weeks = J(`cbMonthWeeks('2026-09')`);
+  t('a month\'s weeks run Monday to Sunday, cut at its edges (1 Sep 2026 is a Tuesday)',
+    weeks.length === 5 && weeks[0].key === '2026-08-31' && weeks[0].from === '2026-09-01' && weeks[0].to === '2026-09-06' &&
+    weeks[4].from === '2026-09-28' && weeks[4].to === '2026-09-30', weeks.map(w => w.from.slice(8) + '–' + w.to.slice(8)).join(' '));
+  const part = J(`cbMonthCoverage('2026-09', '2026-09-01', '2026-09-13')`);
+  const whole = J(`cbMonthCoverage('2026-02', '2025-05-01', '2026-09-13')`);
+  const none = J(`cbMonthCoverage('2025-01', '2025-05-01', '2026-09-13')`);
+  t('a month under way is averaged over the days it has had; a finished one over all of them; one before any invoice over none',
+    part.days === 13 && !part.whole && whole.days === 28 && whole.whole && none.days === 0,
+    `${part.days} / ${whole.days} / ${none.days} days`);
+
+  S(`cbView = { flower: 'gerbera', period: 'week', count: 12, measure: 'stems', layout: 'all', month: '' }; cbSet('count', 'month');`);
+  let html = els['ct-colours-content'].innerHTML;
+  const row = html.split('</tr>').find(r => />Mixed</.test(r)) || '';
+  const cells = (row.match(/<td[^>]*>([^<]*)<\/td>/g) || []).map(c => c.replace(/<[^>]+>/g, '').trim());
+  t('"A single month" opens on the newest month, week by week, with its own labels',
+    J('cbView').month === 'latest' && />Sep 1–6</.test(html) && />Sep 7–13</.test(html) && /type="month"/.test(html) &&
+    !/aria-label="Period"/.test(html));
+  t('  100 gerberas in the 13 days of September so far is 54 a week',
+    cells[0] === '54' && cells[cells.length - 1] === '100', JSON.stringify(cells));
+  t('  and the note says what the average is taken over', /13 days the invoices cover/.test(html));
+  S(`cbSet('month', '2026-08');`);
+  html = els['ct-colours-content'].innerHTML;
+  t('picking a month with no invoices says so rather than showing zeros',
+    J('cbView').month === '2026-08' && /No invoices in the cost tracker cover August 2026/.test(html));
+  S(`cbSet('month', '2026-13x'); cbSet('month', '<img>');`);
+  t('  a month that is not a month is refused', J('cbView').month === '2026-08');
+  S(`cbSet('count', '26');`);
+  t('choosing a range of weeks leaves the single month', J('cbView').month === '' && J('cbView').count === 26);
+}
+
 console.log('\nthe Holiday Revenue report uses the same colours');
 {
   S(`ctData.invoices.push({ id: 'h1', date: '2026-02-10', supplier: 'A', items: [
