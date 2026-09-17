@@ -142,6 +142,35 @@ console.log('\nthe counts');
   t('a view setting that is not on the list is refused', J('cbView').flower === 'all' && J('cbView').measure === 'stems');
 }
 
+console.log('\naverages');
+{
+  t('an average is the total over the periods, whole stems from ten up, a decimal below',
+    S(`cbAverageCell({ stems: 100, bunches: 0, cost: 80 }, 4, 'stems')`) === '25' &&
+    S(`cbAverageCell({ stems: 9, bunches: 0, cost: 0 }, 4, 'stems')`) === '2.3' &&
+    S(`cbAverageCell({ stems: 0, bunches: 10, cost: 0 }, 4, 'stems')`) === '2.5 bu' &&
+    S(`cbAverageCell({ stems: 0, bunches: 0, cost: 81 }, 4, 'spend')`) === '$20');
+  t('weeks before the first invoice in the cost tracker are not counted; empty weeks after it are',
+    JSON.stringify(J(`cbCountedPeriods(['2026-08-24', '2026-08-31', '2026-09-07'], '2026-09-01', 'week')`)) === '["2026-08-31","2026-09-07"]' &&
+    JSON.stringify(J(`cbCountedPeriods(['2026-08-24', '2026-08-31'], '2026-01-05', 'week')`)) === '["2026-08-24","2026-08-31"]');
+
+  // First invoice delivered 1 Sep; six weeks to 13 Sep, of which two have paperwork.
+  S(`cbView = { flower: 'gerbera', period: 'week', count: 6, measure: 'stems', layout: 'all' }; renderColourBuying();`);
+  let html = els['ct-colours-content'].innerHTML;
+  const row = html.split('</tr>').find(r => />Mixed</.test(r)) || '';
+  const cells = (row.match(/<td[^>]*>([^<]*)<\/td>/g) || []).map(c => c.replace(/<[^>]+>/g, '').trim());
+  t('the average sits beside the colour: 100 gerberas over the two weeks with invoices is 50 a week',
+    /Avg \/ wk/.test(html) && cells[0] === '50' && cells[cells.length - 1] === '100', JSON.stringify(cells));
+  t('  and the note says which weeks it is taken over', /over 2 weeks/.test(html) && /aren't counted/.test(html));
+  S(`cbSet('layout', 'avg');`);
+  html = els['ct-colours-content'].innerHTML;
+  t('"Averages only" leaves the colour, its average and its total',
+    /Avg \/ wk/.test(html) && !/>Aug 31</.test(html) && />Mixed</.test(html));
+  S(`cbSet('layout', 'nonsense');`);
+  t('  and an unknown layout falls back to every week', J('cbView').layout === 'all');
+  S(`cbSet('period', 'month');`);
+  t('monthly averages are per month', /Avg \/ mo/.test(els['ct-colours-content'].innerHTML));
+}
+
 console.log('\nthe Holiday Revenue report uses the same colours');
 {
   S(`ctData.invoices.push({ id: 'h1', date: '2026-02-10', supplier: 'A', items: [

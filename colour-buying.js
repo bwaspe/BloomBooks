@@ -195,7 +195,8 @@ function cbViewState() {
     flower: CB_FLOWERS.some(f => f.key === saved.flower) ? saved.flower : 'all',
     period: saved.period === 'month' ? 'month' : 'week',
     count: [6, 12, 26, 52].indexOf(+saved.count) >= 0 ? +saved.count : 12,
-    measure: saved.measure === 'spend' ? 'spend' : 'stems'
+    measure: saved.measure === 'spend' ? 'spend' : 'stems',
+    layout: saved.layout === 'avg' ? 'avg' : 'all'
   };
   return cbView;
 }
@@ -209,6 +210,7 @@ function cbSet(field, value) {
   }
   else if (field === 'count') v.count = [6, 12, 26, 52].indexOf(+value) >= 0 ? +value : 12;
   else if (field === 'measure') v.measure = value === 'spend' ? 'spend' : 'stems';
+  else if (field === 'layout') v.layout = value === 'avg' ? 'avg' : 'all';
   try { localStorage.setItem(CB_VIEW_KEY, JSON.stringify(v)); } catch (e) {}
   renderColourBuying();
 }
@@ -228,6 +230,28 @@ function cbCell(c, measure) {
   return parts.join(' + ');
 }
 
+// A per-period average. Whole stems once there are ten or more; below that a
+// decimal, or four gerberas a week reads as none.
+function cbAverageCell(c, n, measure) {
+  if (!c || !n) return '';
+  const fix = x => (x >= 10 ? Math.round(x).toLocaleString('en-US') : (Math.round(x * 10) / 10).toString());
+  if (measure === 'spend') return c.cost ? '$' + Math.round(c.cost / n).toLocaleString('en-US') : '';
+  const parts = [];
+  if (c.stems) parts.push(fix(c.stems / n));
+  if (c.bunches) parts.push(fix(c.bunches / n) + ' bu');
+  return parts.join(' + ');
+}
+
+// The periods an average is taken over: those in range from the first week or
+// month the cost tracker has any invoice in. Earlier ones are not weeks with
+// nothing bought -- they are weeks nobody entered paperwork for -- and counting
+// them as zero would drag every average down.
+function cbCountedPeriods(periods, firstDate, period) {
+  const first = cbPeriodKey(firstDate, period);
+  const counted = periods.filter(p => p >= first);
+  return counted.length ? counted : periods;
+}
+
 function cbAdd(a, b) {
   return { stems: (a ? a.stems : 0) + b.stems, bunches: (a ? a.bunches : 0) + b.bunches, cost: (a ? a.cost : 0) + b.cost };
 }
@@ -244,6 +268,17 @@ function renderColourBuying() {
   const latest = lines.reduce((m, l) => (l.date > m ? l.date : m), '');
   const periods = cbPeriods(latest, v.period, v.count);
   const table = cbTable(lines, periods, v.period);
+  // Coverage starts with the first invoice of ANY kind, not the first of these
+  // flowers: a week with invoices but no gerberas is a week with no gerberas.
+  const firstInvoice = (ctData.invoices || []).reduce((m, inv) => {
+    const d = String((typeof ctEffDate === 'function' ? ctEffDate(inv) : (inv.deliveryDate || inv.date)) || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && (!m || d < m) ? d : m;
+  }, '');
+  const counted = cbCountedPeriods(periods, firstInvoice || periods[0], v.period);
+  const n = counted.length;
+  const avgOnly = v.layout === 'avg';
+  const shownPeriods = avgOnly ? [] : periods;
+  const unit = v.period === 'month' ? 'month' : 'week';
   const flowers = CB_FLOWERS.filter(f => v.flower === 'all' || f.key === v.flower);
   const latestYear = +latest.slice(0, 4);
   const sel = (attrs, opts, cur) => `<select ${attrs} style="font-size:0.82rem;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink);font-family:Inter,sans-serif">
@@ -267,17 +302,20 @@ function renderColourBuying() {
       flowerTotal = cbAdd(flowerTotal, x.total);
       periods.forEach(p => { if (x.cells[p]) periodTotals[p] = cbAdd(periodTotals[p], x.cells[p]); });
     });
+    const avgTd = `${td};font-weight:700;background:var(--paper)`;
     return `
-      <tr style="background:var(--paper)"><td colspan="${periods.length + 2}" style="padding:8px;font-weight:700">${escHtml(f.label)}</td></tr>
+      <tr style="background:var(--paper)"><td colspan="${shownPeriods.length + 3}" style="padding:8px;font-weight:700">${escHtml(f.label)}</td></tr>
       ${colours.map(x => `
         <tr style="border-top:1px solid var(--border)">
           <td style="padding:5px 8px;white-space:nowrap;${x.colour === CB_UNKNOWN ? 'color:var(--red)' : ''}">${cbSwatch(x.colour)}${escHtml(x.colour)}</td>
-          ${periods.map(p => `<td style="${td}">${cbCell(x.cells[p], v.measure)}</td>`).join('')}
+          <td style="${avgTd}">${cbAverageCell(x.total, n, v.measure)}</td>
+          ${shownPeriods.map(p => `<td style="${td}">${cbCell(x.cells[p], v.measure)}</td>`).join('')}
           <td style="${td};font-weight:600">${cbCell(x.total, v.measure)}</td>
         </tr>`).join('')}
       <tr style="border-top:1px solid var(--border)">
         <td style="padding:5px 8px;color:var(--mist)">All ${escHtml(f.label.toLowerCase())}</td>
-        ${periods.map(p => `<td style="${td};color:var(--mist)">${cbCell(periodTotals[p], v.measure)}</td>`).join('')}
+        <td style="${avgTd}">${cbAverageCell(flowerTotal, n, v.measure)}</td>
+        ${shownPeriods.map(p => `<td style="${td};color:var(--mist)">${cbCell(periodTotals[p], v.measure)}</td>`).join('')}
         <td style="${td};font-weight:700">${cbCell(flowerTotal, v.measure)}</td>
       </tr>`;
   }).join('');
@@ -309,20 +347,25 @@ function renderColourBuying() {
         ? [[6, 'Last 6 months'], [12, 'Last 12 months'], [26, 'Last 26 months']]
         : [[6, 'Last 6 weeks'], [12, 'Last 12 weeks'], [26, 'Last 26 weeks'], [52, 'Last 52 weeks']], v.count)}
       ${sel(`onchange="cbSet('measure', this.value)" aria-label="Show"`, [['stems', 'Stems'], ['spend', 'Spend']], v.measure)}
+      ${sel(`onchange="cbSet('layout', this.value)" aria-label="Columns"`, [['all', v.period === 'month' ? 'Every month' : 'Every week'], ['avg', 'Averages only']], avgOnly ? 'avg' : 'all')}
     </div>
     <div style="font-size:0.74rem;color:var(--mist);margin-bottom:10px">
-      ${v.measure === 'spend' ? 'Spend' : 'Stems'} by delivery date, ${v.period === 'month' ? 'month' : 'week (starting Monday)'} by ${v.period === 'month' ? 'month' : 'week'},
-      through ${escHtml(latest)}.${v.measure === 'stems' ? ' "bu" is bunches with no stem count — gypsophila is bought by the bunch.' : ''}
+      ${v.measure === 'spend' ? 'Spend' : 'Stems'} by delivery date, ${unit} by ${unit}${v.period === 'week' ? ' (starting Monday)' : ''}, through ${escHtml(latest)}.
+      <strong style="color:var(--ink)">Average per ${unit}</strong> is over ${n} ${unit}${n === 1 ? '' : 's'}${n < periods.length
+        ? `, from ${escHtml(cbPeriodLabel(counted[0], v.period, 0))} — earlier ${unit}s have no invoices in the cost tracker, so they aren't counted`
+        : ''}; ${unit}s with nothing bought count as none.
+      ${v.measure === 'stems' ? '"bu" is bunches with no stem count — gypsophila is bought by the bunch.' : ''}
       Only as complete as the invoices in the cost tracker.
     </div>
     <div class="chart-wrap" style="padding:0;overflow-x:auto">
       <table style="border-collapse:collapse;font-size:0.8rem;min-width:100%">
         <thead><tr>
           <th style="${th};text-align:left">Color</th>
-          ${periods.map(p => `<th style="${th}">${escHtml(cbPeriodLabel(p, v.period, latestYear))}</th>`).join('')}
+          <th style="${th};color:var(--ink);background:var(--paper)">Avg / ${unit === 'month' ? 'mo' : 'wk'}</th>
+          ${shownPeriods.map(p => `<th style="${th}">${escHtml(cbPeriodLabel(p, v.period, latestYear))}</th>`).join('')}
           <th style="${th}">Total</th>
         </tr></thead>
-        <tbody>${sections || `<tr><td style="padding:14px;color:var(--mist)" colspan="${periods.length + 2}">Nothing bought in this range.</td></tr>`}</tbody>
+        <tbody>${sections || `<tr><td style="padding:14px;color:var(--mist)" colspan="${shownPeriods.length + 3}">Nothing bought in this range.</td></tr>`}</tbody>
       </table>
     </div>
 
