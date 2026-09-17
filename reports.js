@@ -467,7 +467,9 @@ function hcQtyByType(year, month) {
                           supplier: inv.supplier, date: eff(inv), invId: inv.id });
       }
       if (/rose/i.test(fam)) {
-        const c = ctRoseColor(it.name, map) || 'Colour not recorded';
+        // One reading of a line's colour for every screen, owner's corrections
+        // included: colour-buying.js.
+        const c = (typeof ctFlowerColour === 'function' ? ctFlowerColour(it, map).colour : ctRoseColor(it.name, map)) || 'Colour not recorded';
         const b = t.colors[c] || (t.colors[c] =
           { color: c, stems: 0, bunches: 0, cost: 0, stemCost: 0, names: {} });
         b.stems += stems; b.bunches += bunches; b.cost += cost;

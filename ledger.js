@@ -123,6 +123,7 @@ function switchPanel(panelId) {
       // part-way through being checked are left exactly as they are.
       if (panelId === 'ct-upload' && typeof renderCtTemplates === 'function') renderCtTemplates();
       if (panelId === 'ct-prices')    renderCtPrices();
+      if (panelId === 'ct-colours' && typeof renderColourBuying === 'function') renderColourBuying();
       if (panelId === 'ct-gmail')     renderCtGmailPanel();
     }
   }
