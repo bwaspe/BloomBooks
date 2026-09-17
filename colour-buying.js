@@ -220,18 +220,46 @@ function cbMonthWeeks(month) {
   return weeks;
 }
 
-// How many weeks of one month the invoices cover: from the later of the month's
-// start and the first invoice, to the earlier of its end and the newest
-// delivery -- so a month still under way is averaged over the days it has had.
-function cbMonthCoverage(month, firstInvoice, latest) {
-  const y = +month.slice(0, 4), m = +month.slice(5, 7) - 1;
-  const monthStart = month + '-01';
-  const monthEnd = month + '-' + String(new Date(Date.UTC(y, m + 1, 0)).getUTCDate()).padStart(2, '0');
-  const from = firstInvoice && firstInvoice > monthStart ? firstInvoice : monthStart;
-  const to = latest && latest < monthEnd ? latest : monthEnd;
-  if (to < from) return { days: 0, weeks: 0, from, to, whole: false };
-  const days = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000) + 1;
-  return { days, weeks: days / 7, from, to, whole: from === monthStart && to === monthEnd };
+// The weeks or months the cost tracker actually covers: those holding at least
+// one invoice of any kind.
+//
+// Not "every week since the first invoice". The invoices arrive in stretches --
+// a fortnight around Mother's Day 2025, then nothing until June 2026 -- and a
+// week with no invoice at all is a week nobody entered paperwork for, not a
+// week nothing was bought. Counting those as zero halved every average.
+function cbInvoiceDates() {
+  const out = [];
+  ((typeof ctData !== 'undefined' && ctData && ctData.invoices) || []).forEach(inv => {
+    const d = String((typeof ctEffDate === 'function' ? ctEffDate(inv) : (inv.deliveryDate || inv.date)) || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) out.push(d);
+  });
+  return out;
+}
+
+function cbCoveredPeriods(period, dates) {
+  const keys = {};
+  (dates || cbInvoiceDates()).forEach(d => { keys[cbPeriodKey(d, period)] = 1; });
+  return keys;
+}
+
+// How much of one month the invoices cover, in weeks: each of its weeks that
+// holds an invoice DATED IN THAT MONTH, counted by the days of that week inside
+// the month -- so a short week at either edge is a part of a week, not a whole
+// one, and a month whose only nearby invoice belongs to the next month counts
+// as not covered at all.
+function cbMonthCoverage(month, dates) {
+  const inMonth = {};
+  (dates || cbInvoiceDates()).forEach(d => { if (String(d).slice(0, 7) === month) inMonth[cbPeriodKey(d, 'week')] = 1; });
+  const weeks = cbMonthWeeks(month);
+  let days = 0, from = '', to = '';
+  weeks.forEach(w => {
+    if (!inMonth[w.key]) return;
+    days += Math.round((Date.parse(w.to + 'T00:00:00Z') - Date.parse(w.from + 'T00:00:00Z')) / 86400000) + 1;
+    if (!from) from = w.from;
+    to = w.to;
+  });
+  const all = weeks.length ? weeks[0].from + '|' + weeks[weeks.length - 1].to : '';
+  return { days, weeks: days / 7, from, to, whole: !!days && (from + '|' + to) === all };
 }
 
 function cbSet(field, value) {
@@ -279,14 +307,9 @@ function cbAverageCell(c, n, measure) {
   return parts.join(' + ');
 }
 
-// The periods an average is taken over: those in range from the first week or
-// month the cost tracker has any invoice in. Earlier ones are not weeks with
-// nothing bought -- they are weeks nobody entered paperwork for -- and counting
-// them as zero would drag every average down.
-function cbCountedPeriods(periods, firstDate, period) {
-  const first = cbPeriodKey(firstDate, period);
-  const counted = periods.filter(p => p >= first);
-  return counted.length ? counted : periods;
+// The periods an average is taken over: those in range the invoices cover.
+function cbCountedPeriods(periods, covered) {
+  return periods.filter(p => covered[p]);
 }
 
 function cbAdd(a, b) {
@@ -310,6 +333,7 @@ function renderColourBuying() {
     return /^\d{4}-\d{2}-\d{2}$/.test(d) && (!m || d < m) ? d : m;
   }, '');
   const latestYear = +latest.slice(0, 4);
+  const invoiceDates = cbInvoiceDates();
   const monthMode = !!v.month;
   const month = v.month === 'latest' ? latest.slice(0, 7) : v.month;
   let periods, table, inRange, n, unit, periodLabel, rangeNote;
@@ -322,7 +346,7 @@ function renderColourBuying() {
     periods = weeks.map(w => w.key);
     inRange = l => l.date.slice(0, 7) === month;
     table = cbTable(lines.filter(inRange), periods, 'week');
-    const cover = cbMonthCoverage(month, firstInvoice, latest);
+    const cover = cbMonthCoverage(month, invoiceDates);
     n = cover.weeks;
     unit = 'week';
     const day = iso => +iso.slice(8, 10);
@@ -331,20 +355,21 @@ function renderColourBuying() {
     rangeNote = cover.days
       ? `Delivered in ${monthName}, by week (Monday to Sunday, cut at the month's edges). <strong style="color:var(--ink)">Average per week</strong> is the month's total over ${cover.whole
           ? `its ${cover.days} days`
-          : `the ${cover.days} days the invoices cover (${escHtml(cover.from.slice(5))} to ${escHtml(cover.to.slice(5))})`}, times seven.`
+          : `the ${cover.days} days in weeks the invoices cover (${escHtml(cover.from.slice(5))} to ${escHtml(cover.to.slice(5))})`}, times seven.`
       : `No invoices in the cost tracker cover ${monthName}.`;
   } else {
     periods = cbPeriods(latest, v.period, v.count);
     inRange = (() => { const keys = {}; periods.forEach(p => { keys[p] = 1; }); return l => !!keys[cbPeriodKey(l.date, v.period)]; })();
     table = cbTable(lines, periods, v.period);
-    const counted = cbCountedPeriods(periods, firstInvoice || periods[0], v.period);
+    const covered = cbCoveredPeriods(v.period, invoiceDates);
+    const counted = cbCountedPeriods(periods, covered);
     n = counted.length;
     unit = v.period === 'month' ? 'month' : 'week';
     periodLabel = p => cbPeriodLabel(p, v.period, latestYear);
     rangeNote = `${v.measure === 'spend' ? 'Spend' : 'Stems'} by delivery date, ${unit} by ${unit}${v.period === 'week' ? ' (starting Monday)' : ''}, through ${escHtml(latest)}.
-      <strong style="color:var(--ink)">Average per ${unit}</strong> is over ${n} ${unit}${n === 1 ? '' : 's'}${n < periods.length
-        ? `, from ${escHtml(cbPeriodLabel(counted[0], v.period, 0))} — earlier ${unit}s have no invoices in the cost tracker, so they aren't counted`
-        : ''}; ${unit}s with nothing bought count as none.`;
+      <strong style="color:var(--ink)">Average per ${unit}</strong> is over the ${n} ${unit}${n === 1 ? '' : 's'} of these ${periods.length} that the invoices cover${n < periods.length
+        ? ` — the other ${periods.length - n} hold no invoices at all, so they are missing paperwork rather than ${unit}s with nothing bought`
+        : ''}.`;
   }
   const avgOnly = v.layout === 'avg';
   const shownPeriods = avgOnly ? [] : periods;

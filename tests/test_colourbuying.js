@@ -149,9 +149,15 @@ console.log('\naverages');
     S(`cbAverageCell({ stems: 9, bunches: 0, cost: 0 }, 4, 'stems')`) === '2.3' &&
     S(`cbAverageCell({ stems: 0, bunches: 10, cost: 0 }, 4, 'stems')`) === '2.5 bu' &&
     S(`cbAverageCell({ stems: 0, bunches: 0, cost: 81 }, 4, 'spend')`) === '$20');
-  t('weeks before the first invoice in the cost tracker are not counted; empty weeks after it are',
-    JSON.stringify(J(`cbCountedPeriods(['2026-08-24', '2026-08-31', '2026-09-07'], '2026-09-01', 'week')`)) === '["2026-08-31","2026-09-07"]' &&
-    JSON.stringify(J(`cbCountedPeriods(['2026-08-24', '2026-08-31'], '2026-01-05', 'week')`)) === '["2026-08-24","2026-08-31"]');
+  // The real book has invoices in a fortnight around Mother's Day 2025, then
+  // none until June 2026. Counting those empty weeks as zero halved every
+  // average, so an average is taken over the weeks the invoices cover.
+  t('only weeks the invoices cover are counted, and a gap in the middle is not zero',
+    JSON.stringify(J(`cbCountedPeriods(['2026-08-24', '2026-08-31', '2026-09-07'], { '2026-08-31': 1, '2026-09-07': 1 })`)) === '["2026-08-31","2026-09-07"]' &&
+    JSON.stringify(J(`cbCountedPeriods(['2025-05-05', '2025-05-12', '2026-06-22'], { '2025-05-05': 1, '2026-06-22': 1 })`)) === '["2025-05-05","2026-06-22"]');
+  t('  the weeks and months an invoice falls in are what counts as covered',
+    JSON.stringify(J(`cbCoveredPeriods('week', ['2026-09-01', '2026-09-08'])`)) === '{"2026-08-31":1,"2026-09-07":1}' &&
+    JSON.stringify(J(`cbCoveredPeriods('month', ['2026-09-01', '2025-05-02'])`)) === '{"2026-09":1,"2025-05":1}');
 
   // First invoice delivered 1 Sep; six weeks to 13 Sep, of which two have paperwork.
   S(`cbView = { flower: 'gerbera', period: 'week', count: 6, measure: 'stems', layout: 'all' }; renderColourBuying();`);
@@ -160,7 +166,8 @@ console.log('\naverages');
   const cells = (row.match(/<td[^>]*>([^<]*)<\/td>/g) || []).map(c => c.replace(/<[^>]+>/g, '').trim());
   t('the average sits beside the colour: 100 gerberas over the two weeks with invoices is 50 a week',
     /Avg \/ wk/.test(html) && cells[0] === '50' && cells[cells.length - 1] === '100', JSON.stringify(cells));
-  t('  and the note says which weeks it is taken over', /over 2 weeks/.test(html) && /aren't counted/.test(html));
+  t('  and the note says how many weeks it is taken over, and why the rest are not',
+    /over the 2 weeks of these 6 that the invoices cover/.test(html) && /missing paperwork/.test(html));
   S(`cbSet('layout', 'avg');`);
   html = els['ct-colours-content'].innerHTML;
   t('"Averages only" leaves the colour, its average and its total',
@@ -177,10 +184,10 @@ console.log('\none month');
   t('a month\'s weeks run Monday to Sunday, cut at its edges (1 Sep 2026 is a Tuesday)',
     weeks.length === 5 && weeks[0].key === '2026-08-31' && weeks[0].from === '2026-09-01' && weeks[0].to === '2026-09-06' &&
     weeks[4].from === '2026-09-28' && weeks[4].to === '2026-09-30', weeks.map(w => w.from.slice(8) + '–' + w.to.slice(8)).join(' '));
-  const part = J(`cbMonthCoverage('2026-09', '2026-09-01', '2026-09-13')`);
-  const whole = J(`cbMonthCoverage('2026-02', '2025-05-01', '2026-09-13')`);
-  const none = J(`cbMonthCoverage('2025-01', '2025-05-01', '2026-09-13')`);
-  t('a month under way is averaged over the days it has had; a finished one over all of them; one before any invoice over none',
+  const part = J(`cbMonthCoverage('2026-09', ['2026-09-01', '2026-09-08', '2026-09-13'])`);
+  const whole = J(`cbMonthCoverage('2026-02', ['2026-02-01', '2026-02-03', '2026-02-10', '2026-02-17', '2026-02-24', '2026-02-28'])`);
+  const none = J(`cbMonthCoverage('2026-08', ['2026-09-01'])`);
+  t('a month is averaged over the weeks its own invoices cover, counted in days inside the month',
     part.days === 13 && !part.whole && whole.days === 28 && whole.whole && none.days === 0,
     `${part.days} / ${whole.days} / ${none.days} days`);
 
@@ -193,7 +200,7 @@ console.log('\none month');
     !/aria-label="Period"/.test(html));
   t('  100 gerberas in the 13 days of September so far is 54 a week',
     cells[0] === '54' && cells[cells.length - 1] === '100', JSON.stringify(cells));
-  t('  and the note says what the average is taken over', /13 days the invoices cover/.test(html));
+  t('  and the note says what the average is taken over', /13 days in weeks the invoices cover/.test(html));
   S(`cbSet('month', '2026-08');`);
   html = els['ct-colours-content'].innerHTML;
   t('picking a month with no invoices says so rather than showing zeros',
