@@ -40,7 +40,13 @@ function makeApp() {
       sb.rcLoad(csv, FILES[i]);
       return sb.reconcileStatement(csv);
     },
-    saveAll() { sb.saveAllStaged(); },
+    // A check that is not the rent waits for a category (test_checkrent), and
+    // this book starts empty, so no amount is the rent yet. Picking one before
+    // Save All is what the owner does; which one does not matter here.
+    saveAll() {
+      vm.runInContext("stagingRows.forEach(function (r) { if (r.status === 'review' && !r.category) r.category = 'Office'; })", sb);
+      sb.saveAllStaged();
+    },
     card() { return els['reconcile-area'].innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '); },
     last() { const b = vm.runInContext('appData.bankRecon', sb); return b && b.last; }
   };

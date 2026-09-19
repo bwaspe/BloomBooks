@@ -192,8 +192,9 @@ function isUnfiledOutRow(t, fromDayBook) {
 
 // Every unfiled row in the book, with the month it sits in. Chase writes
 // 'MERCH SETL' on the daily settlement CREDIT and on the periodic fee DEBIT
-// alike, and the built-in rule for it is sign: 'any', so a fee debit lands
-// under Revenue. That recurs, so this is a repair rather than a one-off.
+// alike, and until September 2026 the built-in rule for it was sign: 'any',
+// so every fee debit landed under Revenue. The rule is split by direction now;
+// this repair stays for rows imported before, and for anything else unfiled.
 function ledgerUnfiledRows() {
   const found = [];
   (appData.years || []).forEach(yr => {

@@ -24,9 +24,10 @@ let stagedDupesOpen = false;
 // a built-in that is wrong for you.
 //
 // Returns { ignore, reason, source } or { category, vendor, reason, source }
-// or null when nothing matched. `source` is carried so the UI can say which
-// list a decision came from.
-function resolveRules(upper, sign) {
+// or { ask, askWhy, reason, source } or null when nothing matched. `source` is
+// carried so the UI can say which list a decision came from. `amount` is only
+// needed by the rent-check rule.
+function resolveRules(upper, sign, amount) {
   const lists = [
     { rules: appData.rules || [], source: 'your rule' },
     { rules: BUILTIN_RULES,       source: 'built-in' },
@@ -37,12 +38,40 @@ function resolveRules(upper, sign) {
       if (!upper.includes(String(rule.keyword).toUpperCase())) continue;
       if (rule.ignore) return { ignore: true, reason: rule.keyword, source };
       if (rule.sign === 'any' || rule.sign === sign) {
+        if (rule.rentCheck && !isRentCheckAmount(amount)) {
+          const rent = rentCheckAmount();
+          return { ask: true, reason: rule.keyword, source,
+                   askWhy: rent == null ? 'A check — no rent check in the ledger yet to compare with'
+                                        : 'A check, not the rent amount (' + fmt(rent) + ')' };
+        }
         return { category: rule.category, vendor: rule.vendor || '', reason: rule.keyword, source };
       }
       // Matched the keyword but not the direction — keep looking.
     }
   }
   return null;
+}
+
+// The rent, as the ledger knows it: the amount of the latest check filed under
+// Rent. Read rather than set, so a rent increase needs no setting changed --
+// the first check at the new amount asks, it is filed as Rent, and from then
+// on that amount is the rent. Only checks count ("CHECK 1094 ..."): a rent
+// payment made some other way says nothing about what a check should be.
+function rentCheckAmount() {
+  let latest = null;
+  Object.keys(appData.transactions || {}).forEach(key => {
+    (appData.transactions[key] || []).forEach(t => {
+      if (t._vault || t.type !== 'out' || t.category !== 'Rent') return;
+      if (!/^CHECK\s*\d/i.test(String(t.desc || '').trim())) return;
+      if (!latest || String(t.date) > String(latest.date)) latest = t;
+    });
+  });
+  return latest ? latest.amount : null;
+}
+
+function isRentCheckAmount(amount) {
+  const rent = rentCheckAmount();
+  return rent != null && typeof amount === 'number' && Math.abs(amount - rent) < 0.005;
 }
 
 // ============================================================
@@ -378,8 +407,11 @@ function parseBankLine(line, idx, fallback, opts) {
   const ruleSign = reversal ? (signGuess === 'in' ? 'out' : 'in') : signGuess;
 
   // --- CATEGORY / IGNORE via rules (yours first, then built-in) ---
-  const hit = resolveRules(reversal ? upper.replace(/^\s*REVERSAL:\s*/, '') : upper, ruleSign);
-  const category = (hit && !hit.ignore && hit.category) || (ruleSign === 'in' ? 'Revenue' : 'Office');
+  const hit = resolveRules(reversal ? upper.replace(/^\s*REVERSAL:\s*/, '') : upper, ruleSign, amount);
+  // A rule that asks leaves the category empty, and an empty category cannot
+  // be saved -- guessing is what filed a $601 check as rent.
+  const category = (hit && hit.ask) ? ''
+                 : (hit && !hit.ignore && hit.category) || (ruleSign === 'in' ? 'Revenue' : 'Office');
   const vendor = (hit && !hit.ignore && hit.vendor) || '';
 
   // Clean description: prefer ORIG CO NAME — the party actually paid. This
@@ -400,6 +432,7 @@ function parseBankLine(line, idx, fallback, opts) {
     date, txYear, txMonth, amount, type: signGuess, category, vendor,
     _txType: txType || '',    // kept so the parser can tell a typeless file
     bal: balance,             // the statement's running balance after this row
+    askWhy: (hit && hit.ask && hit.askWhy) || '',   // why no category was guessed
     status: 'review'
   };
 
@@ -470,7 +503,9 @@ function stagedSummary() {
   const fresh = stagingRows.filter(r => r.status === 'review').length;
   const dupes = stagingRows.filter(r => r.status === 'dupe').length;
   if (!fresh && dupes) return `Nothing new — all ${dupes} row${dupes === 1 ? ' is' : 's are'} already in your ledger`;
+  const unchosen = stagingRows.filter(r => r.status === 'review' && !r.category).length;
   return `${fresh} new transaction${fresh === 1 ? '' : 's'} to review` +
+    (unchosen ? ` (${unchosen} need${unchosen === 1 ? 's' : ''} a category)` : '') +
     (dupes ? ` — ${dupes} already in your ledger` : '');
 }
 
@@ -496,6 +531,7 @@ function renderStagingTable() {
   // time, and mixed in with the new ones they were only marked after Save All.
   const rows = stagingRows.filter(r => r.status !== 'saved' && r.status !== 'dupe');
   const pending = rows.filter(r => r.status === 'review').length;
+  const unchosen = rows.filter(r => r.status === 'review' && !r.category).length;
   const dupes = stagingRows.filter(r => r.status === 'dupe');
 
   area.innerHTML = `
@@ -522,7 +558,7 @@ function renderStagingTable() {
     ${rows.length === 0 ? '' : `
     <div class="ledger-wrap">
       <div class="ledger-header">
-        <h3>🟡 New Transactions (${pending} to review)</h3>
+        <h3>🟡 New Transactions (${pending} to review)${unchosen ? ` <span style="color:var(--red);font-size:0.8em">· ${unchosen} need${unchosen === 1 ? 's' : ''} a category</span>` : ''}</h3>
         ${pending ? `<button class="btn btn-primary btn-sm" onclick="saveAllStaged()">✅ Save All to Ledger</button>` : ''}
         <button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="cancelImport()">✕ Cancel Import</button>
       </div>
@@ -546,9 +582,12 @@ function renderStagingTable() {
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.65rem;color:var(--mist)">${escHtml(r.line)}</td>
                 <td><input class="inline-input" style="width:120px" value="${r.date}" onchange="updateStageRow('${r._id}','date',this.value)"></td>
                 <td>
-                  <select class="inline-input" onchange="updateStageRow('${r._id}','category',this.value)">
+                  <select class="inline-input" onchange="updateStageRow('${r._id}','category',this.value)"
+                          ${r.category ? '' : 'style="border:2px solid var(--red)"'}>
+                    ${r.category ? '' : '<option value="" selected>— choose —</option>'}
                     ${CATEGORIES.map(c=>`<option value="${c}"${c===r.category?' selected':''}>${c}</option>`).join('')}
                   </select>
+                  ${!r.category && r.askWhy ? `<div style="font-size:0.65rem;color:var(--red);margin-top:2px">${escHtml(r.askWhy)}</div>` : ''}
                 </td>
                 <td><input class="inline-input" style="width:100px" value="${escHtml(r.vendor)}" onchange="updateStageRow('${r._id}','vendor',this.value)"></td>
                 <td><input class="inline-input" style="width:80px" type="number" value="${r.amount}" onchange="updateStageRow('${r._id}','amount',parseFloat(this.value))"></td>
@@ -658,7 +697,11 @@ function restoreAllIgnored() {
 function updateStageRow(id, field, val) {
   const r = stagingRows.find(r => r._id === id);
   if (!r) return;
+  const had = r[field];
   r[field] = val;
+  // Choosing a category for a row that had none clears its prompt and the
+  // count of rows still needing one.
+  if (field === 'category' && (!had || !val)) { renderStagingTable(); return; }
   // A corrected date or amount can make a row match the ledger, or stop it
   // matching. Redrawn only when that happened, so tabbing on keeps its place.
   if (field === 'date' || field === 'amount') {
@@ -744,6 +787,11 @@ function saveStagedRow(id) {
     notify('Already in the ledger — not saved again', true);
     return;
   }
+  if (!r.category) {
+    renderStagingTable();
+    notify('Pick a category for this row first', true);
+    return;
+  }
   addTransaction(yr, mo, {
     date: r.date, desc: r.desc.slice(0, 40), category: r.category,
     vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
@@ -764,7 +812,7 @@ function cancelImport() {
 }
 
 function saveAllStaged() {
-  let count = 0, locked = 0;
+  let count = 0, locked = 0, unchosen = 0;
   // Decided once, before anything is added, by the rule the table already
   // showed. Deciding row by row as the saves went in would count this import's
   // own rows as ones the ledger already had.
@@ -773,6 +821,9 @@ function saveAllStaged() {
   if (typeof auditBegin === 'function') auditBegin('Bulk import');
   stagingRows.forEach(r => {
     if (r.status !== 'review') return;
+    // Left in the list, not guessed: a row with no category is one the rules
+    // declined to decide, like a check that is not the rent.
+    if (!r.category) { unchosen++; return; }
     const { yr, mo } = stageMonth(r);
     if (typeof isYearLocked === 'function' && isYearLocked(yr)) { locked++; r.status = 'locked'; return; }
     addTransaction(yr, mo, {
@@ -789,7 +840,8 @@ function saveAllStaged() {
   let msg = `${count} transaction${count === 1 ? '' : 's'} saved to ledger`;
   if (dupes > 0) msg += ` — ${dupes} already there, left out`;
   if (locked > 0) msg += ` — ${locked} in a closed year, not saved`;
-  notify(msg, locked > 0);
+  if (unchosen > 0) msg += ` — ${unchosen} still need${unchosen === 1 ? 's' : ''} a category`;
+  notify(msg, locked > 0 || unchosen > 0);
 }
 
 // ============================================================

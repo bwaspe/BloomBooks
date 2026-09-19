@@ -190,7 +190,11 @@ const BUILTIN_RULES = [
   { keyword: 'FLOWER SHOP',              sign: 'in',  category: 'Revenue',                        vendor: 'Flower Shop' },
   { keyword: 'STRIPE',                   sign: 'any', category: 'Revenue',                        vendor: 'Stripe' },
   { keyword: 'REMOTE ONLINE DEPOSIT',    sign: 'any', category: 'Revenue',                        vendor: 'Check Deposit' },
-  { keyword: 'MERCH SETL',               sign: 'any', category: 'Revenue',                        vendor: 'Merchant Settlement' },
+  // Chase writes MERCH SETL on the daily card settlement CREDIT and on the
+  // processor's fee DEBIT alike -- "EPX FE", $5 on the 1st and odd amounts
+  // besides. One rule for both filed every fee as Revenue.
+  { keyword: 'MERCH SETL',               sign: 'in',  category: 'Revenue',                        vendor: 'Merchant Settlement' },
+  { keyword: 'MERCH SETL',               sign: 'out', category: 'Payment Processing',             vendor: 'Merchant Settlement' },
   // FSN
   { keyword: 'FLOWER SHOP',              sign: 'out', category: 'FSN',                            vendor: 'FSN' },
   { keyword: 'TELEFLORA',                sign: 'any', category: 'FSN',                            vendor: 'Teleflora' },
@@ -203,8 +207,14 @@ const BUILTIN_RULES = [
   // GUSTO: FEE (ID:9138864007) = Office; TAX/payroll (ID:9138864001) = Payroll
   { keyword: '9138864007',               sign: 'any', category: 'Office',   vendor: 'Gusto (Fee)' },
   { keyword: '9138864001',               sign: 'any', category: 'Payroll',  vendor: 'Gusto (Payroll Tax)' },
-  // RENT — only CHECK_PAID entries (not CHECK_DEPOSIT which are revenue)
-  { keyword: 'CHECK_PAID',               sign: 'any', category: 'Rent',     vendor: 'Rent Check' },
+  // RENT — a check paid at the rent amount (CHECK_DEPOSIT is money in, and
+  // revenue). Every check used to file as Rent, and most of the book's checks
+  // are not: equipment, insurance, a supplier. Any other amount is left with
+  // no category, and the import will not save it until one is chosen.
+  // The rent amount is not written here: it is read from the ledger, as the
+  // latest check filed under Rent (rentCheckAmount), so when the rent goes up
+  // the first check at the new amount asks, and after that it is known.
+  { keyword: 'CHECK_PAID',               sign: 'any', category: 'Rent',     vendor: 'Rent Check', rentCheck: true },
   // UTILITIES
   { keyword: 'CON ED',                   sign: 'any', category: 'Utilities', vendor: 'Con Edison' },
   // AMEX VENDORS
