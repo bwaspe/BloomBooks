@@ -188,6 +188,12 @@ const BUILTIN_RULES = [
   // looked at, which is where a decision belongs.
   // REVENUE
   { keyword: 'FLOWER SHOP',              sign: 'in',  category: 'Revenue',                        vendor: 'Flower Shop' },
+  // Stripe taking money OUT of the bank is usually a dispute its balance could
+  // not cover. It is not Payment Processing: Stripe's fees never reach the
+  // bank, they come off each deposit, and the monthly figure from Stripe's
+  // report already carries the fees and lost disputes. So it asks.
+  { keyword: 'STRIPE',                   sign: 'out', ask: true, vendor: 'Stripe',
+    askWhy: 'Stripe took this back — usually a dispute' },
   { keyword: 'STRIPE',                   sign: 'any', category: 'Revenue',                        vendor: 'Stripe' },
   { keyword: 'REMOTE ONLINE DEPOSIT',    sign: 'any', category: 'Revenue',                        vendor: 'Check Deposit' },
   // Chase writes MERCH SETL on the daily card settlement CREDIT and on the

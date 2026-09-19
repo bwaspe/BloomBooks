@@ -38,6 +38,11 @@ function resolveRules(upper, sign, amount) {
       if (!upper.includes(String(rule.keyword).toUpperCase())) continue;
       if (rule.ignore) return { ignore: true, reason: rule.keyword, source };
       if (rule.sign === 'any' || rule.sign === sign) {
+        // A rule that knows the row but not its category: it stages blank.
+        if (rule.ask) {
+          return { ask: true, vendor: rule.vendor || '', reason: rule.keyword, source,
+                   askWhy: rule.askWhy || 'Needs a category' };
+        }
         if (rule.rentCheck && !isRentCheckAmount(amount)) {
           const rent = rentCheckAmount();
           return { ask: true, reason: rule.keyword, source,

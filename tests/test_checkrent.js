@@ -55,6 +55,26 @@ console.log('the card processor: settlement in, fee out');
   t('while the daily settlement coming in is still Revenue', s[2].type === 'in' && s[2].category === 'Revenue', s[2].category);
 }
 
+console.log('\nStripe taking money back');
+{
+  // Stripe's fees come off each deposit and never reach the bank, so money
+  // Stripe takes OUT is usually a dispute -- not a fee, and not revenue.
+  const stripe = 'ORIG CO NAME:STRIPE                 ORIG ID:1000000002 DESC DATE:       ' +
+                 'CO ENTRY DESCR:TRANSFER  SEC:CCD    TRACE#:100000000000002 EED:260609';
+  const app = makeApp();
+  const s = app.stage([
+    L('06/09/2026', stripe, '-13.50', 'MISC_DEBIT'),
+    L('06/10/2026', stripe, '412.00', 'ACH_CREDIT')
+  ]);
+  t('a Stripe withdrawal waits for a category, and says it is usually a dispute',
+    s[0].type === 'out' && s[0].category === '' && /dispute/i.test(s[0].askWhy) && s[0].vendor === 'Stripe',
+    s[0].category + ' / ' + s[0].askWhy);
+  t('a Stripe deposit is still Revenue', s[1].type === 'in' && s[1].category === 'Revenue', s[1].category);
+  app.sb.saveAllStaged();
+  t('and Save All takes the deposit but leaves the withdrawal to be decided',
+    s[1].status === 'saved' && s[0].status === 'review' && app.rows() === 1);
+}
+
 console.log('\nchecks, with no rent check in the ledger yet');
 {
   const app = makeApp();
