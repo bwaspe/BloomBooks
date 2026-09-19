@@ -9,6 +9,10 @@ let ignoredRows = [];
 // toasted, because the toast fades and a statement booked backwards does not.
 let bankSignWarning = 0;
 
+// Whether the "already in your ledger" list is expanded, kept across the
+// re-render every Save and Reject causes.
+let stagedDupesOpen = false;
+
 // ============================================================
 // RULE RESOLUTION
 // ============================================================
@@ -415,9 +419,10 @@ function parseImport() {
   const source = document.getElementById('import-source-sel').value;
   if (source === 'amex') {
     parseAmex();
+    flagStagedDupes();
     renderStagingTable();
     if (stagingRows.length === 0) notify('No parseable transactions found', true);
-    else notify(`${stagingRows.length} transactions staged for review`);
+    else notify(stagedSummary());
     return;
   }
 
@@ -437,6 +442,7 @@ function parseImport() {
     else stagingRows.push(row);
   });
 
+  flagStagedDupes();
   renderStagingTable();
 
   // A bank statement with no Type column anywhere is a warning sign, not just
@@ -457,7 +463,15 @@ function parseImport() {
 
   if (stagingRows.length === 0 && ignoredRows.length === 0) notify('No parseable transactions found', true);
   else if (stagingRows.length === 0) notify(`Every row matched an ignore rule — see below`, true);
-  else notify(`${stagingRows.length} transactions staged for review`);
+  else notify(stagedSummary());
+}
+
+function stagedSummary() {
+  const fresh = stagingRows.filter(r => r.status === 'review').length;
+  const dupes = stagingRows.filter(r => r.status === 'dupe').length;
+  if (!fresh && dupes) return `Nothing new — all ${dupes} row${dupes === 1 ? ' is' : 's are'} already in your ledger`;
+  return `${fresh} new transaction${fresh === 1 ? '' : 's'} to review` +
+    (dupes ? ` — ${dupes} already in your ledger` : '');
 }
 
 // One click from the banner: flip the source and read the same text again.
@@ -477,7 +491,12 @@ function renderStagingTable() {
   // simply done nothing at all.
   if (stagingRows.length === 0 && ignoredRows.length === 0) { area.innerHTML = ''; return; }
 
-  const rows = stagingRows.filter(r => r.status !== 'saved');
+  // Rows the ledger already has are shown apart, and before anything is saved.
+  // A statement pulled from the 1st every time is mostly rows imported last
+  // time, and mixed in with the new ones they were only marked after Save All.
+  const rows = stagingRows.filter(r => r.status !== 'saved' && r.status !== 'dupe');
+  const pending = rows.filter(r => r.status === 'review').length;
+  const dupes = stagingRows.filter(r => r.status === 'dupe');
 
   area.innerHTML = `
     ${bankSignWarning ? `
@@ -490,11 +509,21 @@ function renderStagingTable() {
         <button class="btn btn-outline btn-sm" style="margin-left:8px"
                 onclick="reparseAsAmex()">Re-read as Amex</button>
       </div>` : ''}
+    ${rows.length === 0 && dupes.length ? `
+    <div class="ledger-wrap">
+      <div class="ledger-header">
+        <h3>✅ Nothing new on this statement</h3>
+        <button class="btn btn-outline btn-sm" onclick="cancelImport()">Clear</button>
+      </div>
+      <div style="padding:10px 18px;font-size:0.8rem;color:var(--mist)">
+        Every row is already in your ledger — see the list below.
+      </div>
+    </div>` : ''}
     ${rows.length === 0 ? '' : `
     <div class="ledger-wrap">
       <div class="ledger-header">
-        <h3>🟡 Staged Transactions (${rows.length} pending)</h3>
-        <button class="btn btn-primary btn-sm" onclick="saveAllStaged()">✅ Save All to Ledger</button>
+        <h3>🟡 New Transactions (${pending} to review)</h3>
+        ${pending ? `<button class="btn btn-primary btn-sm" onclick="saveAllStaged()">✅ Save All to Ledger</button>` : ''}
         <button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="cancelImport()">✕ Cancel Import</button>
       </div>
       <div class="staging-table-wrap">
@@ -511,9 +540,8 @@ function renderStagingTable() {
             </tr>
           </thead>
           <tbody>
-            ${stagingRows.map(r => {
-              if (r.status === 'saved') return '';
-              const cls = r.status === 'rejected' ? 'staging-row-rejected' : (r.status === 'dupe' || r.status === 'locked') ? 'staging-row-dupe' : 'staging-row-review';
+            ${rows.map(r => {
+              const cls = r.status === 'rejected' ? 'staging-row-rejected' : r.status === 'locked' ? 'staging-row-dupe' : 'staging-row-review';
               return `<tr class="${cls}" id="stage-row-${r._id}">
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.65rem;color:var(--mist)">${escHtml(r.line)}</td>
                 <td><input class="inline-input" style="width:120px" value="${r.date}" onchange="updateStageRow('${r._id}','date',this.value)"></td>
@@ -531,7 +559,6 @@ function renderStagingTable() {
                   </select>
                 </td>
                 <td>
-                  ${r.status === 'dupe' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">⚠ Dupe?</span> ' : ''}
                   ${r.status === 'locked' ? '<span style="font-size:0.65rem;color:var(--red);font-weight:600">🔒 Closed year</span> ' : ''}
                   <button class="btn btn-primary btn-xs" onclick="saveStagedRow('${r._id}')">Save</button>
                   <button class="btn btn-danger btn-xs" style="margin-left:3px" onclick="rejectStagedRow('${r._id}')">Reject</button>
@@ -542,6 +569,34 @@ function renderStagingTable() {
         </table>
       </div>
     </div>`}
+
+    ${dupes.length ? `
+    <div class="ledger-wrap" style="margin-top:16px">
+      <details${stagedDupesOpen ? ' open' : ''} ontoggle="stagedDupesOpen = this.open">
+        <summary class="ledger-header" style="cursor:pointer">
+          <h3 style="display:inline">✔ Already in your ledger (${dupes.length}) — won't be saved again</h3>
+        </summary>
+        <div style="padding:10px 18px;font-size:0.72rem;color:var(--mist)">
+          Each of these matches a row your ledger already has: same date, same amount,
+          same description. Save All leaves them out, so pulling a statement from the
+          1st again is safe.
+        </div>
+        <div class="staging-table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr></thead>
+          <tbody>
+            ${dupes.map(r => `
+              <tr>
+                <td style="font-size:0.78rem;color:var(--mist)">${escHtml(r.date || '')}</td>
+                <td style="font-size:0.8rem">${escHtml(r.desc || '')}</td>
+                <td style="font-size:0.78rem">${escHtml(r.category || '')}</td>
+                <td class="${r.type === 'in' ? 'amount-in' : 'amount-out'}">${fmt(r.amount)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        </div>
+      </details>
+    </div>` : ''}
 
     ${ignoredRows.length > 0 ? `
     <div class="ledger-wrap" style="margin-top:16px">
@@ -585,8 +640,9 @@ function restoreIgnoredRow(idx) {
   delete r.reason;
   delete r.source;
   stagingRows.push(r);
+  flagStagedDupes();
   renderStagingTable();
-  notify('Moved into the staging list for review');
+  notify(r.status === 'dupe' ? 'That row is already in your ledger' : 'Moved into the staging list for review');
 }
 
 function restoreAllIgnored() {
@@ -594,25 +650,81 @@ function restoreAllIgnored() {
   const n = ignoredRows.length;
   ignoredRows.forEach(r => { delete r.reason; delete r.source; stagingRows.push(r); });
   ignoredRows = [];
+  flagStagedDupes();
   renderStagingTable();
   notify(`Moved ${n} row${n === 1 ? '' : 's'} into the staging list`);
 }
 
 function updateStageRow(id, field, val) {
   const r = stagingRows.find(r => r._id === id);
-  if (r) r[field] = val;
+  if (!r) return;
+  r[field] = val;
+  // A corrected date or amount can make a row match the ledger, or stop it
+  // matching. Redrawn only when that happened, so tabbing on keeps its place.
+  if (field === 'date' || field === 'amount') {
+    const before = stagingRows.map(s => s.status).join();
+    flagStagedDupes();
+    if (stagingRows.map(s => s.status).join() !== before) renderStagingTable();
+  }
 }
 
 function rejectStagedRow(id) {
   const r = stagingRows.find(r => r._id === id);
-  if (r) { r.status = 'rejected'; renderStagingTable(); }
+  if (r) { r.status = 'rejected'; flagStagedDupes(); renderStagingTable(); }
+}
+
+// Which month's ledger a staged row belongs to -- the statement's own date
+// when it had one, the Import screen's month and year when it did not.
+function stageMonth(r) {
+  return {
+    yr: r.txYear || parseInt(document.getElementById('import-year-sel').value),
+    mo: r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value)
+  };
+}
+
+// Marks every staged row the ledger already has as 'dupe' and the rest as
+// 'review', BEFORE anything is saved. It used to be decided only by Save All,
+// so a statement pulled from the 1st showed every row as new until the save.
+//
+// Identical rows are interchangeable: same date, same amount, same start of
+// the description. For each such group the only question is how many the
+// statement holds that the ledger does not. Rows saved in this session are in
+// the ledger already; rejected and closed-year rows are rows you have decided
+// on, so they use up statement rows too. Counting this way gets two genuinely
+// identical charges on one day right: a download holding both, over a ledger
+// holding one, leaves exactly one to save.
+//
+// Measured against the real book before it was built: over the last eight
+// Chase and Amex uploads this rule caught every overlapping row (42 of 42 on
+// the 12 Sep Chase file). A looser "same amount within a few days" match was
+// tried as well and every row it added was a different transaction -- an ATM
+// withdrawal against another ATM withdrawal, a $500 Zelle against $500 of
+// Google Ads -- so it is deliberately not here.
+function flagStagedDupes(prefer) {
+  const groups = {};
+  stagingRows.forEach(r => {
+    const { yr, mo } = stageMonth(r);
+    const key = `${yr}-${mo}|` + dupKey(r.date, r.amount, r.desc);
+    (groups[key] = groups[key] || []).push(r);
+  });
+  Object.keys(groups).forEach(key => {
+    const rows = groups[key];
+    const open = rows.filter(r => r.status === 'review' || r.status === 'dupe');
+    if (!open.length) return;
+    // The row just pressed Save on goes first, so it is the one kept.
+    if (prefer) open.sort((a, b) => (b === prefer) - (a === prefer));
+    const { yr, mo } = stageMonth(rows[0]);
+    const inLedger = countExisting(yr, mo, rows[0].date, rows[0].amount, rows[0].desc);
+    const decided = rows.filter(r => r.status === 'rejected' || r.status === 'locked').length;
+    const toSave = Math.max(0, rows.length - inLedger - decided);
+    open.forEach((r, i) => { r.status = i < toSave ? 'review' : 'dupe'; });
+  });
 }
 
 function saveStagedRow(id) {
   const r = stagingRows.find(r => r._id === id);
-  if (!r) return;
-  const yr = r.txYear  || parseInt(document.getElementById('import-year-sel').value);
-  const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+  if (!r || r.status === 'saved') return;
+  const { yr, mo } = stageMonth(r);
   // A closed year refuses the row at saveData anyway; saying so here keeps the
   // table from reporting it saved when it was put straight back.
   if (typeof isYearLocked === 'function' && isYearLocked(yr)) {
@@ -621,16 +733,13 @@ function saveStagedRow(id) {
     notify(yr + ' is closed — unlock it to add this row', true);
     return;
   }
-  // The same duplicate rule Save All applies, which this button used to skip --
-  // so a row from an overlapping download, the normal way to fetch the rest of
-  // a month, went into the ledger a second time. Identical rows are
-  // interchangeable: the only question is whether the ledger already holds as
-  // many of this row as the statement does. Counting that way also gets two
-  // genuinely identical charges right whichever of them is saved first.
-  const key = dupKey(r.date, r.amount, r.desc);
-  const onStatement = stagingRows.filter(s => dupKey(s.date, s.amount, s.desc) === key).length;
-  if (countExisting(yr, mo, r.date, r.amount, r.desc) >= onStatement) {
-    r.status = 'dupe';
+  // The same rule the table shows and Save All applies. This button used to
+  // skip it, so a row from an overlapping download went into the ledger a
+  // second time. Save on a rejected or closed-year row is a change of mind,
+  // so it is back in the running before the rule is asked.
+  r.status = 'review';
+  flagStagedDupes(r);
+  if (r.status === 'dupe') {
     renderStagingTable();
     notify('Already in the ledger — not saved again', true);
     return;
@@ -640,13 +749,14 @@ function saveStagedRow(id) {
     vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
   });
   r.status = 'saved';
+  flagStagedDupes();
   renderStagingTable();
   notify('Transaction saved to ledger');
   if (typeof rcRefresh === 'function') rcRefresh();
 }
 
 function cancelImport() {
-  if (stagingRows.length && !confirm('Discard all staged transactions?')) return;
+  if (stagingRows.some(r => r.status === 'review') && !confirm('Discard all staged transactions?')) return;
   stagingRows = [];
   document.getElementById('staging-table-area').innerHTML = '';
   document.getElementById('import-text').value = '';
@@ -654,21 +764,17 @@ function cancelImport() {
 }
 
 function saveAllStaged() {
-  let count = 0, dupes = 0, locked = 0;
-  // Track how many of each duplicate key we're importing in this batch
-  const importCounts = {};
+  let count = 0, locked = 0;
+  // Decided once, before anything is added, by the rule the table already
+  // showed. Deciding row by row as the saves went in would count this import's
+  // own rows as ones the ledger already had.
+  flagStagedDupes();
   // Every addTransaction saves; the audit trail records the whole import as one entry.
   if (typeof auditBegin === 'function') auditBegin('Bulk import');
   stagingRows.forEach(r => {
     if (r.status !== 'review') return;
-    const yr = r.txYear || parseInt(document.getElementById('import-year-sel').value);
-    const mo = r.txMonth !== undefined ? r.txMonth : parseInt(document.getElementById('import-month-sel').value);
+    const { yr, mo } = stageMonth(r);
     if (typeof isYearLocked === 'function' && isYearLocked(yr)) { locked++; r.status = 'locked'; return; }
-    const key = `${yr}-${mo}|` + dupKey(r.date, r.amount, r.desc);
-    importCounts[key] = (importCounts[key] || 0) + 1;
-    const alreadyInLedger = countExisting(yr, mo, r.date, r.amount, r.desc);
-    // Flag as dupe only if ledger already has >= this many of the same tx
-    if (alreadyInLedger >= importCounts[key]) { dupes++; r.status = 'dupe'; return; }
     addTransaction(yr, mo, {
       date: r.date, desc: r.desc.slice(0, 40), category: r.category,
       vendor: r.vendor, amount: r.amount, type: r.type, bal: r.bal
@@ -679,10 +785,11 @@ function saveAllStaged() {
   if (typeof auditEnd === 'function') auditEnd();
   renderStagingTable();
   if (typeof rcRefresh === 'function') rcRefresh();
-  let msg = `${count} transactions saved to ledger`;
-  if (dupes > 0) msg += ` — ${dupes} possible duplicate(s) flagged`;
+  const dupes = stagingRows.filter(r => r.status === 'dupe').length;
+  let msg = `${count} transaction${count === 1 ? '' : 's'} saved to ledger`;
+  if (dupes > 0) msg += ` — ${dupes} already there, left out`;
   if (locked > 0) msg += ` — ${locked} in a closed year, not saved`;
-  notify(msg, dupes > 0 || locked > 0);
+  notify(msg, locked > 0);
 }
 
 // ============================================================
