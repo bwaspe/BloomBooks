@@ -3806,6 +3806,183 @@ function ctReconcilePayments() {
   return { missing: out, explained: explained };
 }
 
+// ============================================================
+// SUPPLIER ACCOUNT
+//
+// ctReconcilePayments above walks PAYMENTS and asks which invoices explain
+// each one. That direction cannot see a bill you were never charged for: no
+// payment mentions it, so nothing is reported. A backordered stem, a credit
+// applied at the till, and an invoice the supplier forgot to raise all look
+// identical from there -- like nothing at all. Worse, it is greedy: Perri's
+// 3 August payment of $681.96 matched one invoice exactly and was called
+// clean, while four smaller orders from the same day sat untouched.
+//
+// So this walks the DAYS. Every day the supplier billed or charged gets a
+// row: paperwork, charged, and the difference between them.
+//
+// THE RUNNING COLUMN IS THE ONE TO TRUST. A backorder is short on the day it
+// was ordered and over on the day it arrives -- Perri's disbud was ordered on
+// the 3rd and delivered on the 4th -- so no single day tells you whether the
+// account is square. It also means a supplier who charges on a lag is spread
+// across rows rather than misreported.
+const CT_ACCOUNT_KINDS = {
+  square:   { colour: 'var(--mist)',  label: '' },
+  recent:   { colour: 'var(--mist)',  label: 'too recent to judge — the charge may still be coming' },
+  fee:      { colour: 'var(--amber)', label: 'the delivery charge is not on the paperwork' },
+  unbilled: { colour: 'var(--red)',   label: 'billed less than the paperwork — a backorder, a credit, or still to come' },
+  nocharge: { colour: 'var(--red)',   label: 'nothing charged against this paperwork' },
+  over:     { colour: 'var(--amber)', label: 'charged more than the paperwork' },
+  nopaper:  { colour: 'var(--amber)', label: 'charged with no paperwork here' }
+};
+
+function ctAccountNote(row, fee) {
+  if (row.recent) return 'recent';
+  if (!row.diff) return 'square';
+  if (fee && Math.abs(row.diff - fee) < CT_EXACT_CENTS) return 'fee';
+  if (!row.papers.length) return 'nopaper';
+  if (!row.payments.length) return 'nocharge';
+  return row.diff < 0 ? 'unbilled' : 'over';
+}
+
+function ctSupplierAccount(supplier, from) {
+  const start = from || ctReconcileFrom();
+  // The same grace the reconciler gives: an invoice or a charge from the last
+  // few days may still be on its way, and calling that a discrepancy would
+  // make the newest rows permanently wrong.
+  const fresh = ctShiftDay(new Date().toISOString().slice(0, 10), -CT_GRACE_DAYS);
+  const days = {};
+  const day = d => (days[d] = days[d] || { date: d, papers: [], payments: [], invoiced: 0, charged: 0 });
+
+  (ctData.invoices || []).forEach(i => {
+    if (!ctSameVendor(supplier, i.supplier)) return;
+    const d = ctEffDate(i);
+    if (!d || d < start) return;
+    const r = day(d);
+    r.papers.push({ id: i.id, num: i.invoiceNumber || '', total: ctCents(i.total) });
+    r.invoiced += ctCents(i.total);
+  });
+  ctCogsPayments().forEach(t => {
+    if (!t.date || t.date < start) return;
+    if (!ctSameVendor(supplier, (t.vendor || '') + ' ' + (t.desc || ''))) return;
+    const r = day(t.date);
+    r.payments.push({ id: t.id, amount: ctCents(t.amount) });
+    r.charged += ctCents(t.amount);
+  });
+
+  const fee = ctUsualDeliveryFee(supplier);
+  let running = 0;
+  const rows = Object.keys(days).sort().map(d => {
+    const r = days[d];
+    r.diff = r.charged - r.invoiced;
+    running += r.diff;
+    r.running = running;
+    r.recent = d > fresh;
+    r.kind = ctAccountNote(r, fee);
+    return r;
+  });
+  return {
+    supplier, from: start, fee, rows,
+    invoiced: rows.reduce((s, r) => s + r.invoiced, 0),
+    charged: rows.reduce((s, r) => s + r.charged, 0),
+    diff: running,
+    open: rows.filter(r => r.kind !== 'square' && r.kind !== 'recent').length
+  };
+}
+
+// Suppliers worth offering: anyone who has billed or charged since the start
+// date. Sorted by what they charged, so the one the money is with is first.
+function ctAccountSuppliers(from) {
+  const start = from || ctReconcileFrom();
+  const names = [];
+  (ctData.invoices || []).forEach(i => {
+    const d = ctEffDate(i);
+    if (!d || d < start || !i.supplier) return;
+    if (!names.some(n => ctSameVendor(n, i.supplier))) names.push(i.supplier);
+  });
+  return names
+    .map(n => ({ n, c: ctSupplierAccount(n, start).charged }))
+    .sort((a, b) => b.c - a.c)
+    .map(x => x.n);
+}
+
+let ctAccountPick = '';
+let ctAccountAll = false;
+
+function ctSetAccountSupplier(v) { ctAccountPick = String(v || ''); renderCtSupplierAccount(); }
+function ctToggleAccountAll() { ctAccountAll = !ctAccountAll; renderCtSupplierAccount(); }
+
+function renderCtSupplierAccount() {
+  const el = document.getElementById('ct-supplier-account');
+  if (!el) return;
+  let names = [];
+  try { names = ctAccountSuppliers(); } catch (e) { el.innerHTML = ''; return; }
+  if (!names.length) { el.innerHTML = ''; return; }
+  const chosen = names.some(n => n === ctAccountPick) ? ctAccountPick : names[0];
+  const a = ctSupplierAccount(chosen);
+  const shown = ctAccountAll ? a.rows : a.rows.filter(r => r.kind !== 'square');
+  const money = c => fmt(c / 100);
+  const signed = c => (c > 0 ? '+' : c < 0 ? '−' : '') + fmt(Math.abs(c) / 100);
+
+  const rowsHtml = shown.map(r => {
+    const k = CT_ACCOUNT_KINDS[r.kind] || CT_ACCOUNT_KINDS.square;
+    const nums = r.papers.map(p => p.num || '(no number)');
+    const paper = nums.slice(0, 3).map(n => escHtml(String(n))).join(', ') +
+      (nums.length > 3 ? ` and ${nums.length - 3} more` : '') || '—';
+    const note = r.kind === 'fee' && a.fee
+      ? `the ${escHtml(fmt(a.fee / 100))} delivery is not on the paperwork`
+      : escHtml(k.label);
+    return `<tr>
+      <td style="white-space:nowrap">${escHtml(r.date)}</td>
+      <td style="font-size:0.72rem;color:var(--mist)">${paper}</td>
+      <td style="text-align:right">${money(r.invoiced)}</td>
+      <td style="text-align:right">${money(r.charged)}</td>
+      <td style="text-align:right;color:${r.diff ? k.colour : 'var(--mist)'};font-weight:${r.diff ? 600 : 400}">${signed(r.diff)}</td>
+      <td style="text-align:right;color:var(--mist)">${signed(r.running)}</td>
+      <td style="font-size:0.72rem;color:${k.colour}">${note}</td>
+    </tr>`;
+  }).join('');
+
+  // Said in words, because the sign is the whole meaning and a bare negative
+  // number reads as "they owe me" just as easily as the reverse.
+  const verdict = a.diff === 0
+    ? 'Paperwork and charges agree exactly.'
+    : a.diff > 0
+      ? `You have been charged ${escHtml(money(a.diff))} more than the paperwork you hold — paperwork is missing.`
+      : `The paperwork is ${escHtml(money(-a.diff))} more than you have been charged — backorders, credits, or bills still to come.`;
+
+  el.innerHTML = `
+    <div class="chart-wrap" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h3 style="margin-bottom:0">📒 Supplier Account</h3>
+        <select onchange="ctSetAccountSupplier(this.value)"
+                style="font-size:0.78rem;border:1px solid var(--border);border-radius:6px;
+                       padding:6px 10px;background:var(--surface);color:var(--ink)">
+          ${names.map(n => `<option value="${escHtml(n)}"${n === chosen ? ' selected' : ''}>${escHtml(n)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="font-size:0.78rem;color:var(--mist);margin:8px 0 4px">
+        Since ${escHtml(a.from)}: ${escHtml(money(a.invoiced))} of paperwork against
+        ${escHtml(money(a.charged))} charged. ${verdict}
+      </div>
+      <div style="font-size:0.72rem;color:var(--mist);margin-bottom:10px">
+        A day on its own proves nothing — an order short today is delivered tomorrow.
+        The running column is what says whether the account is square.
+        ${a.rows.length > shown.length || ctAccountAll
+          ? `<a href="#" onclick="ctToggleAccountAll();return false" style="color:var(--link)">${
+              ctAccountAll ? 'Only the days that disagree' : `Show all ${a.rows.length} days`}</a>` : ''}
+      </div>
+      ${shown.length ? `<div class="staging-table-wrap"><table>
+        <thead><tr>
+          <th>Date</th><th>Paperwork</th><th style="text-align:right">Invoiced</th>
+          <th style="text-align:right">Charged</th><th style="text-align:right">Difference</th>
+          <th style="text-align:right">Running</th><th>What it looks like</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>`
+      : `<div style="font-size:0.78rem;color:var(--mist)">Every day agrees to the cent.</div>`}
+    </div>`;
+}
+
 function ctIgnoreVendor(id) {
   const t = ctCogsPayments().find(x => x.id === id);
   if (!t) return;
@@ -4027,6 +4204,7 @@ function ctExplainedPaymentsHtml(rows) {
 
 function renderCtDashboard() {
   renderCtMissingInvoices();
+  renderCtSupplierAccount();
   renderCtCounting();
   const invoices = ctGetFilteredInvoices();
 
