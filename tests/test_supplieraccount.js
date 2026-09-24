@@ -105,6 +105,20 @@ console.log('\npaperwork and charges with nothing on the other side');
   t('and the account is left short by the difference', a.diff === -4000, a.diff);
 }
 
+console.log('\nwhen the bank spells the supplier differently');
+{
+  // The real pair: invoices say DVFlora, the statement says DVFG, and only the
+  // alias map connects them. Joining vendor and desc loses the alias, and the
+  // supplier then reads as never charged.
+  const sb = makeApp([{ id: 'd1', supplier: 'DVFlora', date: '2026-08-03', deliveryDate: '2026-08-03',
+                        invoiceNumber: 'NJ.1', total: 200, items: [] }],
+                     [{ id: 'p1', date: '2026-08-03', amount: 200, vendor: 'DVFG',
+                        desc: 'ORIG CO NAME:DELAWARE VALLEY' }]);
+  vm.runInContext("ctData.vendorAliases = { dvfg: 'DVFlora' };", sb);
+  const a = sb.ctSupplierAccount('DVFlora');
+  t('the payment is counted through the alias', a.charged === 20000 && a.diff === 0, a.charged);
+}
+
 console.log('\nthe supplier list');
 {
   const sb = makeApp([inv('2026-08-03', '1001', 100)], [pay('2026-08-03', 100)]);

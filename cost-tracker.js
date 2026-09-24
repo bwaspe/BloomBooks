@@ -3863,7 +3863,12 @@ function ctSupplierAccount(supplier, from) {
   });
   ctCogsPayments().forEach(t => {
     if (!t.date || t.date < start) return;
-    if (!ctSameVendor(supplier, (t.vendor || '') + ' ' + (t.desc || ''))) return;
+    // `vendor || desc`, exactly as ctReconcilePayments resolves it, and never
+    // the two joined: ctNameTokens looks the ALIAS up on that raw string, so a
+    // concatenation misses it. The bank writes 'DVFG' and the invoices say
+    // 'DVFlora' — joined, every DV payment vanished from this view and the
+    // supplier read as never having been charged a penny.
+    if (!ctSameVendor(supplier, t.vendor || t.desc)) return;
     const r = day(t.date);
     r.payments.push({ id: t.id, amount: ctCents(t.amount) });
     r.charged += ctCents(t.amount);
