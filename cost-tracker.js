@@ -3862,6 +3862,7 @@ function ctReconcilePayments() {
 // across rows rather than misreported.
 const CT_ACCOUNT_KINDS = {
   square:   { colour: 'var(--mist)',  label: '' },
+  settled:  { colour: 'var(--mist)',  label: 'settled' },
   recent:   { colour: 'var(--mist)',  label: 'too recent to judge — the charge may still be coming' },
   fee:      { colour: 'var(--amber)', label: 'the delivery charge is not on the paperwork' },
   unbilled: { colour: 'var(--red)',   label: 'billed less than the paperwork — a backorder, a credit, or still to come' },
@@ -3879,7 +3880,20 @@ function ctAccountNote(row, fee) {
   return row.diff < 0 ? 'unbilled' : 'over';
 }
 
-function ctSupplierAccount(supplier, from) {
+// How long this supplier takes to turn an invoice into a charge, learned from
+// the pairs that already match exactly -- the same habit ctSettlementWindow
+// reads. A supplier with too few matches gets the grace the rest of the
+// tracker uses rather than a guess.
+function ctSettleDays(supplier, lags) {
+  let seen = [];
+  const all = lags || ctVendorLags();
+  Object.keys(all).forEach(sup => { if (ctSameVendor(supplier, sup)) seen = seen.concat(all[sup]); });
+  if (seen.length < CT_LAG_MIN_SAMPLES) return CT_GRACE_DAYS;
+  const max = seen.reduce((m, d) => Math.max(m, d), 0);
+  return Math.min(CT_LAG_BACK, Math.max(1, max) + 1);
+}
+
+function ctSupplierAccount(supplier, from, lags) {
   const start = from || ctReconcileFrom();
   // The same grace the reconciler gives: an invoice or a charge from the last
   // few days may still be on its way, and calling that a discrepancy would
@@ -3920,18 +3934,47 @@ function ctSupplierAccount(supplier, from) {
     r.kind = ctAccountNote(r, fee);
     return r;
   });
+  // A shortfall the next charge covers is not a discrepancy. An invoice paid
+  // the following day, a Friday delivery charged with Monday's, a backorder
+  // that arrives tomorrow, a pickup settled at the counter -- all of them are
+  // short on one row and over on the next, and flagging both says there are
+  // two problems where there is none. Any RUN of days whose differences cancel
+  // inside this supplier's own settlement window is marked settled instead.
+  //
+  // It can only ever quiet a run that genuinely comes back to level: an
+  // invoice never charged leaves the running total moved, finds nothing to
+  // cancel against, and stays flagged.
+  const settleDays = ctSettleDays(supplier, lags);
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i].diff || rows[i].kind === 'settled' || rows[i].recent) continue;
+    const limit = ctShiftDay(rows[i].date, settleDays);
+    let sum = 0;
+    for (let k = i; k < rows.length && rows[k].date <= limit; k++) {
+      sum += rows[k].diff;
+      if (k > i && Math.abs(sum) <= CT_EXACT_CENTS) {
+        for (let m = i; m <= k; m++) {
+          rows[m].kind = 'settled';
+          rows[m].settledOn = rows[k].date;
+        }
+        i = k;
+        break;
+      }
+    }
+  }
+
+  const quiet = r => r.kind === 'square' || r.kind === 'settled' || r.kind === 'recent';
   return {
-    supplier, from: start, fee, rows,
+    supplier, from: start, fee, rows, settleDays,
     invoiced: rows.reduce((s, r) => s + r.invoiced, 0),
     charged: rows.reduce((s, r) => s + r.charged, 0),
     diff: running,
-    open: rows.filter(r => r.kind !== 'square' && r.kind !== 'recent').length
+    open: rows.filter(r => !quiet(r)).length
   };
 }
 
 // Suppliers worth offering: anyone who has billed or charged since the start
 // date. Sorted by what they charged, so the one the money is with is first.
-function ctAccountSuppliers(from) {
+function ctAccountSuppliers(from, lags) {
   const start = from || ctReconcileFrom();
   const names = [];
   (ctData.invoices || []).forEach(i => {
@@ -3939,8 +3982,12 @@ function ctAccountSuppliers(from) {
     if (!d || d < start || !i.supplier) return;
     if (!names.some(n => ctSameVendor(n, i.supplier))) names.push(i.supplier);
   });
+  // Learned once and handed down. ctVendorLags walks all 226 invoices against
+  // all 1,394 payments and tokenises both names on every pair: 162ms of the
+  // 170 this panel costs. Worked out per supplier it was eight of those.
+  lags = lags || ctVendorLags();
   return names
-    .map(n => ({ n, c: ctSupplierAccount(n, start).charged }))
+    .map(n => ({ n, c: ctSupplierAccount(n, start, lags).charged }))
     .sort((a, b) => b.c - a.c)
     .map(x => x.n);
 }
@@ -3954,12 +4001,15 @@ function ctToggleAccountAll() { ctAccountAll = !ctAccountAll; renderCtSupplierAc
 function renderCtSupplierAccount() {
   const el = document.getElementById('ct-supplier-account');
   if (!el) return;
-  let names = [];
-  try { names = ctAccountSuppliers(); } catch (e) { el.innerHTML = ''; return; }
+  let names = [], lags = null;
+  try { lags = ctVendorLags(); names = ctAccountSuppliers(undefined, lags); }
+  catch (e) { el.innerHTML = ''; return; }
   if (!names.length) { el.innerHTML = ''; return; }
   const chosen = names.some(n => n === ctAccountPick) ? ctAccountPick : names[0];
-  const a = ctSupplierAccount(chosen);
-  const shown = ctAccountAll ? a.rows : a.rows.filter(r => r.kind !== 'square');
+  const a = ctSupplierAccount(chosen, undefined, lags);
+  const shown = ctAccountAll
+    ? a.rows
+    : a.rows.filter(r => r.kind !== 'square' && r.kind !== 'settled');
   const money = c => fmt(c / 100);
   const signed = c => (c > 0 ? '+' : c < 0 ? '−' : '') + fmt(Math.abs(c) / 100);
 
@@ -3970,7 +4020,9 @@ function renderCtSupplierAccount() {
       (nums.length > 3 ? ` and ${nums.length - 3} more` : '') || '—';
     const note = r.kind === 'fee' && a.fee
       ? `the ${escHtml(fmt(a.fee / 100))} delivery is not on the paperwork`
-      : escHtml(k.label);
+      : r.kind === 'settled'
+        ? `settled ${escHtml(r.settledOn === r.date ? 'same day' : 'on ' + r.settledOn)}`
+        : escHtml(k.label);
     return `<tr>
       <td style="white-space:nowrap">${escHtml(r.date)}</td>
       <td style="font-size:0.72rem;color:var(--mist)">${paper}</td>

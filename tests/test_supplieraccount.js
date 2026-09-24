@@ -66,6 +66,49 @@ console.log('\nthe backorder: ordered the 3rd, delivered the 4th');
     a.rows.length === 2 && a.open === 2);
 }
 
+console.log('\npaid the next day — noise, not a discrepancy');
+{
+  // The owner's words. An invoice on the Monday charged on the Tuesday is how
+  // half their suppliers work, and flagging both days says there are two
+  // problems where there is none.
+  const sb = makeApp([inv('2026-08-03', '1001', 100)], [pay('2026-08-04', 100)]);
+  const a = sb.ctSupplierAccount('Perri Farms');
+  t('both days are quiet', row(a, '2026-08-03').kind === 'settled' && row(a, '2026-08-04').kind === 'settled');
+  t('and the day it settled is named', row(a, '2026-08-03').settledOn === '2026-08-04');
+  t('so nothing is reported as open', a.open === 0 && a.diff === 0);
+}
+
+console.log('\na Friday delivery charged with Monday\'s');
+{
+  // 10 July invoiced $134.39 with no charge; 13 July invoiced $736.83 and
+  // charged $871.22, which is both.
+  const sb = makeApp([inv('2026-07-10', '322173', 134.39), inv('2026-07-13', '322300', 736.83)],
+                     [pay('2026-07-13', 871.22)]);
+  const a = sb.ctSupplierAccount('Perri Farms', '2026-07-01');
+  t('neither day is flagged', a.open === 0, a.rows.map(r => r.date + ':' + r.kind).join(' '));
+}
+
+console.log('\nan invoice that is never charged');
+{
+  // The same shape as far as one day can tell, and it must NOT be quieted:
+  // nothing later cancels it, so the running total never comes back.
+  const sb = makeApp([inv('2026-08-03', '1001', 100), inv('2026-08-10', '1002', 50)],
+                     [pay('2026-08-10', 50)]);
+  const a = sb.ctSupplierAccount('Perri Farms');
+  t('it stays flagged', row(a, '2026-08-03').kind === 'nocharge' && a.open === 1);
+  t('and the account stays short', a.diff === -10000, a.diff);
+}
+
+console.log('\nsettled, but too late to be a lag');
+{
+  // Covered 40 days later, well outside any supplier habit: that is two
+  // separate facts, not a settlement.
+  const sb = makeApp([inv('2026-08-03', '1001', 100)], [pay('2026-09-12', 100)]);
+  const a = sb.ctSupplierAccount('Perri Farms');
+  t('the invoice day is still reported', row(a, '2026-08-03').kind === 'nocharge');
+  t('and so is the payment day', row(a, '2026-09-12').kind === 'nopaper');
+}
+
 console.log('\nthe backorder, once nothing else is missing');
 {
   // The same shape with no duplicated paperwork: short one day, over the next,
