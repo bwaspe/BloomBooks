@@ -358,6 +358,10 @@ function ctBuildUploadCardHtml(p, idx) {
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
           ${pack} per ${escHtml(item.uom)} — line should be $${((item.qty || 0) * pack * item.unit_price).toFixed(2)}
           <button onclick="ctApplyPackMultiplier(${idx}, ${i})" style="border:none;background:none;color:var(--link);cursor:pointer;font-size:0.66rem;text-decoration:underline;padding:0 0 0 4px">fix</button>
+        </div>` : ''}${item.priorShape ? `
+        <div style="font-size:0.66rem;color:var(--amber);margin-top:2px">
+          last time this came as ${escHtml(String(item.priorShape.qty))} ${escHtml(item.priorShape.uom)}
+          at ${escHtml(fmt(item.priorShape.total))} — check the price
         </div>` : ''}</div>
       <div class="ct-item-meta">
         <input type="number" step="0.01" min="0" value="${escHtml(item.qty)}" onchange="ctUpdateUploadItemQty(${idx}, ${i}, this.value)" style="font-size:0.72rem;padding:2px 4px;width:52px" title="Quantity">
@@ -2256,7 +2260,10 @@ function ctGetPriorPriceInfo(itemName, supplierName, whenIso) {
     if (!match) continue;
     const d = ctEffDate(inv);
     if (whenIso && d && d >= whenIso) continue;      // never compare to the future
-    found.push({ price: ctEffectiveUnit(match), date: d,
+    // The LINE travels with the price. A price on its own cannot say whether
+    // it was for a stem or for the bunch that held it, and the standing order
+    // needs the shape as well as the figure -- see ctStartFromTemplate.
+    found.push({ item: match, price: ctEffectiveUnit(match), date: d,
                  holiday: ctHolidayOf(d),
                  sameSupplier: ctSameSupplierStrong(inv.supplier, supplierName) });
   }
@@ -3315,13 +3322,41 @@ function ctStartFromTemplate(id) {
     // The prior price is now EFFECTIVE -- already net of any discount -- so no
     // discount is re-applied here. Doing so would discount a discounted price,
     // and the standing order arrives on paper with net prices in any case.
-    const prior = ctGetPriorPrice(i.name, t.supplier, today);   // a number, or null
+    const info = ctGetPriorPriceInfo(i.name, t.supplier, today);
+    const prior = info ? info.price : null;
+    const line = info && info.item;
+    const qty = Number(i.qty) || 0;
     const unit = prior || 0;
-    return { name: i.name, qty: i.qty, uom: i.uom, unit_price: unit,
-             total: i.qty * unit,
+
+    // THE TOTAL COMES FROM THE LAST REAL LINE, NOT FROM qty x price.
+    //
+    // Perri prices some bunches per STEM -- 1 Bunch of 25 at $1.39, total
+    // $34.75 -- and ctEffectiveUnit deliberately hands back the price column
+    // for exactly those lines, because their totals cannot be trusted in
+    // general. Multiplying that $1.39 by a quantity of 1 produced a $1.39
+    // standing order line every week, and no amount of correcting the invoice
+    // or re-saving the template could change it: the template holds no prices,
+    // and the fix was being undone by the lookup itself.
+    //
+    // Copying the shape that was actually paid reproduces either kind of line
+    // correctly -- $11.38 for a bunch of stock, $34.75 for a bunch of roses --
+    // because it never has to decide which unit the price belongs to. Only the
+    // quantity is scaled, and only when the unit agrees; a line that arrived
+    // last time in a different unit is left to the old arithmetic and carries
+    // what it was, so the card can say so rather than quietly converting.
+    const sameShape = !!line && String(line.uom || '') === String(i.uom || '') && Number(line.qty) > 0;
+    const total = sameShape
+      ? Math.round(ctLineTotal(line) / Number(line.qty) * qty * 100) / 100
+      : qty * unit;
+
+    return { name: i.name, qty, uom: i.uom, unit_price: unit,
+             total,
              category: i.category || ctGuessCategory(i.name),
              family: i.family || ctGuessFamily(i.name),
              priorPrice: prior,
+             priorShape: (line && !sameShape)
+               ? { qty: Number(line.qty) || 0, uom: String(line.uom || ''), total: ctLineTotal(line) }
+               : null,
              stemsPerBu: i.stemsPerBu || ctGetPriorStemsPerBunch(i.name) || null,
              removed: false };
   });
