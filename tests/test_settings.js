@@ -360,6 +360,83 @@ console.log('\na list that was cut down stays cut down');
     vm.runInContext('bbSettings.financial.taxRate', c.sb) === 0.08375);
 }
 
+console.log('\nthe learned rules fold away');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  a.sb.renderSettingsPanel();
+  t('closed by default — hundreds of rows pushed everything else off the page',
+    vm.runInContext('bbFamilyOpen', a.sb) === false);
+
+  // Something waiting behind a closed fold is something nobody approves.
+  vm.runInContext("bbSettings.family.pending = [{ keyword: 'stock', family: 'Stock' }]", a.sb);
+  a.sb.renderSettingsPanel();
+  t('a rule waiting for approval forces it open',
+    vm.runInContext('bbFamilyOpen', a.sb) === true);
+  t('and the summary says so without being opened',
+    /waiting for you/.test(a.els['settings-content'].innerHTML));
+
+  // Approving the last one must not snap the fold shut under the hand that
+  // was working in it.
+  a.sb.bbFamilyApprove(0);
+  t('clearing the queue leaves it open',
+    vm.runInContext('bbFamilyOpen', a.sb) === true);
+
+  // Every edit re-renders the whole panel, so the fold has to remember.
+  a.sb.bbFamilySet('stock', 'priority', 5);
+  t('and editing a rule does not close it again',
+    vm.runInContext('bbFamilyOpen', a.sb) === true);
+
+  t('the count is on the summary, so the size is known while it is shut',
+    / learned/.test(a.els['settings-content'].innerHTML));
+}
+
+console.log('\nfinding one rule among hundreds');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  // A stand-in for the rendered rows: the filter hides them in place rather
+  // than re-rendering, because re-rendering would take the focus out of the
+  // box being typed in.
+  const row = hay => ({ style: {}, getAttribute: () => hay });
+  const rows = [row('stock stock'), row('ranunculus ranunculus'), row('eucalyptus greens')];
+  const note = { textContent: null };
+  a.els['bb-family-rows'] = { rows };
+  a.els['bb-family-count'] = note;
+
+  a.sb.bbFamilyFilterRows('');
+  t('an empty box shows everything',
+    rows.every(r => r.style.display === ''));
+  t('and says nothing — a count only means something below the total',
+    note.textContent === '');
+
+  a.sb.bbFamilyFilterRows('GREENS');
+  t('a match is found whatever case it is typed in',
+    rows[2].style.display === '' && rows[0].style.display === 'none');
+  t('and the count says how much is hidden', note.textContent === '1 of 3',
+    note.textContent);
+
+  a.sb.bbFamilyFilterRows('delphinium');
+  t('nothing found SAYS nothing found, so an empty table is not read as lost rules',
+    /no rule matches/.test(note.textContent), note.textContent);
+
+  // The filter has to outlive a re-render too, or fixing the rule you just
+  // found clears the search that found it.
+  a.sb.bbFamilyFilterRows('stock');
+  // A real re-render replaces the markup: fresh rows, all visible, and an
+  // empty box. If the filter is not put back, the search that found the rule
+  // is gone the moment you fix it.
+  rows.forEach(r => { r.style.display = ''; });
+  const box = { value: '' };
+  a.els['bb-family-find'] = box;
+  a.sb.renderSettingsPanel();
+  t('the search survives the re-render an edit causes',
+    vm.runInContext('bbFamilyFilter', a.sb) === 'stock');
+  t('it is typed back into the box', box.value === 'stock', box.value);
+  t('and the rows are hidden again to match', rows[0].style.display === '' &&
+    rows[1].style.display === 'none' && rows[2].style.display === 'none');
+}
+
 setTimeout(() => {
   console.log(fail.length ? '\n' + fail.length + ' FAILURES:\n' + fail.join('\n') : '\nall assertions passed');
   process.exit(fail.length ? 1 : 0);

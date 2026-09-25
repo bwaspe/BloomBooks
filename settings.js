@@ -340,10 +340,20 @@ function bbSettingsSourceRow(key) {
     </div>`;
 }
 
+// Folded away because the learned rules run to hundreds of rows and pushed
+// everything below them off the page. Two things it must NOT do: forget it was
+// open when a rule is edited (every edit re-renders the whole panel), and hide
+// a rule waiting for approval -- something waiting behind a closed fold is
+// something nobody approves.
+let bbFamilyOpen = false;
+let bbFamilyFilter = '';
+
 function renderSettingsPanel() {
   const el = document.getElementById('settings-content');
   if (!el) return;
   const st = bbSettingsState;
+  const pendingFamily = (bbSettings.family && bbSettings.family.pending || []).length;
+  if (pendingFamily) bbFamilyOpen = true;
   const where = st.error
     ? `<span style="color:var(--red)">${escHtml(st.error)}</span>`
     : `from ${escHtml(st.from)}${st.at ? ' at ' + new Date(st.at).toLocaleTimeString() : ''}`;
@@ -406,9 +416,14 @@ function renderSettingsPanel() {
         </div>` : ''}
     </div>
 
-    <div class="chart-wrap">
-      <h3>🌿 Family / Type rules</h3>
-      <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+    <details class="chart-wrap"${bbFamilyOpen ? ' open' : ''} ontoggle="bbFamilyOpen = this.open">
+      <summary style="cursor:pointer">
+        <h3 style="display:inline">🌿 Family / Type rules</h3>
+        <span style="font-size:0.75rem;color:var(--mist);margin-left:6px">
+          ${bbFamilyRules().length} learned${pendingFamily ? ` · <strong style="color:var(--amber)">${pendingFamily} waiting for you</strong>` : ''}
+        </span>
+      </summary>
+      <div style="font-size:0.75rem;color:var(--mist);margin:10px 0">
         A keyword in an item's name decides its family. These are the ones
         learned from your own tagging — until now they were written invisibly
         and could never be seen or undone. The built-in list stays in the app.
@@ -428,10 +443,16 @@ function renderSettingsPanel() {
               <button class="btn btn-danger btn-xs" onclick="bbFamilyDiscard(${i})">Discard</button>
             </div>`).join('')}
         </div>` : ''}
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="search" id="bb-family-find" placeholder="Find a keyword or family"
+               oninput="bbFamilyFilterRows(this.value)"
+               style="flex:1;min-width:160px;font-size:0.75rem;padding:4px 6px">
+        <span id="bb-family-count" style="font-size:0.72rem;color:var(--mist)"></span>
+      </div>
       <div class="staging-table-wrap"><table>
         <thead><tr><th>Keyword</th><th>Family / Type</th><th style="text-align:right">Priority</th><th></th></tr></thead>
-        <tbody>${bbFamilyRules().map(r => `
-          <tr>
+        <tbody id="bb-family-rows">${bbFamilyRules().map(r => `
+          <tr data-hay="${escHtml((r.keyword + ' ' + r.family).toLowerCase())}">
             <td><input type="text" value="${escHtml(r.keyword)}" style="width:150px;font-size:0.75rem"
                        onchange="bbFamilySet('${jsArg(r.keyword)}','keyword',this.value)"></td>
             <td><input type="text" value="${escHtml(r.family)}" style="width:150px;font-size:0.75rem"
@@ -442,7 +463,7 @@ function renderSettingsPanel() {
             <td><button class="btn btn-danger btn-xs" onclick="bbFamilyRemove('${jsArg(r.keyword)}')">Remove</button></td>
           </tr>`).join('') || '<tr><td colspan="4" style="font-size:0.75rem;color:var(--mist)">Nothing learned yet — the built-in rules are doing the work.</td></tr>'}</tbody>
       </table></div>
-    </div>
+    </details>
 
     <div class="chart-wrap">
       <h3>📨 Suppliers the scanner reads</h3>
@@ -541,6 +562,40 @@ function renderSettingsPanel() {
         <button class="btn btn-outline btn-sm" style="margin-top:6px" onclick="bbSettingsSaveRaw()">Use what I typed</button>
       </details>
     </div>`;
+
+  // Every edit re-renders the whole panel, so a filter that lived only in the
+  // box would clear itself the moment you fixed the rule you had just found.
+  if (bbFamilyFilter) {
+    const box = document.getElementById('bb-family-find');
+    if (box) box.value = bbFamilyFilter;
+    bbFamilyFilterRows(bbFamilyFilter);
+  }
+}
+
+// Rows are hidden in place rather than re-rendered. Re-rendering on every
+// keystroke would take the focus out of the box being typed in, which is the
+// one thing a find box may not do.
+function bbFamilyFilterRows(q) {
+  bbFamilyFilter = String(q || '');
+  const needle = bbFamilyFilter.trim().toLowerCase();
+  const body = document.getElementById('bb-family-rows');
+  if (!body) return;
+  const rows = Array.prototype.slice.call(body.rows);
+  let shown = 0;
+  rows.forEach(tr => {
+    const hit = !needle || (tr.getAttribute('data-hay') || '').indexOf(needle) >= 0;
+    tr.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const note = document.getElementById('bb-family-count');
+  // Silent when showing everything; a count only means something once it is
+  // fewer than all of them. Nothing found has to SAY so, or an empty table
+  // reads as rules that have gone missing.
+  if (note) {
+    note.textContent = !needle ? ''
+      : shown ? shown + ' of ' + rows.length
+      : 'no rule matches “' + bbFamilyFilter.trim() + '”';
+  }
 }
 
 function bbSettingsSetSource(key, field, val) {
