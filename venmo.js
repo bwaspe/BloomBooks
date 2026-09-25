@@ -33,7 +33,7 @@ const VM_CHANNEL = 'venmo';
 const VM_SALE_TYPES = ['card payment', 'payment', 'card payment refund'];
 
 function vmRate() {
-  return typeof DS_TAX_RATE === 'number' ? DS_TAX_RATE : 0.08375;
+  return bbTaxRate();
 }
 
 // A comma inside a quoted field is not a delimiter, and Venmo quotes the

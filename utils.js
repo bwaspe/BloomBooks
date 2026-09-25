@@ -65,3 +65,16 @@ async function fetchRetry(url, opts, attempts = 3) {
   throw lastErr;
 }
 
+
+// The sales tax rate, from Settings if it has been set and from the constant
+// otherwise. It CHECKS a recorded day against what the sale should have
+// carried; it files nothing, and it is not a per-period rate -- one rate is
+// applied to every year on the page, closed ones included. If a county rate
+// ever really changes, this becomes a rate with a date beside it rather than a
+// number somebody edits, or a filed year silently starts reading wrong.
+function bbTaxRate() {
+  const v = (typeof bbSettings !== 'undefined' && bbSettings.financial)
+    ? Number(bbSettings.financial.taxRate) : NaN;
+  if (Number.isFinite(v) && v >= 0 && v < 0.2) return v;
+  return (typeof DS_TAX_RATE === 'number') ? DS_TAX_RATE : 0.08375;
+}

@@ -145,6 +145,221 @@ console.log('\nthe panel');
   t('and shows the raw settings', /bb-settings-raw/.test(html));
 }
 
+console.log('\ncategories start as exactly what the app already did');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  const names = a.sb.ctCategories();
+  t('same 15, same order', names.length === 15 && names[0] === 'Flowers' && names[14] === 'Other');
+  t('same markups', a.sb.ctCategoryMarkup('Flowers') === 3 && a.sb.ctCategoryMarkup('Packaging') === 1.3);
+  t('same colours', a.sb.ctCategoryColour('Flowers') === vm.runInContext("CT_COLORS['Flowers']", a.sb));
+  t('an unknown category still answers a markup', a.sb.ctCategoryMarkup('Nonsense') === 2);
+}
+
+console.log('\na markup this browser had already tuned');
+{
+  const a = app();
+  vm.runInContext("ctData.markup['Flowers'] = 4.2;", a.sb);
+  a.sb.bbSettingsLoad();
+  t('is what settings start from, not the constant', a.sb.ctCategoryMarkup('Flowers') === 4.2);
+}
+
+console.log('\nrenaming a category');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  a.sb.bbCategoryRename('Glass', 'Vases');
+  t('the new name is what the pickers offer',
+    a.sb.ctCategories().indexOf('Vases') >= 0 && a.sb.ctCategories().indexOf('Glass') < 0);
+  t('and history filed under the old one resolves to it', a.sb.ctCategoryNow('Glass') === 'Vases');
+  t('so the two years group as one', a.sb.ctCategoryNow('Glass') === a.sb.ctCategoryNow('Vases'));
+  t('the markup follows the name', a.sb.ctCategoryMarkup('Glass') === a.sb.ctCategoryMarkup('Vases'));
+
+  // Rename again: the first old name must not be left pointing at a name that
+  // no longer exists.
+  a.sb.bbCategoryRename('Vases', 'Containers');
+  t('a second rename keeps the first one pointing somewhere real',
+    a.sb.ctCategoryNow('Glass') === 'Containers' && a.sb.ctCategoryNow('Vases') === 'Containers');
+  t('and it is one hop, not a chain',
+    a.sb.ctCategoryNow(a.sb.ctCategoryNow('Glass')) === 'Containers');
+}
+
+console.log('\nretiring a category');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  a.sb.bbCategorySet('Seasonal', 'active', false);
+  t('it leaves the pickers', a.sb.ctCategories().indexOf('Seasonal') < 0);
+  t('but history still knows the name', a.sb.ctAllCategories().indexOf('Seasonal') >= 0);
+  t('and a line already filed under it keeps it',
+    /value="Seasonal" selected/.test(a.sb.ctCategoryOptions('Seasonal')));
+  t('while a live line is offered the live list',
+    !/Seasonal/.test(a.sb.ctCategoryOptions('Flowers')));
+}
+
+console.log('\nfamily rules');
+{
+  const a = app();
+  vm.runInContext("ctData.familyKeywords = { gerbera: 'Gerbera', 'mini gerbera': 'Mini Gerbera' };", a.sb);
+  a.sb.bbSettingsLoad();
+  t('what was learned invisibly is now a list you can see', a.sb.bbFamilyRules().length === 2);
+  t('the longest keyword still wins',
+    a.sb.bbFamilyRules()[0].keyword === 'mini gerbera');
+
+  // Priority is the thumb on the scale.
+  a.sb.bbFamilySet('gerbera', 'priority', '5');
+  t('priority overrules length', a.sb.bbFamilyRules()[0].keyword === 'gerbera');
+  t('and guessing follows the rules', a.sb.ctGuessFamily('Gerbera Mini Canadian') === 'Gerbera');
+}
+
+console.log('\nlearning with the toggle off');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  a.sb.bbFamilySetAutoLearn(false);
+  a.sb.ctLearnFamily('Ranunculus Elegance White', 'Ranunculus');
+  const s = vm.runInContext('bbSettings.family', a.sb);
+  t('the new rule waits instead of applying', s.pending.length === 1 && s.rules.length === 0);
+  a.sb.bbFamilyApprove(0);
+  t('approving moves it across', s.pending.length === 0 && s.rules.length === 1);
+  t('and it works', a.sb.ctGuessFamily('Ranunculus Something Else') === 'Ranunculus');
+}
+
+console.log('\nrenaming keeps a year-on-year comparison in one row');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  const invoices = [
+    { supplier: 'X', date: '2025-06-01', deliveryDate: '2025-06-01', total: 100,
+      items: [{ name: 'Vase tall', category: 'Glass', total: 100 }] },
+    { supplier: 'X', date: '2026-06-01', deliveryDate: '2026-06-01', total: 60,
+      items: [{ name: 'Vase tall', category: 'Glass', total: 60 }] }
+  ];
+  const before = a.sb.ctSpendByCategory(invoices);
+  t('both years sit under the old name to begin with', before.Glass === 160);
+
+  a.sb.bbCategoryRename('Glass', 'Vases');
+  // The 2026 invoice is re-filed under the new name, as a new line would be.
+  invoices[1].items[0].category = 'Vases';
+  const after = a.sb.ctSpendByCategory(invoices);
+  t('after renaming, the two years are ONE row', after.Vases === 160, JSON.stringify(after.Vases));
+  t('and nothing is left behind under the old name', !after.Glass);
+  t('which is the whole point — the comparison survives the rename',
+    after.Vases === before.Glass);
+}
+
+console.log('\nthe sales tax rate');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  t('defaults to the rate the app already applies', a.sb.bbTaxRate() === 0.08375);
+
+  a.sb.bbFinancialSetTaxRate('8.875');
+  t('a changed county rate is what the checks now use', a.sb.bbTaxRate() === 0.08875,
+    a.sb.bbTaxRate());
+  t('and it is stored as a fraction, exactly',
+    vm.runInContext('bbSettings.financial', a.sb).taxRate === 0.08875, vm.runInContext('bbSettings.financial', a.sb).taxRate);
+
+  // Entered as a percent, used as a fraction: the conversion has to be clean
+  // or a rate reads back as 0.08374999999999999 and every expected-tax figure
+  // on the page is a hundredth of a cent out.
+  a.sb.bbFinancialSetTaxRate('8.375');
+  t('8.375% comes back as 0.08375 and not a float tail',
+    String(vm.runInContext('bbSettings.financial', a.sb).taxRate) === '0.08375',
+    String(vm.runInContext('bbSettings.financial', a.sb).taxRate));
+
+  a.sb.bbFinancialSetTaxRate('nonsense');
+  t('a rate that is not a number is refused, not stored',
+    a.sb.bbTaxRate() === 0.08375);
+  a.sb.bbFinancialSetTaxRate('83.75');
+  t('and a percent mistyped as 83.75 is refused too — that is not a tax rate',
+    a.sb.bbTaxRate() === 0.08375, a.sb.bbTaxRate());
+
+  // A settings file can be hand-edited in the raw box, so the accessor cannot
+  // trust what it reads any more than the handler can.
+  vm.runInContext('bbSettings.financial', a.sb).taxRate = 'eight percent';
+  // The raw settings box takes anything, and these come from a sheet another
+  // device wrote -- so the ACCESSOR has to refuse a bad rate too, not just the
+  // handler. A percent typed where a fraction belongs would charge 8375%.
+  vm.runInContext('bbSettings.financial', a.sb).taxRate = 8.375;
+  t('a percent stored where a fraction belongs is refused by the accessor',
+    a.sb.bbTaxRate() === 0.08375, a.sb.bbTaxRate());
+  vm.runInContext('bbSettings.financial', a.sb).taxRate = -0.05;
+  t('and so is a negative rate', a.sb.bbTaxRate() === 0.08375, a.sb.bbTaxRate());
+
+  t('a hand-edited rubbish value falls back rather than breaking the page',
+    a.sb.bbTaxRate() === 0.08375);
+}
+
+console.log('\nadding a supplier is a form entry, not a redeploy');
+{
+  const a = app();
+  a.sb.bbSettingsLoad();
+  t('the five suppliers the script reads today are there',
+    vm.runInContext('bbSettings.vendors', a.sb).length === 5 &&
+    vm.runInContext('bbSettings.vendors', a.sb).some(v => v.name === 'Perri Farms'));
+
+  a.sb.bbVendorAdd();
+  const i = vm.runInContext('bbSettings.vendors', a.sb).length - 1;
+  a.sb.bbVendorSet(i, 'email', '  Sales@FallRiver.com  ');
+  a.sb.bbVendorSet(i, 'mode', 'body');
+  a.sb.bbVendorRename(i, 'Fall River Florist');
+  const v = vm.runInContext('bbSettings.vendors', a.sb)[i];
+  t('the new row carries the name, sender and mode', v.name === 'Fall River Florist' &&
+    v.email === 'Sales@FallRiver.com' && v.mode === 'body');
+
+  // Typed in the box as a Title Case line, compared by the script in lower
+  // case: a subject that keeps its capitals matches nothing at all.
+  a.sb.bbVendorSet(i, 'skipSubjects', 'Order Confirmation*' + String.fromCharCode(10) + '  ' + String.fromCharCode(10) + 'We Are On Our Way');
+  t('skip subjects are split per line, trimmed, blanks dropped',
+    v.skipSubjects.length === 2, JSON.stringify(v.skipSubjects));
+  t('and lowercased, because that is how they are compared',
+    v.skipSubjects[0] === 'order confirmation*' && v.skipSubjects[1] === 'we are on our way');
+
+  a.sb.bbVendorSet(i, 'mode', 'something else');
+  t('a mode that is neither reads as an attachment, the usual case', v.mode === 'pdf');
+
+  a.sb.bbVendorSet(i, 'active', false);
+  t('switching one off keeps the row', v.active === false &&
+    vm.runInContext('bbSettings.vendors', a.sb).length === i + 1);
+
+  a.sb.bbVendorRemove(i);
+  t('removing takes it out', vm.runInContext('bbSettings.vendors', a.sb).length === i);
+
+  // Renaming is the one field that can break reconciliation, so it asks. A
+  // declined rename must leave the name alone.
+  a.sb.confirm = () => false;
+  a.sb.bbVendorRename(0, 'Juliet');
+  t('a rename that was declined changes nothing',
+    vm.runInContext('bbSettings.vendors', a.sb)[0].name === 'Juliet Wholesale');
+  a.sb.confirm = () => true;
+  a.sb.bbVendorRename(0, 'Juliet Wholesale Inc');
+  t('and an accepted one goes through',
+    vm.runInContext('bbSettings.vendors', a.sb)[0].name === 'Juliet Wholesale Inc');
+}
+
+console.log('\na list that was cut down stays cut down');
+{
+  // Defaults sit UNDERNEATH stored values key by key, which is what brings a
+  // newly added setting back. A list is different: a stored one is the whole
+  // statement of it, so merging element by element would quietly restore the
+  // supplier or category that was just removed from the end.
+  const a = app({ schemaVersion: 1, vendors: [
+    { name: 'Perri Farms', email: 'sales@perrifarms.com', mode: 'body', active: true }
+  ] });
+  a.sb.bbSettingsLoad();
+  const v = vm.runInContext('bbSettings.vendors', a.sb);
+  t('four suppliers removed stay removed', v.length === 1, v.length);
+  t('and the one kept is the one stored', v[0].name === 'Perri Farms');
+
+  const c = app({ schemaVersion: 1, categories: { list: [{ name: 'Flowers', active: true }] } });
+  c.sb.bbSettingsLoad();
+  t('the same for categories',
+    vm.runInContext('bbSettings.categories.list', c.sb).length === 1);
+  t('while a section added since is still filled in from the defaults',
+    vm.runInContext('bbSettings.financial.taxRate', c.sb) === 0.08375);
+}
+
 setTimeout(() => {
   console.log(fail.length ? '\n' + fail.length + ' FAILURES:\n' + fail.join('\n') : '\nall assertions passed');
   process.exit(fail.length ? 1 : 0);

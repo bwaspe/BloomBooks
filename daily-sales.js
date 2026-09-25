@@ -236,7 +236,7 @@ function dsAddChannel() {
 // A figure actually recorded on the day still wins -- a corrected day must stay
 // corrected, and Venmo's own statement carries a real per-sale tax figure worth
 // keeping.
-const DS_TAX_RATE = 0.08375;          // NY state + Westchester
+const DS_TAX_RATE = 0.08375;          // NY state + Westchester — the default behind bbTaxRate()
 
 // Tax on a day: what was recorded, or -- where the mode makes it arithmetic --
 // what that arithmetic gives. Returns which it was, because the page must not
@@ -245,7 +245,7 @@ function dsDayTax(rec, taxable, mode) {
   const t = dsNum((rec || {}).t);
   if (Math.abs(t) > 0.005) return { tax: t, derived: false };
   if ((mode === 'all' || mode === 'exempt') && taxable != null) {
-    return { tax: Math.round(taxable * DS_TAX_RATE * 100) / 100, derived: true };
+    return { tax: Math.round(taxable * bbTaxRate() * 100) / 100, derived: true };
   }
   return { tax: 0, derived: false };
 }
@@ -403,7 +403,7 @@ function renderSalesTaxPanel() {
 
   const r = dsTaxReport(stYear, stQuarter);
   const r2 = n => Math.round(n * 100) / 100;
-  const expected = r2(r.tot.checkedTaxable * DS_TAX_RATE);
+  const expected = r2(r.tot.checkedTaxable * bbTaxRate());
   // Only RECORDED tax is compared. A derived figure is the same arithmetic the
   // comparison applies, so including it on one side and its sales on neither
   // would report an overage of exactly itself.
@@ -467,8 +467,8 @@ function renderSalesTaxPanel() {
               <strong>${escHtml(label0(id))}</strong> ${fmt(r.byChannel[id].uncheckedTaxable)}</div>`).join('')}
           These are set to read the tax per order, and some days carry a taxable figure with no tax
           beside it. They still belong in the filing exactly as they stand — it is only the check
-          below they are out of. At ${(DS_TAX_RATE * 100).toFixed(3)}% they would account for about
-          ${fmt(r.tot.uncheckedTaxable * DS_TAX_RATE)} of tax.
+          below they are out of. At ${(bbTaxRate() * 100).toFixed(3)}% they would account for about
+          ${fmt(r.tot.uncheckedTaxable * bbTaxRate())} of tax.
         </div>
       </div>` : ''}
 
@@ -479,7 +479,7 @@ function renderSalesTaxPanel() {
         day — ${r.tot.derivedChannels.map(id =>
           `${escHtml(label0(id))} ${fmt(r.byChannel[id].derivedTaxable)}`).join(', ')}.
         ${r.tot.derivedChannels.length === 1 ? 'That channel is' : 'Those channels are'} set to
-        <em>all taxable</em>, so the tax is ${(DS_TAX_RATE * 100).toFixed(3)}% of the sale and there is no
+        <em>all taxable</em>, so the tax is ${(bbTaxRate() * 100).toFixed(3)}% of the sale and there is no
         second figure to check it against. Nothing needs entering; a figure typed on a day wins over this one.
       </div>` : ''}
 
@@ -497,7 +497,7 @@ function renderSalesTaxPanel() {
       <div style="margin-bottom:16px;padding:10px;border-radius:6px;background:${Math.abs(gap) > 25 ? 'var(--red-light);border:1px solid var(--red)' : 'var(--paper);border:1px solid var(--border)'}">
         <strong style="font-size:0.8rem">Collected is ${gap > 0 ? 'over' : 'under'} expected by ${fmt(Math.abs(gap))}</strong>
         <div style="font-size:0.75rem;color:var(--ink-soft);margin-top:4px">
-          Expected is taxable sales at ${(DS_TAX_RATE * 100).toFixed(3)}%. Small differences are rounding on each
+          Expected is taxable sales at ${(bbTaxRate() * 100).toFixed(3)}%. Small differences are rounding on each
           order; a large one means something is on the wrong side of the taxable line.
         </div>
       </div>` : ''}
@@ -548,7 +548,7 @@ function renderSalesTaxPanel() {
         <tbody>
           ${r.months.map(({ y, m }) => {
             const b = r.byMonth[`${y}-${m}`];
-            const exp = r2(b.taxable * DS_TAX_RATE);
+            const exp = r2(b.taxable * bbTaxRate());
             return `<tr>
               <td><strong>${MONTHS_SHORT[m]} ${y}</strong></td>
               <td style="text-align:right">${fmt(b.sales)}</td>
@@ -562,7 +562,7 @@ function renderSalesTaxPanel() {
                 const note = all ? 'worked out' : `incl. ${fmt(b.derivedTax)} worked out`;
                 return ` <span style="font-size:0.65rem;color:var(--mist)" title="${
                   escHtml(fmt(b.derivedTax) + ' of this is worked out from the sales at ' +
-                          (DS_TAX_RATE * 100).toFixed(3) + '%, not recorded on the day')
+                          (bbTaxRate() * 100).toFixed(3) + '%, not recorded on the day')
                 }">${note}</span>`;
               })()}</td>
               <td style="text-align:right;color:var(--mist)">${fmt(exp)}</td>
@@ -1083,7 +1083,7 @@ function fnBuildDaily(text) {
                   + pick(map.markup) + pick(map.disc);
     const taxed = Math.abs(tax) > 0.005;
     if (taxed) {
-      const diff = Math.abs(taxable * DS_TAX_RATE - tax);
+      const diff = Math.abs(taxable * bbTaxRate() - tax);
       if (!worstTax || diff > worstTax.diff)
         worstTax = { diff, id: map.id >= 0 ? r[map.id] : '', taxable, tax };
     }

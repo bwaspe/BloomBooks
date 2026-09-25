@@ -65,12 +65,18 @@
  * Drive. The OCR fallback writes a temporary file and trashes it, and the mail
  * path has never needed that permission before. Approve it as wecare@.
  *
- * TO ADD A NEW VENDOR LATER: just add a line to the VENDORS array below and save.
+ * TO ADD A NEW VENDOR: do it in BloomBooks, under Settings — it writes the
+ * list into the Settings tab of this sheet and this script reads it on the
+ * next run, with no redeploy. The VENDORS array below is the fallback, used
+ * if that tab is missing or unreadable.
  */
 
 // ============================================================
-// CONFIG — edit this list any time to add/remove vendors
+// FALLBACK VENDOR LIST — the live one is in BloomBooks > Settings
 // ============================================================
+// Read only when the Settings tab is missing or unreadable, so that a bad
+// settings cell leaves the scanner reading rather than silently reading
+// nothing. Worth keeping roughly in step with the panel for that reason.
 const VENDORS = [
   { name: 'Juliet Wholesale',      email: 'julietwholesalenj@gmail.com', mode: 'pdf'  },
 
@@ -123,6 +129,7 @@ const DELIVERY_MARKERS = {
 
 const LABEL_NAME = 'BloomBooks/Processed';
 const SHEET_TAB_NAME = 'Invoices';
+const SETTINGS_TAB_NAME = 'Settings';  // BloomBooks writes its settings here as one JSON cell
 const FIRST_RUN_LOOKBACK_DAYS = 30; // how far back to look the very first time
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const SEARCH_CAP = 100;             // threads per vendor per run
@@ -225,7 +232,7 @@ function setupLabelAndTrigger() {
 
 // Test a single vendor manually — safe to run any time, doesn't affect the trigger
 function testSingleVendor() {
-  const vendor = VENDORS[0]; // change index to test a different vendor
+  const vendor = getVendors()[0]; // change index to test a different vendor
   Logger.log('Testing vendor: ' + vendor.name);
   processVendor(vendor, true);
 }
@@ -234,7 +241,7 @@ function testSingleVendor() {
 // MAIN SCAN
 // ============================================================
 function scanInvoices() {
-  VENDORS.forEach(vendor => {
+  getVendors().forEach(vendor => {
     try {
       processVendor(vendor, false);
     } catch (err) {
@@ -344,6 +351,60 @@ function processVendor(vendor, isTest) {
   } else {
     const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd');
     props.setProperty('LAST_RUN_' + vendorKey(vendor), today);
+  }
+}
+
+// ============================================================
+// WHICH SUPPLIERS TO READ
+// ============================================================
+// BloomBooks' Settings panel writes the supplier list into the Settings tab of
+// this same spreadsheet, so adding one is a form entry rather than an edit and
+// a redeploy of this script. The VENDORS array above is the fallback and stays
+// current on purpose.
+//
+// A LIST THAT CANNOT BE READ FALLS BACK TO THE CODE, rather than to nothing. A
+// scanner that reads no mail fails silently -- no error, no invoices, and
+// nobody notices for weeks -- so a mangled cell, a missing tab or a settings
+// file from some future shape must leave it reading yesterday's list, not
+// stop it. Switching a row OFF in the panel is how a supplier is stood down;
+// that is a list with entries in it, and it is honoured.
+function getVendors() {
+  const fromSheet = readVendorSettings();
+  return (fromSheet && fromSheet.length) ? fromSheet : VENDORS;
+}
+
+function readVendorSettings() {
+  try {
+    const sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    if (!sheetId) return null;
+    const sheet = SpreadsheetApp.openById(sheetId).getSheetByName(SETTINGS_TAB_NAME);
+    if (!sheet || sheet.getLastRow() === 0) return null;
+    const cell = sheet.getRange(1, 1).getValue();
+    if (!cell) return null;
+    const list = (JSON.parse(cell) || {}).vendors;
+    if (!Array.isArray(list)) return null;
+
+    const out = [];
+    list.forEach(v => {
+      if (!v || v.active === false) return;
+      const name  = String(v.name  || '').trim();
+      const email = String(v.email || '').trim();
+      const label = String(v.label || '').trim();
+      // A half-filled row is someone mid-typing, not a supplier. Reading it
+      // would search Gmail for everything or for nothing.
+      if (!name || (!email && !label)) return;
+      const vendor = { name: name, mode: v.mode === 'body' ? 'body' : 'pdf' };
+      if (email) vendor.email = email; else vendor.label = label;
+      if (Array.isArray(v.skipSubjects) && v.skipSubjects.length) {
+        vendor.skipSubjects = v.skipSubjects.slice();
+      }
+      out.push(vendor);
+    });
+    return out;
+  } catch (err) {
+    Logger.log('Settings unreadable, using the built-in vendor list — ' + err.message);
+    try { logError('settings', '', 'vendor list unreadable: ' + err.message); } catch (e) {}
+    return null;
   }
 }
 

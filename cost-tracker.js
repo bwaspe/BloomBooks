@@ -15,6 +15,94 @@ const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Cerami
 let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {}, reconcileFrom: '', gmailCoverage: null, dismissedRepairs: {} };
 let ctCharts = {};
 
+// ============================================================
+// CATEGORIES AND FAMILY RULES, AS SETTINGS
+// ============================================================
+// These live here rather than in settings.js because this file is what reads
+// them, and every one falls back to the constant it replaced. A browser whose
+// settings have not loaded -- and the eight test suites that run the cost
+// tracker on its own -- answer exactly as they did before Settings existed.
+function bbCategorySettings() {
+  const s = (typeof bbSettings !== 'undefined' && bbSettings.categories) || null;
+  return (s && Array.isArray(s.list) && s.list.length) ? s : null;
+}
+
+function bbCategoryList() {
+  const s = bbCategorySettings();
+  return s ? s.list : CT_CATEGORIES.map(name => ({ name, active: true }));
+}
+
+// The label a stored category resolves to TODAY. Renaming rewrites any entry
+// that pointed at the old name, so this is one hop and chains cannot form.
+function ctCategoryNow(name) {
+  const s = bbCategorySettings();
+  const r = (s && s.renames) || {};
+  return r[name] || name;
+}
+
+function ctCategories() {
+  return bbCategoryList().filter(c => c.active !== false).map(c => c.name);
+}
+
+// Retired names included: history still carries them and still has to group.
+function ctAllCategories() {
+  return bbCategoryList().map(c => c.name);
+}
+
+function ctCategoryColour(name) {
+  const c = bbCategoryList().find(x => x.name === ctCategoryNow(name));
+  return (c && c.colour) || CT_COLORS[name] || '#888899';
+}
+
+function ctCategoryMarkup(name) {
+  const c = bbCategoryList().find(x => x.name === ctCategoryNow(name));
+  if (c && c.markup != null) return c.markup;
+  if (ctData.markup && ctData.markup[name] != null) return ctData.markup[name];
+  return CT_DEFAULT_MARKUP[name] ?? 2;
+}
+
+// Always offers the line's OWN category, even a retired one: opening an old
+// invoice must not quietly refile it under whatever is first in the list.
+function ctCategoryOptions(selected) {
+  const names = ctCategories();
+  const now = ctCategoryNow(selected);
+  if (now && names.indexOf(now) < 0) names.push(now);
+  return names.map(c => `<option value="${escHtml(c)}"${c === now ? ' selected' : ''}>${escHtml(c)}</option>`).join('');
+}
+
+// Priority first, then the longest keyword. The length rule predates this and
+// is deliberate: a specific two-word built-in ("mini gerbera") must beat a
+// generic one-word learned rule ("mini"), whichever was written first.
+// Priority is the owner's thumb on the scale; every rule starts at 0, so the
+// default order is exactly what it always was.
+function bbFamilyRules() {
+  const f = (typeof bbSettings !== 'undefined' && bbSettings.family) || null;
+  const rules = (f && Array.isArray(f.rules)) ? f.rules : [];
+  return rules.filter(r => r && r.keyword).slice()
+    .sort((a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0) ||
+                    String(b.keyword).length - String(a.keyword).length);
+}
+
+// Spend per category, with every stored label resolved to the name it goes by
+// today. THIS is what renaming is for: "Glass" in last year's invoices and
+// "Vases" in this year's have to land in one row, or a rename splits the very
+// comparison it was made to keep. Lifted out of the dashboard so it can be
+// checked without a browser.
+function ctSpendByCategory(invoices) {
+  const byCat = {};
+  ctCategories().forEach(c => byCat[c] = 0);
+  (invoices || []).forEach(inv => (inv.items || []).forEach(item => {
+    const cat = ctCategoryNow(item.category);
+    byCat[cat] = (byCat[cat] || 0) + (item.total || 0);
+  }));
+  return byCat;
+}
+
+function bbFamilyAutoLearn() {
+  const f = (typeof bbSettings !== 'undefined' && bbSettings.family) || null;
+  return !(f && f.autoLearn === false);
+}
+
 // WHY THIS FILE SHOUTS WHEN STORAGE FAILS.
 //
 // The cost tracker lives in this browser and nowhere else: sync.js sends
@@ -234,10 +322,18 @@ function ctGuessFamily(name) {
   // Merge learned + built-in rules into one list and match by specificity (longest
   // keyword wins) regardless of source — a specific 2-word default (e.g. "mini gerbera")
   // must always beat a generic 1-word learned rule (e.g. "mini"), never the other way around.
-  const combined = [
-    ...Object.entries(ctData.familyKeywords || {}),
-    ...DEFAULT_FAMILY_KEYWORDS
-  ].sort((a,b)=>b[0].length-a[0].length);
+  // The owner's rules come from Settings now, where they can be seen and
+  // corrected; they were written invisibly into ctData.familyKeywords before,
+  // and that map is still read as a fallback so a browser whose settings have
+  // not loaded yet answers exactly as it used to.
+  const learned = (typeof bbFamilyRules === 'function' && bbFamilyRules().length)
+    ? bbFamilyRules().map(r => [r.keyword, r.family, Number(r.priority) || 0])
+    : Object.entries(ctData.familyKeywords || {}).map(([k, f]) => [k, f, 0]);
+  // Priority first, then length. Sorting by length alone -- which is what this
+  // did -- threw the owner's priority away the moment the lists were merged,
+  // so a rule raised in Settings still lost to a longer built-in.
+  const combined = [...learned, ...DEFAULT_FAMILY_KEYWORDS.map(([k, f]) => [k, f, 0])]
+    .sort((a, b) => (b[2] - a[2]) || (b[0].length - a[0].length));
   for (const [kw, fam] of combined) if (matches(kw)) return fam;
   return '';
 }
@@ -254,7 +350,18 @@ function ctLearnFamily(name, family) {
   const hasModifier = words.length > 1 && (CT_GENERIC_FAMILY_MODIFIERS.includes(words[0]) || CT_GENERIC_FAMILY_MODIFIERS.includes(words[1]));
   const learnKey = hasModifier ? (words[0] + ' ' + words[1]) : words[0];
   if (learnKey && learnKey.length > 1) {
-    ctData.familyKeywords[learnKey] = trimmed;
+    ctData.familyKeywords[learnKey] = trimmed;   // kept for older builds
+    if (typeof bbSettings !== 'undefined' && bbSettings.family) {
+      const f = bbSettings.family;
+      // With auto-learn off the rule waits in Settings to be approved. A rule
+      // learned from one mis-typed Family used to apply to every future item
+      // beginning with that word, with nowhere to see it and no way to undo.
+      const list = (typeof bbFamilyAutoLearn === 'function' && bbFamilyAutoLearn()) ? f.rules : f.pending;
+      const at = list.find(r => r.keyword === learnKey);
+      if (at) at.family = trimmed;
+      else list.push({ keyword: learnKey, family: trimmed, priority: 0, at: Date.now() });
+      if (typeof bbSettingsWriteCache === 'function') bbSettingsWriteCache();
+    }
   }
   ctSave();
 }
@@ -419,7 +526,7 @@ function ctBuildUploadCardHtml(p, idx) {
         </select>${stemsInput ? ' ' + stemsInput : ''}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateUploadItemCat(${idx}, ${i}, this.value)">
-          ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+          ${ctCategoryOptions(item.category)}
         </select>
       </div>
       <div class="ct-item-family">
@@ -2419,11 +2526,12 @@ function renderCtGmailPanel() {
 
   const grid = document.getElementById('ct-markup-inputs');
   if (grid) {
-    grid.innerHTML = CT_CATEGORIES.map(c => `
+    // The live categories, in the owner's order, at the markup Settings holds.
+    grid.innerHTML = ctCategories().map(c => `
       <div class="form-group" style="margin:0">
-        <label style="font-size:0.72rem;color:var(--mist)">${c}</label>
+        <label style="font-size:0.72rem;color:var(--mist)">${escHtml(c)}</label>
         <div style="display:flex;align-items:center;gap:4px">
-          <input type="number" step="0.1" min="0" id="ct-markup-${c}" value="${ctData.markup[c] ?? CT_DEFAULT_MARKUP[c]}" style="width:100%">
+          <input type="number" step="0.1" min="0" id="ct-markup-${escHtml(c)}" value="${ctCategoryMarkup(c)}" style="width:100%">
           <span style="font-size:0.72rem;color:var(--mist)">×</span>
         </div>
       </div>`).join('');
@@ -2700,13 +2808,22 @@ function ctResetCostData() {
   notify('Cost tracker data reset — connection and markup settings kept');
 }
 
+// Markup is a SETTING now, so this writes settings and lets them reach the
+// sheet -- which is the point: a markup tuned at the office used to mean
+// nothing on the phone, because ctData never leaves the browser it was typed
+// in. ctData.markup is left as it is rather than cleared, so rolling back to
+// an older build finds what it expects.
 function ctSaveMarkup() {
-  CT_CATEGORIES.forEach(c => {
+  ctCategories().forEach(c => {
     const input = document.getElementById(`ct-markup-${c}`);
     const num = parseFloat(input?.value);
-    ctData.markup[c] = isNaN(num) ? CT_DEFAULT_MARKUP[c] : num;
+    const val = isNaN(num) ? ctCategoryMarkup(c) : num;
+    const row = bbCategoryList().find(x => x.name === c);
+    if (row) row.markup = val;
+    ctData.markup[c] = val;
   });
   ctSave();
+  if (typeof bbSettingsSave === 'function') bbSettingsSave();
   notify('Markup saved');
 }
 
@@ -2957,7 +3074,7 @@ function ctComparablePrice(item) {
 }
 
 function ctSuggestedRetail(item) {
-  const markup = ctData.markup[item.category] ?? CT_DEFAULT_MARKUP[item.category] ?? 2;
+  const markup = ctCategoryMarkup(item.category);
   const unitPrice = item.unit_price ?? item.unitPrice ?? 0;
   if (ctIsPerStem(item)) {
     return ctPerStemCost(item) * markup; // per-stem suggested retail
@@ -3065,7 +3182,7 @@ function ctBuildGmailCardHtml(inv, invIdx) {
         ${ctIssuesHtml(item, `ctUpdateGmailItemUom(${invIdx}, ${itemIdx}, 'Bunch')`)}</div>
       <div class="ct-item-cat">
         <select onchange="ctUpdateGmailItemCat(${invIdx}, ${itemIdx}, this.value)">
-          ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+          ${ctCategoryOptions(item.category)}
         </select>
       </div>
       <div class="ct-item-family">
@@ -4406,8 +4523,7 @@ function renderCtDashboard() {
   }
 
   // Spend by category
-  const byCat = {};
-  CT_CATEGORIES.forEach(c => byCat[c] = 0);
+  const byCat = ctSpendByCategory(invoices);
   const bySupplier = {};
   const byMonth = {};
   let deliveryFeeTotal = 0;
@@ -4417,9 +4533,6 @@ function renderCtDashboard() {
     const mo = ctEffDate(inv) ? ctEffDate(inv).slice(0,7) : 'unknown';
     byMonth[mo] = (byMonth[mo]||0) + inv.total;
     deliveryFeeTotal += (inv.deliveryFee || 0);
-    inv.items.forEach(item => {
-      byCat[item.category] = (byCat[item.category]||0) + item.total;
-    });
   });
 
   const grandTotal = Object.values(byCat).reduce((a,b)=>a+b,0) + deliveryFeeTotal;
@@ -4427,13 +4540,13 @@ function renderCtDashboard() {
   // Categories to actually display: any with real spend, including legacy ones
   // (e.g. old "Hardgoods" entries from before the category list changed) so nothing
   // silently vanishes from the breakdown just because the master list moved on.
-  const displayCats = [...new Set([...CT_CATEGORIES, ...Object.keys(byCat)])].filter(c => byCat[c] > 0);
+  const displayCats = [...new Set([...ctAllCategories(), ...Object.keys(byCat)])].filter(c => byCat[c] > 0);
 
   // KPI row
   const kpiRow = document.getElementById('ct-kpi-row');
   if (kpiRow) {
     kpiRow.innerHTML = displayCats.map(c => `
-      <div class="ct-kpi" style="border-left:3px solid ${CT_COLORS[c]||'#888899'}">
+      <div class="ct-kpi" style="border-left:3px solid ${ctCategoryColour(c)}">
         <div class="kpi-label">${escHtml(c)}</div>
         <div class="kpi-value" style="font-size:1.3rem">$${(byCat[c]||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
         <div class="kpi-sub">${grandTotal > 0 ? ((byCat[c]||0)/grandTotal*100).toFixed(1)+'% of total' : '—'}</div>
@@ -4460,7 +4573,7 @@ function renderCtDashboard() {
         type: 'doughnut',
         data: {
           labels: nonZeroCats,
-          datasets: [{ data: nonZeroCats.map(c => byCat[c]), backgroundColor: nonZeroCats.map(c => CT_COLORS[c]||'#888'), borderWidth: 2, borderColor: '#fff' }]
+          datasets: [{ data: nonZeroCats.map(c => byCat[c]), backgroundColor: nonZeroCats.map(c => ctCategoryColour(c)), borderWidth: 2, borderColor: '#fff' }]
         },
         options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ font:{size:11}, boxWidth:12 } } } }
       });
@@ -4548,9 +4661,10 @@ function renderCtMargin(invoices) {
         const rev = retail * effectiveUnits;
         costWithRetail += ctLineTotal(item);
         revenueWithRetail += rev;
-        if (!byCat[item.category]) byCat[item.category] = { cost: 0, revenue: 0 };
-        byCat[item.category].cost += ctLineTotal(item);
-        byCat[item.category].revenue += rev;
+        const cat = ctCategoryNow(item.category);
+        if (!byCat[cat]) byCat[cat] = { cost: 0, revenue: 0 };
+        byCat[cat].cost += ctLineTotal(item);
+        byCat[cat].revenue += rev;
         if (!byItem[key]) byItem[key] = { name: item.name, category: item.category, cost: 0, revenue: 0 };
         byItem[key].cost += ctLineTotal(item);
         byItem[key].revenue += rev;
@@ -4734,7 +4848,8 @@ function ctComputeWeeklySummary() {
 
   const byCategory = {};
   weekInvoices.forEach(inv => inv.items.forEach(item => {
-    byCategory[item.category] = (byCategory[item.category]||0) + item.total;
+    const cat = ctCategoryNow(item.category);
+    byCategory[cat] = (byCategory[cat]||0) + item.total;
   }));
 
   // Budget: seasonal baseline (same calendar month, prior years) if available,
@@ -4906,7 +5021,7 @@ function ctRenderEditInvoice() {
       </div>
       <div class="ct-item-cat">
         <select onchange="ctEditUpdateItemField(${i}, 'category', this.value)">
-          ${CT_CATEGORIES.map(c => `<option value="${c}" ${c===item.category?'selected':''}>${c}</option>`).join('')}
+          ${ctCategoryOptions(item.category)}
         </select>
       </div>
       <div class="ct-item-family">
@@ -5500,7 +5615,7 @@ function renderCtPrices() {
   // Populate category dropdown (hidden — used as state, tabs are the visible UI)
   const catSel = document.getElementById('ct-price-cat');
   if (catSel && catSel.options.length <= 1) {
-    catSel.innerHTML = `<option value="all">All Categories</option>` + CT_CATEGORIES.map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+    catSel.innerHTML = `<option value="all">All Categories</option>` + ctCategories().map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
   }
 
   // Build category tabs — only show ones that actually have items, so 15 possible
@@ -5508,8 +5623,8 @@ function renderCtPrices() {
   const tabsEl = document.getElementById('ct-price-tabs');
   if (tabsEl) {
     const catsWithData = [...new Set(ctData.invoices.flatMap(inv => inv.items.map(i=>i.category)))];
-    const orderedCats = CT_CATEGORIES.filter(c => catsWithData.includes(c))
-      .concat(catsWithData.filter(c => !CT_CATEGORIES.includes(c))); // legacy categories too
+    const orderedCats = ctAllCategories().filter(c => catsWithData.includes(c))
+      .concat(catsWithData.filter(c => !ctAllCategories().includes(c))); // legacy categories too
     const counts = {};
     ctData.invoices.forEach(inv => inv.items.forEach(i => { counts[i.category] = (counts[i.category]||0)+1; }));
 

@@ -59,7 +59,7 @@ function salesTaxIsPassthrough(allTx) {
 // understates it. Derived here the same way the sales tax return does.
 function salesTaxCollected(year) {
   if (typeof dsMonth !== 'function' || typeof dsTaxMode !== 'function') return null;
-  const rate = typeof DS_TAX_RATE === 'number' ? DS_TAX_RATE : 0.08375;
+  const rate = bbTaxRate();
   let entered = 0, derived = 0, sawAny = false;
   for (let m = 0; m < 12; m++) {
     const days = dsMonth(year, m) || {};
@@ -378,7 +378,9 @@ function hcInvoiceCost(year, month) {
     (inv.items || []).forEach(it => {
       const line = typeof ctLineTotal === 'function' ? ctLineTotal(it)
                  : (it.total != null ? it.total : (it.qty || 0) * (it.unitPrice || 0));
-      byCat[it.category || 'Other'] = (byCat[it.category || 'Other'] || 0) + line;
+      const cat = typeof ctCategoryNow === 'function'
+        ? ctCategoryNow(it.category || 'Other') : (it.category || 'Other');
+      byCat[cat] = (byCat[cat] || 0) + line;
       items.push({ name: it.name, qty: it.qty, uom: it.uom,
                    unit: typeof ctEffectiveUnit === 'function' ? ctEffectiveUnit(it) : it.unitPrice,
                    total: line, supplier: inv.supplier, date: eff(inv), invId: inv.id });

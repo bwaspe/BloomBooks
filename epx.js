@@ -303,7 +303,7 @@ const EPX_SALE_LOOKBACK_DAYS = 4;
 const EPX_CHANNEL = 'epx';
 
 function epxTaxRate() {
-  return typeof DS_TAX_RATE === 'number' ? DS_TAX_RATE : 0.08375;
+  return bbTaxRate();
 }
 
 // Day-book entries for the EPX channel over a date range. Day keys carry no
