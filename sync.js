@@ -601,6 +601,10 @@ function finalizeInit() {
   // whatever the sheet's list happens to hold.
   if (typeof ensureCurrentYear === 'function') ensureCurrentYear();
 
+  // There is a sign-in now, so the Settings tab can be read. Until this point
+  // the app has been running on this browser's cached copy.
+  if (typeof bbSettingsLoad === 'function') bbSettingsLoad();
+
   const editCatSel = document.getElementById('edit-category');
   if (editCatSel) editCatSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
   updateYearSelects();

@@ -38,6 +38,11 @@ function initApp() {
   setTimeout(autoBackup, 3000);
   // OAuth will call finalizeInit() when cloud data is loaded
 
+  // Settings: this browser's cached copy immediately, so every module has one
+  // object to read from before anything renders. The sheet's copy replaces it
+  // once there is a sign-in to read it with; see settings.js.
+  if (typeof bbSettingsLoad === 'function') bbSettingsLoad();
+
   // Silent check for new Gmail-scanned invoices, if a Sheet is connected
   if (ctData.gmailSheetId) setTimeout(() => ctFetchGmailInvoices(true), 1500);
   setTimeout(() => ctPushWeeklySummary(), 3000);

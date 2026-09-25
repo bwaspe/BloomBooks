@@ -124,6 +124,7 @@ function switchPanel(panelId) {
       if (panelId === 'ct-upload' && typeof renderCtTemplates === 'function') renderCtTemplates();
       if (panelId === 'ct-prices')    renderCtPrices();
       if (panelId === 'ct-colours' && typeof renderColourBuying === 'function') renderColourBuying();
+      if (panelId === 'settings' && typeof renderSettingsPanel === 'function') renderSettingsPanel();
       if (panelId === 'ct-gmail')     renderCtGmailPanel();
     }
   }
