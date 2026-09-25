@@ -15,17 +15,66 @@ const CT_DEFAULT_MARKUP = { Flowers: 3, Greens: 3, Plants: 2.5, Glass: 2, Cerami
 let ctData = { invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {...CT_DEFAULT_MARKUP}, gmailSheetId: '', appsScriptUrl: '', importedGmailIds: [], dismissedStaleMargins: {}, templates: [], supplierAliases: {}, noInvoiceVendors: {}, reconcileFrom: '', gmailCoverage: null, dismissedRepairs: {} };
 let ctCharts = {};
 
+// WHY THIS FILE SHOUTS WHEN STORAGE FAILS.
+//
+// The cost tracker lives in this browser and nowhere else: sync.js sends
+// appData to the Sheet, never ctData. So localStorage is not a cache here, it
+// is the only copy -- and both of these functions used to end in `catch(e) {}`.
+// A full quota threw away the save in silence; a corrupt value threw away the
+// read in silence and left the app looking like a cost tracker with nothing in
+// it. On the owner's phone that is exactly what it looked like, and the real
+// reason was simpler: that browser never had the data, because nothing syncs
+// it. Saying so is the whole point of these three states.
+let ctStorageState = null;   // { kind, detail } — read by ctStorageWarningHtml
+
 function ctSave() {
-  try { localStorage.setItem('bb_ctdata',
+  try {
+    localStorage.setItem('bb_ctdata',
       // Underscore-prefixed keys are working state -- the alternative reading of
       // a quantity edit, and anything like it -- and must not be persisted.
-      JSON.stringify(ctData, (k, v) => (k.charAt(0) === '_' ? undefined : v))); } catch(e) {}
+      JSON.stringify(ctData, (k, v) => (k.charAt(0) === '_' ? undefined : v)));
+    if (ctStorageState && ctStorageState.kind === 'save') ctStorageState = null;
+    return true;
+  } catch (e) {
+    // Named rather than described: a quota failure and a private-window
+    // failure need different answers, and "could not save" gives neither.
+    ctStorageState = { kind: 'save', detail: (e && (e.name || e.message)) || 'unknown' };
+    if (typeof notify === 'function') notify('Cost tracker could NOT be saved — see the red banner', true);
+    if (typeof renderCtStorageWarning === 'function') renderCtStorageWarning();
+    return false;
+  }
 }
+
 function ctLoad() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem('bb_ctdata');
-    if (raw) ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, dismissedRepairs:{}, ...JSON.parse(raw) };
-  } catch(e) {}
+    raw = localStorage.getItem('bb_ctdata');
+  } catch (e) {
+    ctStorageState = { kind: 'read', detail: (e && (e.name || e.message)) || 'unknown' };
+    return;
+  }
+  if (!raw) {
+    // Nothing stored. Not an error -- but on a second device it is the whole
+    // explanation, so it is a state rather than a silence.
+    ctStorageState = { kind: 'empty' };
+    return;
+  }
+  try {
+    ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, dismissedRepairs:{}, ...JSON.parse(raw) };
+    ctStorageState = null;
+  } catch (e) {
+    // The stored copy is unreadable, and it is the ONLY copy. Keep it before
+    // anything writes over it: the next ctSave would otherwise replace a
+    // damaged 286KB of invoices with an empty object, and the damage is
+    // frequently recoverable by hand where an overwrite never is.
+    try {
+      if (!localStorage.getItem('bb_ctdata_unreadable')) {
+        localStorage.setItem('bb_ctdata_unreadable', raw);
+      }
+    } catch (e2) { /* no room to keep it; the original is still in place */ }
+    ctStorageState = { kind: 'corrupt', detail: (e && e.message) || 'could not be read',
+                       bytes: raw.length };
+  }
 }
 
 // --- What the invoice reader returns ---
@@ -3884,6 +3933,53 @@ function ctAccountNote(row, fee) {
 // the pairs that already match exactly -- the same habit ctSettlementWindow
 // reads. A supplier with too few matches gets the grace the rest of the
 // tracker uses rather than a guess.
+// The three states above, in words, at the top of the cost tracker. Deliberately
+// not a toast: a toast fades, and every one of these outlasts the moment.
+function ctStorageWarningHtml() {
+  const s = ctStorageState;
+  if (!s) return '';
+  const box = (colour, bg, title, body) => `
+    <div style="margin-bottom:16px;padding:12px 14px;border-radius:8px;background:${bg};
+                border:1px solid ${colour};font-size:0.82rem;line-height:1.5">
+      <strong style="color:${colour}">${title}</strong><br>${body}
+    </div>`;
+
+  if (s.kind === 'save') {
+    return box('var(--red)', '#fdecea', 'Nothing you change here is being saved.',
+      `The browser refused to store it (<code>${escHtml(s.detail)}</code>). ` +
+      `Usually that means storage is full, or this is a private window. ` +
+      `Use <strong>Export JSON</strong> in the header NOW to get a copy out, ` +
+      `before closing the tab.`);
+  }
+  if (s.kind === 'read') {
+    return box('var(--red)', '#fdecea', 'The cost tracker could not be read.',
+      `The browser refused to open its storage (<code>${escHtml(s.detail)}</code>). ` +
+      `Nothing has been lost; this page simply cannot see it. A normal, ` +
+      `non-private window on this computer should.`);
+  }
+  if (s.kind === 'corrupt') {
+    return box('var(--red)', '#fdecea', 'The stored cost tracker is damaged.',
+      `${(s.bytes || 0).toLocaleString()} characters were stored but could not be ` +
+      `read back (<code>${escHtml(s.detail)}</code>). The damaged copy has been kept ` +
+      `under <code>bb_ctdata_unreadable</code> so it can be recovered — do not clear ` +
+      `this browser's data. Restore your most recent <strong>Import JSON</strong> ` +
+      `backup, or send me the kept copy.`);
+  }
+  // 'empty' — the phone case, and the one that used to look like a fault.
+  return box('var(--amber)', '#fff8e1', 'No cost tracker data in this browser.',
+    `Invoices, prices and colour fixes are stored in the browser they were entered ` +
+    `in — they are not in the Google Sheet, so signing in does not bring them ` +
+    `across. On a second device, or after a browser clears its storage, the cost ` +
+    `tracker starts empty while the rest of the book loads normally. ` +
+    `<strong>Import JSON</strong> in the header restores it from a backup file.`);
+}
+
+function renderCtStorageWarning() {
+  const el = document.getElementById('ct-storage-warning');
+  if (!el) return;
+  el.innerHTML = ctStorageWarningHtml();
+}
+
 function ctSettleDays(supplier, lags) {
   let seen = [];
   const all = lags || ctVendorLags();
@@ -4295,6 +4391,7 @@ function ctExplainedPaymentsHtml(rows) {
 }
 
 function renderCtDashboard() {
+  renderCtStorageWarning();
   renderCtMissingInvoices();
   renderCtSupplierAccount();
   renderCtCounting();
