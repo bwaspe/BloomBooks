@@ -172,6 +172,15 @@ console.log('\nwho may write');
   t('the claim is the id, not the readable name',
     a.sb.ctSyncDevice() === 'office' && a.sb.ctSyncDeviceLabel() !== 'office',
     a.sb.ctSyncDeviceLabel());
+
+  // A browser that has never had an id is precisely the one being set up. It
+  // has to be able to claim, rather than be told it cannot be identified by
+  // the screen where the claim button is.
+  const fresh = app(null);
+  fresh.sb.bbSettingsLoad();
+  const id = fresh.sb.ctSyncDevice();
+  t('a brand new browser is given an id rather than refused', !!id, id);
+  t('and keeps the same one next time', fresh.sb.ctSyncDevice() === id);
 }
 
 console.log('\na change on a reader does not stick, and says so');

@@ -121,6 +121,12 @@ function ctSyncSettings() {
 // reader overnight -- silently, and the cost tracker would simply stop being
 // saved. The readable name is kept alongside, for display only.
 function ctSyncDevice() {
+  // auditDevice() is what CREATES bb_device_id on a browser that has never had
+  // one. Reading the key without calling it first means a fresh browser --
+  // exactly the one being set up -- reports no identity and is refused the
+  // claim with "this browser cannot be identified", which is both wrong and
+  // unfixable from the screen it appears on.
+  if (typeof auditDevice === 'function') { try { auditDevice(); } catch (e) {} }
   try { return localStorage.getItem('bb_device_id') || ''; } catch (e) { return ''; }
 }
 
