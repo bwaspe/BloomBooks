@@ -129,6 +129,10 @@ function ctSave() {
       // a quantity edit, and anything like it -- and must not be persisted.
       JSON.stringify(ctData, (k, v) => (k.charAt(0) === '_' ? undefined : v)));
     if (ctStorageState && ctStorageState.kind === 'save') ctStorageState = null;
+    // Recorded against the copy as it stood after the previous save, so a
+    // change is caught however it was made. Before the push, so what reaches
+    // the sheet includes the entry describing it.
+    if (typeof ctHistoryCapture === 'function') ctHistoryCapture();
     // The browser copy is written first and the sheet follows, debounced --
     // so a failed or slow push never costs the change itself.
     if (typeof ctSyncPush === 'function') ctSyncPush();
@@ -160,6 +164,7 @@ function ctLoad() {
   try {
     ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, dismissedRepairs:{}, ...JSON.parse(raw) };
     ctStorageState = null;
+    if (typeof ctHistoryReset === 'function') ctHistoryReset(ctData);
   } catch (e) {
     // The stored copy is unreadable, and it is the ONLY copy. Keep it before
     // anything writes over it: the next ctSave would otherwise replace a
@@ -1148,6 +1153,7 @@ function ctApplyRepairs() {
     `This rewrites saved invoices and cannot be undone automatically. ` +
     `Download a backup first if you want one.`)) return;
 
+  if (typeof ctHistorySay === 'function') ctHistorySay('Repaired pack lines');
   r.packLines.forEach(p => {
     p.inv.items[p.i].total = p.to;
     // The invoice total was computed from the broken line and is short by the
@@ -1211,6 +1217,7 @@ function ctAdoptLineTotal(invId) {
     `${fmt(lines)}${inv.deliveryFee ? ' plus ' + fmt(inv.deliveryFee) + ' delivery' : ''}.\n\n` +
     `Do this when a line was corrected and the total did not follow. If instead ` +
     `a line is duplicated, fix the line rather than the total.`)) return;
+  if (typeof ctHistorySay === 'function') ctHistorySay('Used the line totals');
   inv.total = Math.round(should * 100) / 100;
   ctSave();
   notify(`Invoice set to ${fmt(inv.total)}`);
@@ -2948,6 +2955,7 @@ function ctResetCostData() {
   try { ctExportBackup(); } catch (e) { /* the browser copy below is the real net */ }
   try { localStorage.setItem(CT_RESET_BACKUP_KEY, before); } catch (e) { /* no room; the file stands */ }
 
+  if (typeof ctHistorySay === 'function') ctHistorySay('Cleared the cost tracker');
   Object.keys(CT_RESET_CLEARS).forEach(k => { ctData[k] = CT_RESET_CLEARS[k](); });
   ctSave();
   renderCtGmailPanel();
@@ -2969,6 +2977,7 @@ function ctUndoReset() {
   try { raw = localStorage.getItem(CT_RESET_BACKUP_KEY); } catch (e) {}
   if (!raw) { notify('There is no pre-reset copy in this browser', true); return; }
   if (!confirm('Put the cost tracker back as it was before the reset?')) return;
+  if (typeof ctHistorySay === 'function') ctHistorySay('Undid the reset');
   try {
     ctData = JSON.parse(raw);
   } catch (e) {
@@ -2976,6 +2985,7 @@ function ctUndoReset() {
     return;
   }
   ctSave();
+  if (typeof ctHistoryReset === 'function') ctHistoryReset(ctData);
   try { localStorage.removeItem(CT_RESET_BACKUP_KEY); } catch (e) {}
   renderCtGmailPanel();
   renderCtDashboard();
@@ -5328,6 +5338,11 @@ function ctRenderEditInvoice() {
       <div style="padding:10px 18px;border-top:1px dashed var(--border)">
         <button class="btn btn-outline btn-sm" onclick="ctEditAddItem()">+ Add Item</button>
       </div>
+      <!-- Beside the invoice, because that is where the question gets asked:
+           "I fixed the line and the total did not move". -->
+      <div style="padding:10px 18px;border-top:1px solid var(--border);background:var(--paper)">
+        ${typeof ctHistoryHtml === 'function' ? ctHistoryHtml(inv.id) : ''}
+      </div>
     </div>`;
 }
 
@@ -5452,6 +5467,7 @@ function ctSaveEditedInvoice() {
     discountPct: ctLineDiscount(i) || undefined, total: ctLineTotal(i)
   }));
 
+  if (typeof ctHistorySay === 'function') ctHistorySay('Edited the invoice');
   ctData.invoices[idx] = editing;
   ctSave();
   window._ctEditingInvoice = null;
