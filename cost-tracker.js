@@ -1166,6 +1166,93 @@ function ctApplyRepairs() {
          `and filed ${r.feeGaps.length} delivery charge${r.feeGaps.length === 1 ? '' : 's'}`);
 }
 
+// The lines add up to MORE than the invoice says it came to.
+//
+// ctRepairs already computes this exact number and only ever looks at the
+// POSITIVE side of it, where a stated total exceeds the lines and the
+// difference is an unfiled delivery charge. The other direction had no home,
+// and that is the direction a CORRECTED LINE goes: Juliet rang a Cremon order
+// as 2 stems instead of 20, phoned to say so, the line was put right by hand
+// -- and the invoice total stayed at what the wrong quantity had produced,
+// because a total read off a document is deliberately not moved by a line
+// edit. Nothing said the two now disagreed. It surfaced five weeks later as a
+// bank reconciliation that would not close, $18.00 out.
+//
+// Worth having precisely because it is quiet: 229 of the shop's 230 invoices
+// agree with their own lines to within two cents. One does.
+function ctTotalOvershoots() {
+  const out = [];
+  (ctData.invoices || []).forEach(inv => {
+    if (ctRepairDismissed(inv.id, '__total__')) return;
+    const lines = (inv.items || []).reduce((s, it) => s + ctLineTotal(it), 0);
+    const fee = inv.deliveryFee || 0;
+    const over = (lines + fee) - (inv.total || 0);
+    if (over > 0.02) {
+      out.push({ inv, id: inv.id, over, stated: inv.total || 0, lines, fee,
+                 should: lines + fee, date: ctEffDate(inv) });
+    }
+  });
+  return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+// Never part of "Repair all of them". The two repairs beside it are certain --
+// a pack multiplier either applies or it does not. This one has two possible
+// causes with opposite fixes: a line corrected upward (take the lines) or a
+// line counted twice (fix the line). Only the person who has seen the paper
+// knows which, so it is one invoice, one deliberate click.
+function ctAdoptLineTotal(invId) {
+  const inv = (ctData.invoices || []).find(i => i.id === invId);
+  if (!inv) return;
+  const lines = (inv.items || []).reduce((s, it) => s + ctLineTotal(it), 0);
+  const should = lines + (inv.deliveryFee || 0);
+  if (!confirm(
+    `Set this invoice to ${fmt(should)}?\n\n` +
+    `It currently says ${fmt(inv.total || 0)}, but its lines add up to ` +
+    `${fmt(lines)}${inv.deliveryFee ? ' plus ' + fmt(inv.deliveryFee) + ' delivery' : ''}.\n\n` +
+    `Do this when a line was corrected and the total did not follow. If instead ` +
+    `a line is duplicated, fix the line rather than the total.`)) return;
+  inv.total = Math.round(should * 100) / 100;
+  ctSave();
+  notify(`Invoice set to ${fmt(inv.total)}`);
+  renderCtDashboard();
+  renderCtPrices();
+  if (typeof renderCtRepairs === 'function') renderCtRepairs();
+}
+
+function ctTotalOvershootHtml() {
+  let rows;
+  try { rows = ctTotalOvershoots(); } catch (e) { return ''; }
+  if (!rows.length) return '';
+  return `
+    <div style="margin-bottom:14px;padding:10px 12px;border-radius:8px;background:#fff8e1;border:1px solid var(--amber)">
+      <strong style="font-size:0.82rem">${rows.length} invoice${rows.length === 1 ? ' does' : 's do'} not add up to ${rows.length === 1 ? 'its' : 'their'} own total</strong>
+      <div style="font-size:0.73rem;color:var(--ink-soft);margin:3px 0 8px">
+        The lines come to more than the invoice says. Usually a line that was put
+        right after the invoice was saved — the total is left alone on purpose
+        when it was read off the supplier's own document, so it has to be moved
+        deliberately. Check the paper first: if a line is duplicated instead,
+        fix the line.
+      </div>
+      <ul style="margin:4px 0 0 18px;color:var(--ink-soft);font-size:0.75rem;max-height:150px;overflow:auto">
+        ${rows.map(r => `<li style="margin-bottom:4px">
+          ${escHtml(r.date)} · ${escHtml(String(r.inv.supplier || '').slice(0, 22))}
+          ${r.inv.invoiceNumber ? '#' + escHtml(String(r.inv.invoiceNumber).slice(0, 14)) : ''}
+          — says <strong>${fmt(r.stated)}</strong>, lines come to <strong>${fmt(r.should)}</strong>
+          (${fmt(r.over)} out)
+          <span style="white-space:nowrap;margin-left:6px">
+            <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+                    onclick="ctAdoptLineTotal('${ctJsArg(r.id)}')">use the lines</button>
+            <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+                    onclick="ctOpenInvoice('${ctJsArg(r.id)}')">open</button>
+            <button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:1px 7px"
+                    onclick="ctDismissRepair('${ctJsArg(r.id)}', '__total__')"
+                    title="It is correct as it stands — stop flagging it">leave</button>
+          </span>
+        </li>`).join('')}
+      </ul>
+    </div>`;
+}
+
 function ctDismissedRepairHtml() {
   const n = Object.keys(ctData.dismissedRepairs || {}).length;
   if (!n) return '';
@@ -1180,7 +1267,7 @@ function renderCtRepairs() {
   try { r = ctRepairs(); } catch (e) { el.innerHTML = ''; return; }
   if (!r.packLines.length && !r.feeGaps.length) {
     el.innerHTML = `<div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
-      No saved invoice needs repair.${ctDismissedRepairHtml()}</div>` + ctDroppedDiscountHtml();
+      No saved invoice needs repair.${ctDismissedRepairHtml()}</div>` + ctTotalOvershootHtml() + ctDroppedDiscountHtml();
     return;
   }
   const added = r.packLines.reduce((s, p) => s + (p.to - p.from), 0);
@@ -1220,7 +1307,7 @@ function renderCtRepairs() {
         </div>` : ''}
       <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="ctApplyRepairs()">Repair all of them</button>
       ${ctDismissedRepairHtml()}
-    </div>` + ctDroppedDiscountHtml();
+    </div>` + ctTotalOvershootHtml() + ctDroppedDiscountHtml();
 }
 
 // Kept in its own panel with its own button, because unlike the two above this
