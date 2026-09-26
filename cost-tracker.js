@@ -4237,9 +4237,21 @@ function ctSettleDays(supplier, lags) {
   let seen = [];
   const all = lags || ctVendorLags();
   Object.keys(all).forEach(sup => { if (ctSameVendor(supplier, sup)) seen = seen.concat(all[sup]); });
-  if (seen.length < CT_LAG_MIN_SAMPLES) return CT_GRACE_DAYS;
   const max = seen.reduce((m, d) => Math.max(m, d), 0);
-  return Math.min(CT_LAG_BACK, Math.max(1, max) + 1);
+  const observed = Math.min(CT_LAG_BACK, Math.max(1, max) + 1);
+  // THE WINDOW IS NEVER NARROWER THAN A SETTLEMENT ACTUALLY SEEN. Too few
+  // samples used to throw the observations away and fall back to the default
+  // five days, which is how Juliet came to show a false discrepancy: three
+  // samples, one of them an eight-day lag, and a 3 September delivery paid on
+  // the 11th together with the 10th's -- $75.50 + $166.75 landing on $242.25
+  // to the cent. The evidence that would have joined them was in hand and
+  // discarded for being sparse.
+  //
+  // Widening is safe HERE in a way it would not be for a fuzzy match: the
+  // settlement pass only joins days whose running total lands on zero to the
+  // cent, so a longer reach lets it find a real pairing rather than inventing
+  // one. With no samples at all this still answers the default, unchanged.
+  return seen.length < CT_LAG_MIN_SAMPLES ? Math.max(CT_GRACE_DAYS, observed) : observed;
 }
 
 function ctSupplierAccount(supplier, from, lags) {

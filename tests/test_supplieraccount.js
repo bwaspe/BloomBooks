@@ -191,5 +191,48 @@ console.log('\nthe real book, 3 and 4 August');
   }
 }
 
+
+console.log('\na settlement you have actually seen is never forgotten');
+{
+  // Juliet, 2026. Three lag samples, one of them eight days -- and because
+  // three is fewer than CT_LAG_MIN_SAMPLES the window fell back to the
+  // five-day default and the observations were thrown away. So a 3 September
+  // delivery paid on the 11th alongside the 10th's, landing on $242.25 to the
+  // cent, was reported as two days short and one day unexplained.
+  const invoices = [
+    inv('2026-08-05', '2001', 50),      // two short lags, to make three samples
+    inv('2026-08-12', '2002', 60),
+    inv('2026-08-20', '2003', 70),      // and the eight-day one
+    inv('2026-09-03', '2004', 75.50),
+    inv('2026-09-10', '2005', 166.75)
+  ];
+  const txs = [
+    pay('2026-08-06', 50), pay('2026-08-13', 60), pay('2026-08-28', 70),
+    pay('2026-09-11', 242.25)   // covers BOTH September deliveries
+  ];
+  const sb = makeApp(invoices, txs);
+  const seen = sb.ctVendorLags()['Perri Farms'] || [];
+  t('the eight-day settlement really is among the samples', seen.indexOf(8) >= 0,
+    JSON.stringify(seen));
+  t('so the window reaches that far even on three samples',
+    sb.ctSettleDays('Perri Farms') >= 9, sb.ctSettleDays('Perri Farms'));
+
+  const a = sb.ctSupplierAccount('Perri Farms', '2026-09-01');
+  const kinds = ['2026-09-03', '2026-09-10', '2026-09-11'].map(d => row(a, d).kind);
+  t('and the two deliveries settle against the single charge',
+    kinds.every(k => k === 'settled'), kinds.join(','));
+  t('leaving nothing flagged',
+    (a.rows || []).filter(r => r.diff && r.kind !== 'settled' && !r.recent).length === 0);
+}
+
+console.log('\nbut a supplier with no history still gets the plain default');
+{
+  // Widening only ever follows evidence. With nothing observed the answer is
+  // unchanged, or every new supplier would start with the widest reach.
+  const sb = makeApp([inv('2026-09-03', '3001', 40)], []);
+  t('no samples, so the default window stands', sb.ctSettleDays('Perri Farms') === 5,
+    sb.ctSettleDays('Perri Farms'));
+}
+
 console.log(fail.length ? '\n' + fail.length + ' FAILURES:\n' + fail.join('\n') : '\nall assertions passed');
 process.exit(fail.length ? 1 : 0);
