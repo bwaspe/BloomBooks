@@ -71,12 +71,16 @@ console.log('it says what is going, in things anyone can picture');
   const a = app();
   const parts = a.sb.ctResetSummary(get(a, 'ctData'));
   t('the invoices are named and counted', parts.some(p => /^2 invoices$/.test(p)), parts.join(' / '));
-  t('so are the remembered names', parts.some(p => /remembered item names/.test(p)));
-  t('the retail prices', parts.some(p => /retail prices/.test(p)));
-  t('the learned rules', parts.some(p => /learned family rules/.test(p)));
+  t('so are the remembered names', parts.some(p => /remembered item name/.test(p)));
+  t('the retail prices', parts.some(p => /retail price/.test(p)));
+  t('the learned rules', parts.some(p => /learned family rule/.test(p)));
   t('and the dismissed warnings are added up across all three lists',
     parts.some(p => /^2 dismissed warnings$/.test(p)), parts.join(' / '));
 
+  // The sentence somebody reads before destroying something.
+  const one = a.sb.ctResetSummary({ invoices: [{ id: 'x' }], retail: { a: 1 }, catalog: {} });
+  t('one of a thing is counted as one, not one things',
+    one.join(' / ') === '1 invoice / 1 retail price', one.join(' / '));
   const empty = a.sb.ctResetSummary({ invoices: [], catalog: {} });
   t('with nothing to lose it says nothing', empty.length === 0);
 }

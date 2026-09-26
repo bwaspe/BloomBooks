@@ -2812,13 +2812,16 @@ function ctResetSummary(data) {
   const d = data || {};
   const n = v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : 0);
   const parts = [];
-  const inv = (d.invoices || []).length;
-  if (inv) parts.push(inv + ' invoice' + (inv === 1 ? '' : 's'));
-  if (n(d.catalog)) parts.push(n(d.catalog) + ' remembered item names');
-  if (n(d.retail)) parts.push(n(d.retail) + ' retail prices');
-  if (n(d.familyKeywords)) parts.push(n(d.familyKeywords) + ' learned family rules');
-  const dismissed = n(d.dismissedStaleMargins) + n(d.dismissedRepairs) + n(d.dismissedPayments);
-  if (dismissed) parts.push(dismissed + ' dismissed warnings');
+  // Counted properly, because this is the sentence somebody reads before
+  // destroying something. "1 retail prices" in that dialog is a small thing
+  // that makes the rest of it read as less careful than it is.
+  const say = (c, one, many) => { if (c) parts.push(c + ' ' + (c === 1 ? one : many)); };
+  say((d.invoices || []).length, 'invoice', 'invoices');
+  say(n(d.catalog), 'remembered item name', 'remembered item names');
+  say(n(d.retail), 'retail price', 'retail prices');
+  say(n(d.familyKeywords), 'learned family rule', 'learned family rules');
+  say(n(d.dismissedStaleMargins) + n(d.dismissedRepairs) + n(d.dismissedPayments),
+      'dismissed warning', 'dismissed warnings');
   return parts;
 }
 
