@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<link rel="stylesheet" href="styles.css?v=20260926i">
+<link rel="stylesheet" href="styles.css?v=20260926j">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -251,8 +251,18 @@ Upload the CSV straight from Chase or Amex — columns are matched by their head
 <h3 style="font-family:'Inter',sans-serif;font-size:0.95rem;margin-bottom:10px;">📚 Active Rules <span id="rule-count" style="color:var(--mist);font-size:0.75rem;"></span></h3>
 <div id="rules-list"></div>
 </div>
-<div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);">
-<strong>🔒 Built-in Rule:</strong> Any transaction containing <code>BARAMI WASPE</code> (Zelle personal) is always ignored during import.
+<div style="margin-top:16px;background:#fffde7;border:1.5px solid var(--accent2);border-radius:8px;padding:14px;font-size:0.73rem;color:var(--ink);line-height:1.5;">
+<strong>🔒 Built-in rules:</strong> money the owner takes out or puts in is
+<em>categorised</em>, never discarded — <code>Zelle payment to Barami</code> files as
+<strong>Owner Draw</strong>, <code>Zelle payment from Barami</code> as
+<strong>Owner Contribution</strong>. They are matched last, so a named supplier always wins first.
+<div style="margin-top:8px;color:var(--ink-soft);">
+This used to ignore anything carrying the owner's name outright. Chase puts the account
+holder in the ACH description, so that quietly threw away real purchases the owner had
+authorised — a flower order and two Amex payments in one statement — and left the books
+unable to tie to the bank balance. A draw taken some other way still falls through
+uncategorised, which is visible and safe.
+</div>
 </div>
 </div>
 
@@ -547,27 +557,27 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260926i"></script>
-<script src="utils.js?v=20260926i"></script>
-<script src="sync.js?v=20260926i"></script>
-<script src="periodlock.js?v=20260926i"></script>
-<script src="audit.js?v=20260926i"></script>
-<script src="versions.js?v=20260926i"></script>
-<script src="ledger.js?v=20260926i"></script>
-<script src="reports.js?v=20260926i"></script>
-<script src="trends.js?v=20260926i"></script>
-<script src="holiday-sync.js?v=20260926i"></script>
-<script src="epx.js?v=20260926i"></script>
-<script src="venmo.js?v=20260926i"></script>
-<script src="payouts.js?v=20260926i"></script>
-<script src="daily-sales.js?v=20260926i"></script>
-<script src="import-trainer.js?v=20260926i"></script>
-<script src="reconcile.js?v=20260926i"></script>
-<script src="cost-tracker.js?v=20260926i"></script>
-<script src="colour-buying.js?v=20260926i"></script>
-<script src="settings.js?v=20260926i"></script>
-<script src="ct-sync.js?v=20260926i"></script>
-<script src="init.js?v=20260926i"></script>
+<script src="config.js?v=20260926j"></script>
+<script src="utils.js?v=20260926j"></script>
+<script src="sync.js?v=20260926j"></script>
+<script src="periodlock.js?v=20260926j"></script>
+<script src="audit.js?v=20260926j"></script>
+<script src="versions.js?v=20260926j"></script>
+<script src="ledger.js?v=20260926j"></script>
+<script src="reports.js?v=20260926j"></script>
+<script src="trends.js?v=20260926j"></script>
+<script src="holiday-sync.js?v=20260926j"></script>
+<script src="epx.js?v=20260926j"></script>
+<script src="venmo.js?v=20260926j"></script>
+<script src="payouts.js?v=20260926j"></script>
+<script src="daily-sales.js?v=20260926j"></script>
+<script src="import-trainer.js?v=20260926j"></script>
+<script src="reconcile.js?v=20260926j"></script>
+<script src="cost-tracker.js?v=20260926j"></script>
+<script src="colour-buying.js?v=20260926j"></script>
+<script src="settings.js?v=20260926j"></script>
+<script src="ct-sync.js?v=20260926j"></script>
+<script src="init.js?v=20260926j"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
