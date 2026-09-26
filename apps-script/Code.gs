@@ -230,6 +230,31 @@ function setupLabelAndTrigger() {
   Logger.log('Setup complete. Label created, sheet header set, daily 6am trigger created.');
 }
 
+// ============================================================
+// IS THIS SCRIPT READING THE SETTINGS TAB? — run this to find out
+// ============================================================
+// Reads nothing, sends nothing, changes nothing. Run it from the editor and
+// read the Execution log.
+//
+// It exists because the alternative check is "add a supplier in BloomBooks and
+// see whether an invoice from them ever appears", which takes days to fail and
+// fails silently. This answers in a second.
+function checkVendorSource() {
+  const fromSheet = readVendorSettings();
+  const live = getVendors();
+  if (fromSheet && fromSheet.length) {
+    Logger.log('READING THE SETTINGS TAB. ' + fromSheet.length +
+               ' supplier(s), set in BloomBooks > Settings:');
+  } else {
+    Logger.log('USING THE BUILT-IN LIST in this file, NOT the Settings tab.');
+    Logger.log('Either nothing has been saved from Settings yet, or the tab ' +
+               'could not be read. ' + live.length + ' supplier(s):');
+  }
+  live.forEach(v => Logger.log('  - ' + v.name + '  (' +
+    (v.email ? v.email : 'label: ' + v.label) + ', ' +
+    (v.mode === 'body' ? 'invoice in the email' : 'invoice as an attachment') + ')'));
+}
+
 // Test a single vendor manually — safe to run any time, doesn't affect the trigger
 function testSingleVendor() {
   const vendor = getVendors()[0]; // change index to test a different vendor
@@ -241,7 +266,17 @@ function testSingleVendor() {
 // MAIN SCAN
 // ============================================================
 function scanInvoices() {
-  getVendors().forEach(vendor => {
+  // Read once and reported, rather than called again for the log -- that would
+  // be a second trip to the sheet on every run, and the two could disagree.
+  const fromSheet = readVendorSettings();
+  const usingSheet = !!(fromSheet && fromSheet.length);
+  const vendors = usingSheet ? fromSheet : VENDORS;
+  // Said on every run, so the Executions log always answers "was it reading
+  // the settings that day" -- the question you only think to ask weeks later,
+  // when a supplier added in Settings turns out never to have been scanned.
+  Logger.log('Suppliers: ' + vendors.length + ' from ' +
+             (usingSheet ? 'the Settings tab' : 'the built-in list in this file'));
+  vendors.forEach(vendor => {
     try {
       processVendor(vendor, false);
     } catch (err) {
