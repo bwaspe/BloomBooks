@@ -603,6 +603,10 @@ function finalizeInit() {
 
   // There is a sign-in now, so the Settings tab can be read. Until this point
   // the app has been running on this browser's cached copy.
+  // Before the settings are read, because this is what says WHERE to read them
+  // from on a device that has no cost tracker data of its own.
+  if (typeof bbShareScannerSheetId === 'function') bbShareScannerSheetId();
+
   if (typeof bbSettingsLoad === 'function') {
     // Chained, not fired alongside: the settings are what name the computer
     // that saves the cost tracker, so starting its sync before they arrive

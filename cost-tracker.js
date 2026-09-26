@@ -2597,6 +2597,9 @@ function ctSaveGmailSettings() {
   ctData.gmailSheetId = val;
   ctData.appsScriptUrl = scriptUrl;
   ctSave();
+  // Into the book too, so a phone can find this sheet without already holding
+  // the cost tracker data that used to be the only place it was written down.
+  if (typeof bbShareScannerSheetId === 'function') bbShareScannerSheetId();
   notify(val ? 'Sheet connected' : 'Sheet disconnected');
   renderCtGmailPanel();
   if (val) ctFetchGmailInvoices();

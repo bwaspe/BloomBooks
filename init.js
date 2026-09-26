@@ -43,8 +43,14 @@ function initApp() {
   // once there is a sign-in to read it with; see settings.js.
   if (typeof bbSettingsLoad === 'function') bbSettingsLoad();
 
-  // Silent check for new Gmail-scanned invoices, if a Sheet is connected
-  if (ctData.gmailSheetId) setTimeout(() => ctFetchGmailInvoices(true), 1500);
+  // Silent check for new Gmail-scanned invoices, if a Sheet is connected --
+  // but never on a device that only READS the cost tracker. Pulling the saved
+  // copy brings the sheet id across with it, so without this a phone would
+  // start importing invoices it is not allowed to save, and announce each
+  // refusal.
+  if (ctData.gmailSheetId && !(typeof ctSyncReadOnly === 'function' && ctSyncReadOnly())) {
+    setTimeout(() => { if (!(typeof ctSyncReadOnly === 'function' && ctSyncReadOnly())) ctFetchGmailInvoices(true); }, 1500);
+  }
   setTimeout(() => ctPushWeeklySummary(), 3000);
 }
 

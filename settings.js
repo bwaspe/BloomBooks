@@ -15,8 +15,17 @@
 // rewritten wholesale and rolled back.
 //
 // THE ONE VALUE THAT CANNOT LIVE IN THE SHEET is the address of the sheet
-// itself, so it stays where it already was: ctData.gmailSheetId, in
-// localStorage. Everything else here is a cache of what the sheet holds.
+// itself. It was kept in ctData.gmailSheetId, in localStorage, and that was a
+// dead end on any second device: ctData is exactly what a phone does not have,
+// so the phone could not find the settings sheet, could not learn which
+// computer saves the cost tracker, and reported it as never having been set up
+// -- which is what the owner saw on 2026-09-26.
+//
+// So it lives in the BOOK as well (appData.gmailSheetId). The book's own
+// address is a constant in sync.js, so every signed-in device can reach it from
+// nothing, and the address of everything else rides in with it. ctData keeps
+// its copy: it is what the invoice fetcher already reads, and the two are
+// mirrored rather than one being moved.
 //
 // OAUTH, NOT THE WEB APP. The owner's spec asked for writes to go through the
 // Apps Script doPost endpoint "so there's no OAuth plumbing in the front end".
@@ -33,8 +42,29 @@ const BB_SETTINGS_SCHEMA = 1;
 // Defaults ARE today's behaviour. Nothing in this file may change a figure the
 // app already uses; a setting that has never been touched must answer exactly
 // what the constant it replaces answered.
+// Where the scanner's sheet is, from whichever copy this device has. The book
+// is listed first on purpose: it is the one that reaches a device which has
+// never held any cost tracker data.
+function bbScannerSheetId() {
+  return (typeof appData !== 'undefined' && appData && appData.gmailSheetId) ||
+         (typeof ctData !== 'undefined' && ctData && ctData.gmailSheetId) || '';
+}
+
+// Carries the address into the book so a second device can find it. Only ever
+// from a device that HAS it: a phone writing its empty copy over the book's
+// would take the address away from everything, which is the failure this
+// exists to end rather than repeat in the other direction.
+function bbShareScannerSheetId() {
+  if (typeof appData === 'undefined' || !appData) return false;
+  const mine = (typeof ctData !== 'undefined' && ctData && ctData.gmailSheetId) || '';
+  if (!mine || appData.gmailSheetId === mine) return false;
+  appData.gmailSheetId = mine;
+  if (typeof saveData === 'function') saveData();
+  return true;
+}
+
 function bbSettingsDefaults() {
-  const scanner = (typeof ctData !== 'undefined' && ctData.gmailSheetId) || '';
+  const scanner = bbScannerSheetId();
   return {
     schemaVersion: BB_SETTINGS_SCHEMA,
     sources: {
@@ -197,7 +227,7 @@ function bbSettingsWriteCache() {
 // would buy nothing and invite half-written state.
 function bbSettingsSheetId() {
   return (bbSettings.sources && bbSettings.sources.settings && bbSettings.sources.settings.sheetId)
-    || (typeof ctData !== 'undefined' ? ctData.gmailSheetId : '') || '';
+    || bbScannerSheetId();
 }
 
 function bbSettingsReady() {
