@@ -115,6 +115,12 @@ function bbSettingsDefaults() {
         skipSubjects: ['mwf receipt*', 'main wholesale florist*'] }
     ],
 
+    // Which computer keeps the cost tracker in the sheet. Empty means nobody
+    // does, and then nothing syncs and the cost tracker behaves exactly as it
+    // always has -- so this ships switched off and is turned on by one
+    // deliberate press, rather than by whichever device happens to load first.
+    costTracker: { writer: '', writerName: '', savedAt: 0, invoices: 0 },
+
     // The few numbers the app assumes rather than reads.
     financial: {
       // NY state + Westchester. Used to CHECK the tax recorded on a day
@@ -513,6 +519,43 @@ function renderSettingsPanel() {
         what the bank's own spelling is matched against, so renaming one asks
         first.
       </div>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>📒 Cost tracker</h3>
+      ${(() => {
+        const s = bbSettings.costTracker || {};
+        const mine = typeof ctSyncDevice === 'function' && s.writer && s.writer === ctSyncDevice();
+        const when = s.savedAt ? new Date(s.savedAt).toLocaleString() : '';
+        if (!s.writer) return `
+          <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+            Invoices, prices, supplier aliases and every correction you have made
+            to them live in <em>this browser only</em>. The backup that downloads
+            to your Downloads folder fires on page load, on this computer, and
+            they cannot be rebuilt from the scanner's sheet — the invoices carry
+            no link back to it, and the ones that came from email have been
+            corrected by hand since. Say which computer keeps them in the sheet
+            and they exist somewhere else, and your phone can read them.
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="ctSyncClaim()">Save the cost tracker from this computer</button>`;
+        return `
+          <div style="font-size:0.8rem;margin-bottom:6px">
+            Saved from <strong>${escHtml(s.writerName || s.writer)}</strong>${
+              mine ? ' — <strong>this computer</strong>' : ''}.
+          </div>
+          <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+            ${when ? `Last saved ${escHtml(when)}` : 'Not saved yet'}${
+              s.invoices ? ` · ${s.invoices} invoices` : ''}.
+            ${mine ? 'Every other device reads this copy and cannot change it.'
+                   : 'This device reads that copy. Changes made here are not kept.'}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${mine
+              ? `<button class="btn btn-outline btn-sm" onclick="ctSyncPushNow()">Save it now</button>
+                 <button class="btn btn-danger btn-sm" onclick="ctSyncRelease()">Stop keeping it in the sheet</button>`
+              : `<button class="btn btn-outline btn-sm" onclick="ctSyncClaim()">Save it from this computer instead</button>`}
+          </div>`;
+      })()}
     </div>
 
     <div class="chart-wrap">

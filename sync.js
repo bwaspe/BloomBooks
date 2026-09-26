@@ -603,7 +603,14 @@ function finalizeInit() {
 
   // There is a sign-in now, so the Settings tab can be read. Until this point
   // the app has been running on this browser's cached copy.
-  if (typeof bbSettingsLoad === 'function') bbSettingsLoad();
+  if (typeof bbSettingsLoad === 'function') {
+    // Chained, not fired alongside: the settings are what name the computer
+    // that saves the cost tracker, so starting its sync before they arrive
+    // would have every device believe it was the writer.
+    Promise.resolve(bbSettingsLoad())
+      .then(() => { if (typeof ctSyncStart === 'function') return ctSyncStart(); })
+      .catch(() => {});
+  }
 
   const editCatSel = document.getElementById('edit-category');
   if (editCatSel) editCatSel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');

@@ -116,12 +116,22 @@ function bbFamilyAutoLearn() {
 let ctStorageState = null;   // { kind, detail } — read by ctStorageWarningHtml
 
 function ctSave() {
+  // Every change in the cost tracker comes through here, which is why the
+  // read-only check sits at this one point rather than on each of the dozen
+  // screens that can change something.
+  if (typeof ctSyncReadOnly === 'function' && ctSyncReadOnly()) {
+    ctSyncRefuseWrite();
+    return false;
+  }
   try {
     localStorage.setItem('bb_ctdata',
       // Underscore-prefixed keys are working state -- the alternative reading of
       // a quantity edit, and anything like it -- and must not be persisted.
       JSON.stringify(ctData, (k, v) => (k.charAt(0) === '_' ? undefined : v)));
     if (ctStorageState && ctStorageState.kind === 'save') ctStorageState = null;
+    // The browser copy is written first and the sheet follows, debounced --
+    // so a failed or slow push never costs the change itself.
+    if (typeof ctSyncPush === 'function') ctSyncPush();
     return true;
   } catch (e) {
     // Named rather than described: a quota failure and a private-window
@@ -4083,18 +4093,46 @@ function ctStorageWarningHtml() {
       `backup, or send me the kept copy.`);
   }
   // 'empty' — the phone case, and the one that used to look like a fault.
+  const claimed = typeof ctSyncClaimed === 'function' && ctSyncClaimed();
+  if (claimed) {
+    const err = (typeof ctSyncState !== 'undefined' && ctSyncState.error) || '';
+    return box('var(--amber)', '#fff8e1', 'The saved cost tracker has not loaded here yet.',
+      err
+        ? `It is saved from <strong>${escHtml(ctSyncWriterName())}</strong>, but this ` +
+          `device could not read it: <code>${escHtml(err)}</code>. Nothing has been ` +
+          `lost — that copy is still in the sheet. Sign in and reload.`
+        : `It is saved from <strong>${escHtml(ctSyncWriterName())}</strong>. Sign in ` +
+          `on this device to read it.`);
+  }
   return box('var(--amber)', '#fff8e1', 'No cost tracker data in this browser.',
     `Invoices, prices and colour fixes are stored in the browser they were entered ` +
-    `in — they are not in the Google Sheet, so signing in does not bring them ` +
-    `across. On a second device, or after a browser clears its storage, the cost ` +
-    `tracker starts empty while the rest of the book loads normally. ` +
-    `<strong>Import JSON</strong> in the header restores it from a backup file.`);
+    `in. Nothing is keeping them in the Google Sheet yet, so signing in does not ` +
+    `bring them across, and on a second device the cost tracker starts empty while ` +
+    `the rest of the book loads normally. <strong>Import JSON</strong> in the header ` +
+    `restores it from a backup file — and <strong>Settings › Cost tracker</strong> ` +
+    `is where you say which computer keeps it in the sheet, so this stops happening.`);
+}
+
+// Not a warning: a standing statement of where this screen's data comes from,
+// on a device that reads it. Without it, a change that silently does not stick
+// is a bug report rather than an understood rule.
+function ctReadOnlyNoticeHtml() {
+  if (typeof ctSyncReadOnly !== 'function' || !ctSyncReadOnly()) return '';
+  const at = (typeof ctSyncState !== 'undefined' && ctSyncState.at)
+    ? new Date(ctSyncState.at).toLocaleString() : '';
+  return `
+    <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:#eef3fb;
+                border:1px solid #1a5fa8;font-size:0.8rem;line-height:1.5">
+      <strong>Read-only here.</strong> The cost tracker is saved from
+      <strong>${escHtml(ctSyncWriterName())}</strong>${at ? `, last at ${escHtml(at)}` : ''}.
+      You can look at everything; changes made here are not kept.
+    </div>`;
 }
 
 function renderCtStorageWarning() {
   const el = document.getElementById('ct-storage-warning');
   if (!el) return;
-  el.innerHTML = ctStorageWarningHtml();
+  el.innerHTML = ctReadOnlyNoticeHtml() + ctStorageWarningHtml();
 }
 
 function ctSettleDays(supplier, lags) {

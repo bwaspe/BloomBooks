@@ -53,7 +53,8 @@ console.log('\na browser that has never had it — the phone');
   a.sb.renderCtStorageWarning();
   const html = a.els['ct-storage-warning'].innerHTML;
   t('says the data is not in this browser', /No cost tracker data in this browser/.test(html));
-  t('and explains that signing in will not bring it', /not in the Google Sheet/.test(html));
+  t('and explains that signing in will not bring it', /Nothing is keeping them in the Google Sheet/.test(html));
+  t('and points at where to switch that on', /Settings/.test(html));
   t('and points at the way back', /Import JSON/.test(html));
 }
 
