@@ -2790,35 +2790,112 @@ function ctMergeSuppliers() {
   ctMergeSupplierNames(fromName, toName);
 }
 
+// WHAT A RESET CLEARS, listed explicitly -- not "build a fresh object and keep
+// three things", which is what it used to do. That silently dropped every key
+// added since it was written: the standing order templates, the supplier and
+// vendor aliases, where reconciliation starts, the pack answers, the rose
+// colours, the colour fixes. Sixteen of them, none mentioned in the dialog,
+// which promised "connection and markup settings kept". Clearing by name means
+// a key added next year survives a reset instead of vanishing with it.
+const CT_RESET_CLEARS = {
+  invoices: () => [], catalog: () => ({}), retail: () => ({}),
+  family: () => ({}), familyKeywords: () => ({}), importedGmailIds: () => [],
+  gmailCoverage: () => null, dismissedStaleMargins: () => ({}),
+  dismissedRepairs: () => ({}), dismissedPayments: () => ({})
+};
+
+const CT_RESET_BACKUP_KEY = 'bb_ctdata_before_reset';
+
+// What is actually about to go, counted. A dialog that says "all cost tracker
+// data" is asking for consent to something nobody can picture.
+function ctResetSummary(data) {
+  const d = data || {};
+  const n = v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : 0);
+  const parts = [];
+  const inv = (d.invoices || []).length;
+  if (inv) parts.push(inv + ' invoice' + (inv === 1 ? '' : 's'));
+  if (n(d.catalog)) parts.push(n(d.catalog) + ' remembered item names');
+  if (n(d.retail)) parts.push(n(d.retail) + ' retail prices');
+  if (n(d.familyKeywords)) parts.push(n(d.familyKeywords) + ' learned family rules');
+  const dismissed = n(d.dismissedStaleMargins) + n(d.dismissedRepairs) + n(d.dismissedPayments);
+  if (dismissed) parts.push(dismissed + ' dismissed warnings');
+  return parts;
+}
+
 function ctResetCostData() {
-  const uploadCount = ctData.invoices.filter(i => i.id.startsWith('inv-') && !i.id.startsWith('inv-gmail-')).length;
-  const gmailCount = ctData.invoices.length - uploadCount;
+  const going = ctResetSummary(ctData);
+  if (!going.length) { notify('There is nothing in the cost tracker to reset'); return; }
 
-  const warning = uploadCount > 0
-    ? `This will permanently delete ${uploadCount} manually-uploaded invoice${uploadCount!==1?'s':''} — there is NO other copy of these anywhere. ${gmailCount > 0 ? `The other ${gmailCount} Gmail-scanned invoice${gmailCount!==1?'s':''} can be re-pulled from the Sheet afterward.` : ''}\n\nDownload a backup first? Click Cancel to go back and use "Download Backup" if you're not sure.\n\nType-confirm: are you sure you want to permanently delete this data?`
-    : `This will clear all cost tracker data. Gmail-scanned invoices can be re-pulled from the Sheet afterward.\n\nAre you sure you want to reset?`;
+  const sheetToo = typeof ctSyncClaimed === 'function' && ctSyncClaimed() &&
+                   typeof ctSyncReadOnly === 'function' && !ctSyncReadOnly();
 
-  if (!confirm(warning)) return;
+  const ok = confirm(
+    'Clear the cost tracker?\n\n' +
+    'This removes:\n  · ' + going.join('\n  · ') + '\n\n' +
+    'It KEEPS your markup, supplier and vendor names, standing order ' +
+    'templates, pack sizes, colour fixes, where reconciliation starts, and the ' +
+    'sheet connection.\n\n' +
+    (sheetToo
+      ? 'The copy in the sheet is replaced too, so this is not something your ' +
+        'phone still has.\n\n'
+      : '') +
+    'A backup file downloads first, and the previous copy is kept in this ' +
+    'browser so it can be put back.'
+  );
+  if (!ok) return;
 
-  // Sheet connection, Apps Script URL, and your markup settings are preserved —
-  // only invoice history, category memory, family memory, and retail prices are cleared.
-  const keepSheetId = ctData.gmailSheetId;
-  const keepAppsScriptUrl = ctData.appsScriptUrl;
-  const keepMarkup = ctData.markup;
+  // Typed, because the button sits beside Download Backup and the two are one
+  // slip apart. The old dialog said "Type-confirm:" and then asked for a click.
+  const typed = prompt('Type RESET to confirm.');
+  if (String(typed || '').trim().toUpperCase() !== 'RESET') {
+    notify('Nothing was cleared');
+    return;
+  }
 
-  ctData = {
-    invoices: [], catalog: {}, retail: {}, family: {}, familyKeywords: {},
-    markup: keepMarkup,
-    gmailSheetId: keepSheetId, appsScriptUrl: keepAppsScriptUrl,
-    importedGmailIds: []
-  };
+  // Written to disk BEFORE anything is touched. A backup taken afterwards is
+  // a backup of the empty version.
+  const before = JSON.stringify(ctData);
+  try { ctExportBackup(); } catch (e) { /* the browser copy below is the real net */ }
+  try { localStorage.setItem(CT_RESET_BACKUP_KEY, before); } catch (e) { /* no room; the file stands */ }
+
+  Object.keys(CT_RESET_CLEARS).forEach(k => { ctData[k] = CT_RESET_CLEARS[k](); });
   ctSave();
   renderCtGmailPanel();
   renderCtDashboard();
   renderCtPrices();
-  document.getElementById('ct-gmail-results').innerHTML = '';
-  document.getElementById('ct-parse-area').innerHTML = '';
-  notify('Cost tracker data reset — connection and markup settings kept');
+  renderCtStorageWarning();
+  const results = document.getElementById('ct-gmail-results');
+  if (results) results.innerHTML = '';
+  const parse = document.getElementById('ct-parse-area');
+  if (parse) parse.innerHTML = '';
+  notify('Cost tracker cleared — use Undo the reset if that was a mistake');
+}
+
+// The way back, for as long as the previous copy is still in this browser. It
+// restores the whole thing and, on the computer that saves, puts the sheet
+// back as well -- the reset replaced that too.
+function ctUndoReset() {
+  let raw = null;
+  try { raw = localStorage.getItem(CT_RESET_BACKUP_KEY); } catch (e) {}
+  if (!raw) { notify('There is no pre-reset copy in this browser', true); return; }
+  if (!confirm('Put the cost tracker back as it was before the reset?')) return;
+  try {
+    ctData = JSON.parse(raw);
+  } catch (e) {
+    notify('The pre-reset copy could not be read', true);
+    return;
+  }
+  ctSave();
+  try { localStorage.removeItem(CT_RESET_BACKUP_KEY); } catch (e) {}
+  renderCtGmailPanel();
+  renderCtDashboard();
+  renderCtPrices();
+  renderCtStorageWarning();
+  notify('Cost tracker restored');
+}
+
+function ctHasResetBackup() {
+  try { return !!localStorage.getItem(CT_RESET_BACKUP_KEY); } catch (e) { return false; }
 }
 
 // Markup is a SETTING now, so this writes settings and lets them reach the
@@ -4119,6 +4196,21 @@ function ctStorageWarningHtml() {
 // Not a warning: a standing statement of where this screen's data comes from,
 // on a device that reads it. Without it, a change that silently does not stick
 // is a bug report rather than an understood rule.
+// Offered where the damage would be seen, not tucked back in the settings the
+// reset was pressed from. It stays until it is used, or until the browser's
+// storage is cleared.
+function ctUndoResetHtml() {
+  if (typeof ctHasResetBackup !== 'function' || !ctHasResetBackup()) return '';
+  return `
+    <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:#fff8e1;
+                border:1px solid var(--amber);font-size:0.8rem;line-height:1.5">
+      <strong>The cost tracker was cleared.</strong> The copy from just before
+      that is still in this browser.
+      <button class="btn btn-outline btn-xs" style="margin-left:8px"
+              onclick="ctUndoReset()">Undo the reset</button>
+    </div>`;
+}
+
 function ctReadOnlyNoticeHtml() {
   if (typeof ctSyncReadOnly !== 'function' || !ctSyncReadOnly()) return '';
   const at = (typeof ctSyncState !== 'undefined' && ctSyncState.at)
@@ -4135,7 +4227,7 @@ function ctReadOnlyNoticeHtml() {
 function renderCtStorageWarning() {
   const el = document.getElementById('ct-storage-warning');
   if (!el) return;
-  el.innerHTML = ctReadOnlyNoticeHtml() + ctStorageWarningHtml();
+  el.innerHTML = ctUndoResetHtml() + ctReadOnlyNoticeHtml() + ctStorageWarningHtml();
 }
 
 function ctSettleDays(supplier, lags) {
