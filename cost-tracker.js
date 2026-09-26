@@ -4214,6 +4214,29 @@ function ctUndoResetHtml() {
     </div>`;
 }
 
+// The sheet is behind what is on this screen. Said here rather than only in a
+// toast, because a toast is gone in four seconds and the condition lasts until
+// somebody signs in -- during which every further edit is this computer's only
+// copy again, which is the state the sheet exists to end.
+function ctSyncBehindHtml() {
+  if (typeof ctSyncClaimed !== 'function' || !ctSyncClaimed()) return '';
+  if (typeof ctSyncReadOnly === 'function' && ctSyncReadOnly()) return '';
+  const err = (typeof ctSyncState !== 'undefined' && ctSyncState.error) || '';
+  if (!err) return '';
+  const signedOut = /sign in again/i.test(err);
+  return `
+    <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:#fdecea;
+                border:1px solid var(--red);font-size:0.8rem;line-height:1.5">
+      <strong>The sheet has not got your latest changes.</strong>
+      ${signedOut
+        ? 'The sign-in expired — Google sessions last about an hour and this page stays open all day. ' +
+          'Everything is saved on this computer; <strong>sign in again</strong> and it goes to the sheet.'
+        : 'Last attempt: <code>' + escHtml(err) + '</code>. Everything is saved on this computer.'}
+      <button class="btn btn-outline btn-xs" style="margin-left:8px"
+              onclick="ctSyncSaveNow()">Try again</button>
+    </div>`;
+}
+
 function ctReadOnlyNoticeHtml() {
   if (typeof ctSyncReadOnly !== 'function' || !ctSyncReadOnly()) return '';
   const at = (typeof ctSyncState !== 'undefined' && ctSyncState.at)
@@ -4230,7 +4253,7 @@ function ctReadOnlyNoticeHtml() {
 function renderCtStorageWarning() {
   const el = document.getElementById('ct-storage-warning');
   if (!el) return;
-  el.innerHTML = ctUndoResetHtml() + ctReadOnlyNoticeHtml() + ctStorageWarningHtml();
+  el.innerHTML = ctSyncBehindHtml() + ctUndoResetHtml() + ctReadOnlyNoticeHtml() + ctStorageWarningHtml();
 }
 
 function ctSettleDays(supplier, lags) {

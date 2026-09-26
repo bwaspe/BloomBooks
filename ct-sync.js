@@ -164,6 +164,29 @@ function ctSyncReady() {
          typeof bbSettingsSheetId === 'function' && !!bbSettingsSheetId();
 }
 
+// A Google access token lasts about an hour, and a shop leaves this page open
+// all day. sync.js has always handled that for the book -- handleAuthExpiry
+// clears the token and puts "sign in again" in the header. This file did not,
+// so the first save after the hour was up raised a raw Google 401 at somebody
+// who had done nothing wrong, and every save after it failed the same way.
+//
+// The change itself is never at risk: the browser copy is written before the
+// push is even attempted. What is at risk is the SHEET falling behind without
+// anyone realising, which is why this says so in those words.
+const CT_SIGNED_OUT = 'signed out — sign in again and this will save';
+
+function ctSyncHandleAuth(status, body) {
+  const text = String(status) + ' ' + String(body || '');
+  if (status !== 401 && !(typeof isAuthError === 'function' && isAuthError(text))) return false;
+  if (typeof handleAuthExpiry === 'function') handleAuthExpiry();
+  ctSyncState.error = CT_SIGNED_OUT;
+  if (typeof notify === 'function') {
+    notify('Signed out — your change is saved on this computer. Sign in again to put it in the sheet.', true);
+  }
+  if (typeof renderCtStorageWarning === 'function') renderCtStorageWarning();
+  return true;
+}
+
 // ---- reading and writing the tab ---------------------------------------
 let ctSyncState = { at: 0, error: '', busy: false, rows: 0 };
 let _ctSyncTimer = null;
@@ -193,6 +216,7 @@ async function ctSyncPull() {
     const url = `${SHEETS_BASE}/${id}/values/${encodeURIComponent(CT_SHEET_TAB + '!A1:D')}`;
     const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (res.status === 400 || res.status === 404) return null;     // no tab yet
+    if (ctSyncHandleAuth(res.status)) return null;
     if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 200));
     const rows = (await res.json()).values || [];
     const data = ctSheetFromRows(rows);
@@ -219,6 +243,7 @@ async function ctSyncPeek() {
     const url = `${SHEETS_BASE}/${id}/values/${encodeURIComponent(CT_SHEET_TAB + '!A1:D1')}`;
     const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
     if (res.status === 400 || res.status === 404) return null;     // no tab yet
+    if (ctSyncHandleAuth(res.status)) return null;
     if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 200));
     const row = ((await res.json()).values || [])[0] || [];
     if (row[0] !== 'hdr') return null;
@@ -245,6 +270,7 @@ async function ctSyncPushNow() {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ values })
     });
+    if (res.status === 401) { ctSyncHandleAuth(401); return false; }
     if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 200));
     ctSyncState = { at: Date.now(), error: '', busy: false, rows: (ctData.invoices || []).length };
     const s = ctSyncSettings();
@@ -254,9 +280,13 @@ async function ctSyncPushNow() {
     ctSyncTrim(id, values.length);
     return true;
   } catch (e) {
-    ctSyncState = { at: ctSyncState.at, error: (e && e.message) || 'could not be saved',
-                    busy: false, rows: ctSyncState.rows };
-    if (typeof notify === 'function') notify('Cost tracker not sent to the sheet — ' + ctSyncState.error, true);
+    const msg = (e && e.message) || 'could not be saved';
+    // ctSyncEnsureTab throws rather than returning a status, so the expired
+    // sign-in can arrive here too.
+    if (!ctSyncHandleAuth(0, msg)) {
+      ctSyncState = { at: ctSyncState.at, error: msg, busy: false, rows: ctSyncState.rows };
+      if (typeof notify === 'function') notify('Cost tracker not sent to the sheet — ' + msg, true);
+    }
     return false;
   } finally {
     ctSyncState.busy = false;
