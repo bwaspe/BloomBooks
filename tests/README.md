@@ -74,3 +74,58 @@ Until 10 Sep 2026 these sat in a session temp folder outside the repo. It was
 cleared between sessions and **18 of 35 suites were lost** — the cost-tracker
 ones mostly: pack counts, counting review, stuck families, margin units,
 per-stem retail. That is why they are version-controlled now.
+
+## Before a deploy: the smoke check
+
+`node tests/run.js` runs the source files in Node. It cannot see a script tag
+pointing at a renamed file, a cache marker bumped on nineteen lines out of
+twenty, or a renderer that throws the moment it meets a real DOM. Those reach
+the shop as a blank screen.
+
+`test_build` covers the first kind without a browser — every referenced file
+exists, every file on disk is loaded, every reference carries the same cache
+marker, everything parses, and the load order still holds.
+
+The rest needs the page actually running, **on a local server rather than the
+live site**:
+
+```
+python -m http.server 8787 --bind 127.0.0.1
+```
+
+Then open `http://localhost:8787/index.html`. That is a different origin from
+`bwaspe.github.io`, so it has **its own localStorage and cannot touch the real
+book or cost tracker** — and the Google sign-in is not authorised for it, so it
+cannot reach the sheets either. Everything checked there is made-up by
+construction.
+
+Two things to run in the console. Both rely on the error collector in
+index.html: before it existed a throw inside a renderer vanished and the panel
+simply came up empty.
+
+**Every screen, on an empty browser.** Nothing should throw.
+
+```js
+localStorage.clear(); BB_ERRORS.length = 0;
+[...document.querySelectorAll('.panel')].forEach(p => switchPanel(p.id.replace(/^panel-/, '')));
+BB_ERRORS.map(e => e.kind + ': ' + e.message);      // expect []
+```
+
+**A second device** — the book, but no cost tracker data. This is the case that
+shipped broken on 26 Sep 2026: the address of the scanner's sheet lived only in
+`ctData`, which is exactly what a phone does not have, so it could not find the
+settings and reported the cost tracker as never set up.
+
+```js
+localStorage.clear(); BB_ERRORS.length = 0;
+appData.gmailSheetId = 'MADEUP-SCANNER-ID';
+ctData = { invoices: [], catalog: {}, retail: {}, markup: {} };
+bbSettings.costTracker = { writer: 'other', writerName: 'Office', savedAt: Date.now(), invoices: 230 };
+({ findsSheet: bbSettingsSheetId(), readsOnly: ctSyncReadOnly(),
+   sharesNothingBack: bbShareScannerSheetId() === false, saveRefused: ctSave() === false });
+```
+
+Then clear the storage again before leaving, so the next visit starts clean.
+
+`.claude/launch.json` holds the same server under the name `bloombooks`, for
+tooling that reads it.
