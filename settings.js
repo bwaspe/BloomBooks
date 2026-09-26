@@ -629,6 +629,11 @@ function renderSettingsPanel() {
     </div>
 
     <div class="chart-wrap">
+      <h3>🩺 Problems${typeof bbErrorsBadgeHtml === 'function' ? bbErrorsBadgeHtml() : ''}</h3>
+      <div id="bb-errors"></div>
+    </div>
+
+    <div class="chart-wrap">
       <h3>🧰 System</h3>
       <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
         Settings are ${escHtml(where)}. Schema version ${bbSettings.schemaVersion}.
@@ -648,6 +653,8 @@ function renderSettingsPanel() {
         <button class="btn btn-outline btn-sm" style="margin-top:6px" onclick="bbSettingsSaveRaw()">Use what I typed</button>
       </details>
     </div>`;
+
+  if (typeof renderErrorsPanel === 'function') renderErrorsPanel();
 
   // Every edit re-renders the whole panel, so a filter that lived only in the
   // box would clear itself the moment you fixed the rule you had just found.

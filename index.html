@@ -4,6 +4,53 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🌸 Bloom Books</title>
+<!-- CATCH ERRORS BEFORE ANYTHING ELSE LOADS.
+     Inline and first, deliberately. In a .js file loaded with the others it
+     would miss the failures worth having most: a script that 404s, a syntax
+     error in config.js, anything that goes wrong before the app is up. Those
+     are exactly the ones that leave a blank screen with no explanation.
+     This only COLLECTS; errors.js reads and shows them. It must never throw
+     itself, so every line is inside the try. -->
+<script>
+window.BB_ERRORS = [];
+(function () {
+  var MAX = 40;
+  function note(kind, message, where, stack) {
+    try {
+      var list = window.BB_ERRORS;
+      var last = list[list.length - 1];
+      // The same fault in a render loop would otherwise fill the whole buffer
+      // and push out the first occurrence, which is the one that explains it.
+      if (last && last.message === message && last.where === where) { last.count++; last.at = Date.now(); return; }
+      list.push({ at: Date.now(), kind: kind, message: String(message || '').slice(0, 300),
+                  where: String(where || '').slice(0, 160),
+                  stack: String(stack || '').slice(0, 900), count: 1,
+                  panel: (document.querySelector('.panel.active') || {}).id || '',
+                  ver: (function () {
+                    var s = document.querySelector('script[src*="config.js"]');
+                    return s ? (String(s.src).split('?v=')[1] || '') : '';
+                  })() });
+      if (list.length > MAX) list.splice(0, list.length - MAX);
+      localStorage.setItem('bb_errors', JSON.stringify(list));
+    } catch (e) { /* a full or blocked store must not become a second fault */ }
+  }
+  try { window.BB_ERRORS = JSON.parse(localStorage.getItem('bb_errors') || '[]') || []; } catch (e) {}
+  window.addEventListener('error', function (e) {
+    // A failed <script> or <img> fires an error event with no message on it.
+    if (e && e.target && e.target !== window && e.target.src) {
+      note('load', 'Could not load ' + (e.target.tagName || '').toLowerCase(), e.target.src, '');
+      return;
+    }
+    note('error', e && e.message, (e && e.filename ? e.filename + ':' + e.lineno : ''),
+         e && e.error && e.error.stack);
+  }, true);   // capture phase, or a resource failure never reaches window
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    note('promise', (r && r.message) || r, '', r && r.stack);
+  });
+  window.bbNoteError = note;
+})();
+</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
 <link rel="manifest" href="manifest.json">
 <!-- iOS ignores SVG manifest icons, so Add to Home Screen needs its own
@@ -16,7 +63,7 @@
 <meta name="apple-mobile-web-app-title" content="Bloom Books">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<link rel="stylesheet" href="styles.css?v=20260926j">
+<link rel="stylesheet" href="styles.css?v=20260926k">
 </head>
 <body>
 <button id="ct-back-btn" onclick="ctGoBack()" style="display:none;position:fixed;bottom:24px;left:24px;z-index:1000;
@@ -557,27 +604,28 @@ Same real vendor sometimes shows up under different printed names (e.g. "A. Perr
      normal reload can keep running yesterday's JavaScript against today's data --
      which has now twice looked like a bug in the figures rather than a stale file.
      Bump this string on every deploy that changes app code. -->
-<script src="config.js?v=20260926j"></script>
-<script src="utils.js?v=20260926j"></script>
-<script src="sync.js?v=20260926j"></script>
-<script src="periodlock.js?v=20260926j"></script>
-<script src="audit.js?v=20260926j"></script>
-<script src="versions.js?v=20260926j"></script>
-<script src="ledger.js?v=20260926j"></script>
-<script src="reports.js?v=20260926j"></script>
-<script src="trends.js?v=20260926j"></script>
-<script src="holiday-sync.js?v=20260926j"></script>
-<script src="epx.js?v=20260926j"></script>
-<script src="venmo.js?v=20260926j"></script>
-<script src="payouts.js?v=20260926j"></script>
-<script src="daily-sales.js?v=20260926j"></script>
-<script src="import-trainer.js?v=20260926j"></script>
-<script src="reconcile.js?v=20260926j"></script>
-<script src="cost-tracker.js?v=20260926j"></script>
-<script src="colour-buying.js?v=20260926j"></script>
-<script src="settings.js?v=20260926j"></script>
-<script src="ct-sync.js?v=20260926j"></script>
-<script src="init.js?v=20260926j"></script>
+<script src="config.js?v=20260926k"></script>
+<script src="utils.js?v=20260926k"></script>
+<script src="sync.js?v=20260926k"></script>
+<script src="periodlock.js?v=20260926k"></script>
+<script src="audit.js?v=20260926k"></script>
+<script src="versions.js?v=20260926k"></script>
+<script src="ledger.js?v=20260926k"></script>
+<script src="reports.js?v=20260926k"></script>
+<script src="trends.js?v=20260926k"></script>
+<script src="holiday-sync.js?v=20260926k"></script>
+<script src="epx.js?v=20260926k"></script>
+<script src="venmo.js?v=20260926k"></script>
+<script src="payouts.js?v=20260926k"></script>
+<script src="daily-sales.js?v=20260926k"></script>
+<script src="import-trainer.js?v=20260926k"></script>
+<script src="reconcile.js?v=20260926k"></script>
+<script src="cost-tracker.js?v=20260926k"></script>
+<script src="colour-buying.js?v=20260926k"></script>
+<script src="settings.js?v=20260926k"></script>
+<script src="ct-sync.js?v=20260926k"></script>
+<script src="errors.js?v=20260926k"></script>
+<script src="init.js?v=20260926k"></script>
 <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 <script>
