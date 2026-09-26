@@ -568,22 +568,35 @@ function renderSettingsPanel() {
             and they exist somewhere else, and your phone can read them.
           </div>
           <button class="btn btn-primary btn-sm" onclick="ctSyncClaim()">Save the cost tracker from this computer</button>`;
+        // What the SHEET says, not what this session managed to write into its
+        // own cache. ctSyncPushNow wrote the time to the cache only, and the
+        // next settings load replaced it with nothing -- so a computer that had
+        // been saving perfectly well reported "Not saved yet".
+        const live = (typeof ctSyncState !== 'undefined') ? ctSyncState : null;
+        const at = (live && live.at) || s.savedAt || 0;
+        const count = (live && live.rows) || s.invoices || 0;
+        const err = (live && live.error) || '';
+        const stamp = at ? new Date(at).toLocaleString() : '';
         return `
           <div style="font-size:0.8rem;margin-bottom:6px">
             Saved from <strong>${escHtml(s.writerName || s.writer)}</strong>${
               mine ? ' — <strong>this computer</strong>' : ''}.
           </div>
           <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
-            ${when ? `Last saved ${escHtml(when)}` : 'Not saved yet'}${
-              s.invoices ? ` · ${s.invoices} invoices` : ''}.
+            ${stamp ? `In the sheet: ${escHtml(stamp)}` : 'Nothing in the sheet yet'}${
+              count ? ` · ${count} invoices` : ''}.
             ${mine ? 'Every other device reads this copy and cannot change it.'
                    : 'This device reads that copy. Changes made here are not kept.'}
           </div>
+          ${err ? `<div style="font-size:0.75rem;color:var(--red);margin-bottom:10px">
+            Last attempt failed: <code>${escHtml(err)}</code></div>` : ''}
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             ${mine
-              ? `<button class="btn btn-outline btn-sm" onclick="ctSyncPushNow()">Save it now</button>
+              ? `<button class="btn btn-outline btn-sm" onclick="ctSyncSaveNow()">Save it now</button>
+                 <button class="btn btn-outline btn-sm" onclick="ctSyncCheck()">Check the sheet</button>
                  <button class="btn btn-danger btn-sm" onclick="ctSyncRelease()">Stop keeping it in the sheet</button>`
-              : `<button class="btn btn-outline btn-sm" onclick="ctSyncClaim()">Save it from this computer instead</button>`}
+              : `<button class="btn btn-outline btn-sm" onclick="ctSyncCheck()">Check the sheet</button>
+                 <button class="btn btn-outline btn-sm" onclick="ctSyncClaim()">Save it from this computer instead</button>`}
           </div>`;
       })()}
     </div>

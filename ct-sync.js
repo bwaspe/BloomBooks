@@ -55,11 +55,18 @@ function ctSheetValues(data, writeId, savedBy) {
   meta._invoices = (src.invoices || []).length;
 
   const json = JSON.stringify(meta);
-  const rows = [];
+  // A header row, so "when was this last saved, and how much of it" can be had
+  // from ONE cell rather than pulling 300KB back. The stamps inside the meta
+  // are appended last and therefore land in the LAST chunk, which is no use
+  // for a cheap look. Any row whose kind is not ct or inv is ignored by the
+  // reader, so this costs the round trip nothing.
+  const rows = [['hdr', writeId, String(meta._savedAt), String(meta._invoices)]];
+  const chunks = [];
   for (let i = 0; i < json.length; i += CT_CHUNK) {
-    rows.push(['ct', writeId, String(rows.length), json.slice(i, i + CT_CHUNK)]);
+    chunks.push(['ct', writeId, String(chunks.length), json.slice(i, i + CT_CHUNK)]);
   }
-  if (!rows.length) rows.push(['ct', writeId, '0', '{}']);
+  if (!chunks.length) chunks.push(['ct', writeId, '0', '{}']);
+  chunks.forEach(c => rows.push(c));
 
   (src.invoices || []).forEach((inv, i) => {
     // A row keeps its place even with no id on the invoice, rather than being
@@ -198,6 +205,32 @@ async function ctSyncPull() {
   }
 }
 
+// One cell, to answer "is what I saved actually there, and when".
+//
+// The panel used to read the time out of the settings, which ctSyncPushNow
+// wrote to the browser's cache and never to the sheet -- so the next settings
+// load replaced it with nothing and the screen said "Not saved yet" on a
+// computer that had been saving fine all along. A backup you are told is not
+// there is barely better than no backup.
+async function ctSyncPeek() {
+  if (!ctSyncReady() || !ctSyncClaimed()) return null;
+  const id = bbSettingsSheetId();
+  try {
+    const url = `${SHEETS_BASE}/${id}/values/${encodeURIComponent(CT_SHEET_TAB + '!A1:D1')}`;
+    const res = await fetchRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (res.status === 400 || res.status === 404) return null;     // no tab yet
+    if (!res.ok) throw new Error(res.status + ' ' + (await res.text()).slice(0, 200));
+    const row = ((await res.json()).values || [])[0] || [];
+    if (row[0] !== 'hdr') return null;
+    const at = Number(row[2]) || 0, rows = Number(row[3]) || 0;
+    ctSyncState = { at, error: '', busy: false, rows };
+    return ctSyncState;
+  } catch (e) {
+    ctSyncState.error = (e && e.message) || 'could not be read';
+    return null;
+  }
+}
+
 // Only ever called on the machine that holds the claim.
 async function ctSyncPushNow() {
   if (ctSyncReadOnly() || !ctSyncClaimed() || !ctSyncReady()) return false;
@@ -254,7 +287,11 @@ async function ctSyncStart() {
   if (!ctSyncClaimed()) return;
   if (!ctSyncReadOnly()) {
     // The writer's own copy is the authority. Send it, rather than reading
-    // over in-memory edits with an older sheet.
+    // over in-memory edits with an older sheet -- but look at the header row
+    // first, so the screen can say what is actually in the sheet rather than
+    // only what this session has managed to put there.
+    await ctSyncPeek();
+    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
     ctSyncPush();
     return;
   }
@@ -317,8 +354,13 @@ function ctSyncClaim() {
   bbSettingsWriteCache();
   if (typeof bbSettingsSave === 'function') bbSettingsSave();
   ctReadOnlyBase = null;
-  ctSyncPushNow();
   if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+  // Awaited, so the panel that follows reports what happened rather than what
+  // had not happened yet -- which is how a successful first save showed as
+  // 'Not saved yet'.
+  ctSyncPushNow().then(() => {
+    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+  });
 }
 
 function ctSyncRelease() {
@@ -334,4 +376,32 @@ function ctSyncRelease() {
   bbSettingsWriteCache();
   if (typeof bbSettingsSave === 'function') bbSettingsSave();
   if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+}
+
+// "Save it now" — the button, so the result reaches the screen. Calling
+// ctSyncPushNow directly from an onclick left the panel showing whatever it
+// showed before, which is how a working save looked like a failed one.
+function ctSyncSaveNow() {
+  ctSyncPushNow().then(ok => {
+    if (typeof notify === 'function') {
+      notify(ok ? 'Cost tracker saved to the sheet' : 'Cost tracker was NOT saved', !ok);
+    }
+    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+  });
+}
+
+// Is the backup really there? Asks the sheet rather than the settings, and
+// says what it found in the words someone would use to check.
+function ctSyncCheck() {
+  ctSyncPeek().then(st => {
+    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+    if (typeof notify !== 'function') return;
+    if (!st) {
+      notify(ctSyncState.error
+        ? 'Could not read the sheet — ' + ctSyncState.error
+        : 'Nothing saved in the sheet yet', true);
+      return;
+    }
+    notify(`${st.rows} invoices in the sheet, saved ${new Date(st.at).toLocaleString()}`);
+  });
 }

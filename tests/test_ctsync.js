@@ -79,6 +79,23 @@ console.log('what goes to the sheet comes back');
     back2.somethingAddedNextYear.keep === 'me');
 }
 
+console.log('\nthe header row, so a backup can be checked cheaply');
+{
+  const a = app('dev1');
+  const rows = a.sb.ctSheetValues(sample(), 'w1', 'dev1');
+  const hdr = rows[0];
+  t('it comes first, where one cell fetches it', hdr[0] === 'hdr');
+  t('it carries the write id', hdr[1] === 'w1');
+  t('a time that reads as a time', Number(hdr[2]) > 1600000000000, hdr[2]);
+  // The stamps inside the meta are appended last and land in the LAST chunk,
+  // which is no use for a one-cell look at a 300KB tab.
+  t('and the invoice count', Number(hdr[3]) === 2, hdr[3]);
+
+  const back = a.sb.ctSheetFromRows(rows);
+  t('the reader ignores it rather than choking', back !== null && back.invoices.length === 2);
+  t('and still takes the write id from the ct row', back.catalog['rose freedom'].category === 'Flowers');
+}
+
 console.log('\na catalog too big for one cell');
 {
   const a = app('dev1');
