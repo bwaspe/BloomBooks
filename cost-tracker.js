@@ -123,6 +123,12 @@ function ctSave() {
     ctSyncRefuseWrite();
     return false;
   }
+  // Same rule as the book: an older app may not write over a newer shape.
+  if (typeof schemaBlocked === 'function' && schemaBlocked()) {
+    if (typeof notify === 'function') notify('Not saved — this device is running an older BloomBooks than the cost tracker was saved with', true);
+    if (typeof renderSchemaWarning === 'function') renderSchemaWarning();
+    return false;
+  }
   try {
     localStorage.setItem('bb_ctdata',
       // Underscore-prefixed keys are working state -- the alternative reading of
@@ -163,6 +169,7 @@ function ctLoad() {
   }
   try {
     ctData = { invoices:[], catalog:{}, retail:{}, family:{}, familyKeywords:{}, markup:{...CT_DEFAULT_MARKUP}, gmailSheetId:'', appsScriptUrl:'', importedGmailIds:[], dismissedStaleMargins:{}, templates:[], supplierAliases:{}, noInvoiceVendors:{}, reconcileFrom:'', gmailCoverage:null, dismissedRepairs:{}, ...JSON.parse(raw) };
+    if (typeof schemaMigrate === 'function') ctData = schemaMigrate(ctData, 'ct');
     ctStorageState = null;
     if (typeof ctHistoryReset === 'function') ctHistoryReset(ctData);
   } catch (e) {

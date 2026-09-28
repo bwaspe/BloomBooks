@@ -171,6 +171,9 @@ const APPDATA_CONTAINERS = {
 };
 function normalizeAppData(d) {
   if (!d || typeof d !== 'object') return d;
+  // Every path that replaces the book -- local, sheet, restored backup --
+  // comes through here, so this is where the version is read and raised.
+  if (typeof schemaMigrate === 'function') d = schemaMigrate(d, 'book');
   Object.keys(APPDATA_CONTAINERS).forEach(k => {
     const wantArray = APPDATA_CONTAINERS[k] === 'array';
     const v = d[k];
@@ -569,6 +572,13 @@ async function pushToSheetNow() {
 
 let _saveTimer = null;
 function saveData() {
+  // Refused before the lock, because a book from a newer app must not be
+  // written back by an older one -- it would drop what it does not recognise.
+  if (typeof schemaBlocked === 'function' && schemaBlocked()) {
+    if (typeof notify === 'function') notify('Not saved — this device is running an older BloomBooks than the book was saved with', true);
+    if (typeof renderSchemaWarning === 'function') renderSchemaWarning();
+    return;
+  }
   // A closed year is put back before anything is written anywhere -- the
   // browser copy or the sheet. See periodlock.js.
   if (typeof lockGuard === 'function') lockGuard();

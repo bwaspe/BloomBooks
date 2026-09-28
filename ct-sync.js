@@ -333,7 +333,7 @@ async function ctSyncStart() {
     return;
   }
   delete data._savedAt; delete data._savedBy; delete data._invoices;
-  ctData = { ...ctData, ...data };
+  ctData = schemaMigrate({ ...ctData, ...data }, 'ct');
   ctReadOnlyBase = JSON.stringify(ctData);
   if (typeof ctHistoryReset === 'function') ctHistoryReset(ctData);
   try { localStorage.setItem('bb_ctdata', ctReadOnlyBase); } catch (e) { /* a phone in private mode still reads fine */ }
