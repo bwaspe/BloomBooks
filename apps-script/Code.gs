@@ -954,11 +954,163 @@ function saveSummary(summary) {
   if (extra > 0) sheet.deleteRows(2, extra);
 }
 
-// NOT IMPLEMENTED: the emailer that was meant to read the above and send a
-// weekly digest. The comment in BloomBooks says "Apps Script emails it on a
-// schedule" and no such function was ever written, which is why saveSummary
-// was missing too -- the whole second half of the feature is absent. Saying so
-// here rather than leaving the gap to be rediscovered.
+// ============================================================
+// THE WEEKLY DIGEST
+// ============================================================
+// BloomBooks has been pushing a summary to the Summary tab every day since
+// September 2026 and nothing has ever read it. The comment in the app said
+// "Apps Script emails it on a schedule" and no such function was written.
+// This is that function.
+//
+// Run `sendWeeklyDigest` by hand from the editor to see one before trusting a
+// trigger to it. `setupWeeklyDigest` creates the trigger; deleting it, or
+// switching the digest off in BloomBooks > Settings, stops it.
+const DIGEST_TAB = 'Summary';
+
+function digestSettings() {
+  const fallback = { enabled: false, to: '' };
+  try {
+    const sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    if (!sheetId) return fallback;
+    const sheet = SpreadsheetApp.openById(sheetId).getSheetByName(SETTINGS_TAB_NAME);
+    if (!sheet || sheet.getLastRow() === 0) return fallback;
+    const d = (JSON.parse(sheet.getRange(1, 1).getValue()) || {}).digest;
+    if (!d || typeof d !== 'object') return fallback;
+    return { enabled: !!d.enabled, to: String(d.to || '').trim() };
+  } catch (err) {
+    // OFF is the right answer to an unreadable setting. An email nobody asked
+    // for is worse than a missing one, and the vendor list falls back the
+    // other way for the opposite reason -- a scanner reading nothing fails
+    // silently, where a digest not arriving is noticed the first Monday.
+    Logger.log('Digest settings unreadable, staying off — ' + err.message);
+    return fallback;
+  }
+}
+
+function digestMoney(n) {
+  return '$' + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// Built from the newest row of the Summary tab. Returns null when there is
+// nothing to say at all, so the caller can decide rather than send an empty
+// message.
+function buildDigest() {
+  const sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  const sheet = SpreadsheetApp.openById(sheetId).getSheetByName(DIGEST_TAB);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const last = sheet.getRange(sheet.getLastRow(), 1, 1, 2).getValues()[0];
+  let s;
+  try { s = JSON.parse(last[1]); } catch (e) { return null; }
+  if (!s || typeof s !== 'object') return null;
+
+  // HOW OLD THE NUMBERS ARE, said out loud. The summary is only pushed when
+  // somebody opens BloomBooks, so a week nobody opened it would otherwise
+  // report stale figures as though they were this morning's -- which is the
+  // one way a digest actively misleads rather than merely being useless.
+  const pushed = last[0] instanceof Date ? last[0] : new Date(s.generatedAt || 0);
+  const ageDays = Math.floor((Date.now() - pushed.getTime()) / 864e5);
+
+  const cats = Object.keys(s.byCategory || {})
+    .map(k => ({ k: k, v: Number(s.byCategory[k]) || 0 }))
+    .filter(c => c.v > 0)
+    .sort(function (a, b) { return b.v - a.v; });
+
+  const missing = s.missingInvoices || {};
+  const budget = s.budget || {};
+  const over = (Number(budget.actual) || 0) - (Number(budget.baseline) || 0);
+
+  const headline = [];
+  headline.push(digestMoney(s.weeklyTotal) + ' bought');
+  if (missing.count) headline.push(missing.count + ' invoice' + (missing.count === 1 ? '' : 's') + ' missing');
+  if ((s.staleMargins || []).length) headline.push((s.staleMargins || []).length + ' to reprice');
+
+  const lines = [];
+  lines.push('<h2 style="font:600 18px sans-serif;margin:0 0 4px">Bloom Books — the week to ' +
+             (s.weekEnd || '') + '</h2>');
+  if (ageDays >= 2) {
+    lines.push('<p style="font:14px sans-serif;background:#fdecea;border-left:3px solid #c00;padding:8px 10px;margin:0 0 12px">' +
+               '<strong>These figures are ' + ageDays + ' days old.</strong> They are collected when ' +
+               'BloomBooks is opened, and it has not been opened since ' +
+               Utilities.formatDate(pushed, Session.getScriptTimeZone(), 'EEE d MMM') + '.</p>');
+  }
+  lines.push('<p style="font:14px sans-serif;margin:0 0 12px"><strong style="font-size:22px">' +
+             digestMoney(s.weeklyTotal) + '</strong> of flowers and supplies, ' +
+             (s.weekStart || '') + ' to ' + (s.weekEnd || '') + '.</p>');
+
+  if (cats.length) {
+    lines.push('<table style="font:14px sans-serif;border-collapse:collapse;margin:0 0 14px">');
+    cats.forEach(function (c) {
+      lines.push('<tr><td style="padding:2px 14px 2px 0">' + c.k + '</td>' +
+                 '<td style="padding:2px 0;text-align:right">' + digestMoney(c.v) + '</td></tr>');
+    });
+    lines.push('</table>');
+  } else {
+    lines.push('<p style="font:14px sans-serif;color:#666;margin:0 0 14px">Nothing bought this week.</p>');
+  }
+
+  if (budget.baseline) {
+    lines.push('<p style="font:14px sans-serif;margin:0 0 14px">' +
+      (budget.type === 'seasonal'
+        ? 'This month so far: ' + digestMoney(budget.actual) + ' against ' + digestMoney(budget.baseline) +
+          ' in the same month of ' + (budget.priorYearCount === 1 ? 'last year' : 'previous years')
+        : 'This week: ' + digestMoney(budget.actual) + ' against a ' + digestMoney(budget.baseline) +
+          ' average over the previous ' + (budget.weeksOfData || 8) + ' weeks') +
+      ' — <strong>' + (over >= 0 ? digestMoney(over) + ' over' : digestMoney(-over) + ' under') + '</strong>.</p>');
+  }
+
+  if (missing.count) {
+    lines.push('<p style="font:14px sans-serif;margin:0 0 14px">' +
+      '<strong>' + missing.count + ' payment' + (missing.count === 1 ? '' : 's') +
+      ' with no invoice</strong>, ' + digestMoney(missing.total) +
+      (missing.oldest ? ', the oldest from ' + missing.oldest : '') + '.</p>');
+  }
+
+  if ((s.staleMargins || []).length) {
+    lines.push('<p style="font:14px sans-serif;margin:0 0 6px"><strong>Worth repricing</strong></p>');
+    lines.push('<ul style="font:14px sans-serif;margin:0 0 14px;padding-left:18px">');
+    s.staleMargins.slice(0, 8).forEach(function (m) {
+      lines.push('<li>' + (m.name || '') + (m.margin != null ? ' — ' + Math.round(m.margin) + '%' : '') + '</li>');
+    });
+    lines.push('</ul>');
+  }
+
+  lines.push('<p style="font:12px sans-serif;color:#888;margin:16px 0 0">' +
+             'Sent by the Bloom Books scanner. Switch it off in BloomBooks › Settings › Weekly digest.</p>');
+
+  return {
+    subject: 'Bloom Books — ' + headline.join(', '),
+    html: lines.join('\n'),
+    ageDays: ageDays
+  };
+}
+
+function sendWeeklyDigest() {
+  const cfg = digestSettings();
+  if (!cfg.enabled) { Logger.log('Weekly digest is switched off in BloomBooks > Settings.'); return; }
+  const to = cfg.to || Session.getEffectiveUser().getEmail();
+  if (!to) { Logger.log('No address to send the digest to.'); return; }
+
+  const d = buildDigest();
+  if (!d) { Logger.log('Nothing in the Summary tab to build a digest from.'); return; }
+
+  // Sent even on a quiet week. A digest that goes silent when there is nothing
+  // to report is indistinguishable from one that has stopped working, and the
+  // subject line carries the headline so an uninteresting week can be skipped
+  // without opening it.
+  MailApp.sendEmail({ to: to, subject: d.subject, htmlBody: d.html });
+  Logger.log('Digest sent to ' + to + ' — ' + d.subject);
+}
+
+// Run once from the editor. Safe to run again; it replaces its own trigger.
+function setupWeeklyDigest() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendWeeklyDigest') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendWeeklyDigest').timeBased()
+    .onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create();
+  Logger.log('Weekly digest trigger created for Monday mornings. It still only ' +
+             'sends while the digest is switched on in BloomBooks > Settings.');
+}
 
 function logError(vendorName, msgId, message) {
   try {

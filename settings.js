@@ -151,6 +151,12 @@ function bbSettingsDefaults() {
     // deliberate press, rather than by whichever device happens to load first.
     costTracker: { writer: '', writerName: '', savedAt: 0, invoices: 0 },
 
+    // The Monday-morning digest the Apps Script sends. OFF until asked for:
+    // BloomBooks has been pushing a summary to the Summary tab daily since
+    // September and nothing read it, so switching this on is what finishes
+    // that feature rather than starting a new one.
+    digest: { enabled: false, to: '' },
+
     // The few numbers the app assumes rather than reads.
     financial: {
       // NY state + Westchester. Used to CHECK the tax recorded on a day
@@ -629,6 +635,36 @@ function renderSettingsPanel() {
     </div>
 
     <div class="chart-wrap">
+      <h3>📬 Weekly digest</h3>
+      <div style="font-size:0.75rem;color:var(--mist);margin-bottom:10px">
+        A Monday-morning email from the scanner: what was bought last week and
+        under what, how that sits against the same month last year, payments with
+        no invoice behind them, and anything worth repricing. It is built from
+        the summary BloomBooks has been writing to the sheet every day — which
+        nothing has read until now.
+      </div>
+      <label style="font-size:0.78rem;display:block;margin-bottom:8px">
+        <input type="checkbox" ${bbSettings.digest && bbSettings.digest.enabled ? 'checked' : ''}
+               onchange="bbDigestSet('enabled', this.checked)">
+        Send it on Monday mornings
+      </label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:0.75rem;color:var(--mist)">To:</label>
+        <input type="email" value="${escHtml((bbSettings.digest && bbSettings.digest.to) || '')}"
+               placeholder="wecare@tuckahoeflorist.com"
+               onchange="bbDigestSet('to', this.value)"
+               style="flex:1;min-width:200px;font-size:0.75rem;padding:4px 6px">
+      </div>
+      <div style="font-size:0.7rem;color:var(--mist);margin-top:8px">
+        Blank sends it to whoever the scanner runs as. Switching it on here is
+        not enough on its own — the trigger is created by running
+        <code>setupWeeklyDigest</code> once in the Apps Script editor, and
+        <code>sendWeeklyDigest</code> sends one now, so you can see it before
+        trusting a schedule to it.
+      </div>
+    </div>
+
+    <div class="chart-wrap">
       <h3>🩺 Problems${typeof bbErrorsBadgeHtml === 'function' ? bbErrorsBadgeHtml() : ''}</h3>
       <div id="bb-errors"></div>
     </div>
@@ -962,4 +998,25 @@ function bbFinancialSetTaxRate(pct) {
   bbSettingsWriteCache();
   renderSettingsPanel();
   if (typeof renderSalesTaxPanel === 'function') renderSalesTaxPanel();
+}
+
+// ---- the weekly digest -------------------------------------------------
+function bbDigestSet(field, val) {
+  if (!bbSettings.digest) bbSettings.digest = { enabled: false, to: '' };
+  if (field === 'enabled') {
+    bbSettings.digest.enabled = !!val;
+  } else {
+    const to = String(val || '').trim();
+    // Refused rather than stored, because a digest addressed to nothing fails
+    // silently once a week in a place nobody is looking -- the scanner's
+    // execution log.
+    if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      notify('That does not look like an email address', true);
+      renderSettingsPanel();
+      return;
+    }
+    bbSettings.digest.to = to;
+  }
+  bbSettingsWriteCache();
+  renderSettingsPanel();
 }
