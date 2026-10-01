@@ -62,17 +62,61 @@ function sfParse(text) {
     : text.split(/\r?\n/).filter(Boolean).map(l => l.split(','));
   if (rows.length < 2) return { error: 'That file had no rows to read.' };
 
+  const head = rows[0].map(h => String(h == null ? '' : h).trim().toLowerCase());
+
+  // THE WRONG STRIPE REPORT, recognised and redirected. The itemized payout
+  // reconciliation has a fee column too, so it would parse -- and give a fee on
+  // a different basis: fees on transactions PAID OUT this month, which include
+  // last month's late charges and exclude this month's. The books take revenue
+  // from the day book by sale date, so the fee has to sit on activity. Sending
+  // someone away with a plausible wrong number is worse than refusing.
+  if (head.indexOf('automatic_payout_id') >= 0 || head.indexOf('balance_transaction_id') >= 0) {
+    return { error: 'That is the itemized payout reconciliation, not the balance summary. ' +
+                    'It is the right file for matching payouts — upload it on the Payouts screen. ' +
+                    'For the fee, use Reports → Balance summary.' };
+  }
+
+  // THE BALANCE SUMMARY'S OWN KEYS. The report carries a `category` column of
+  // machine names -- activity_fee, payouts_fee -- which is exact where prose is
+  // a guess. Note the underscore: a word-boundary match on "fee" does NOT find
+  // "activity_fee", because an underscore is a word character.
+  const catCol = head.indexOf('category');
+  const descCol = head.indexOf('description');
+
   // SOME EXPORTS PUT THE FEE IN ITS OWN COLUMN rather than on its own row --
   // one line per reporting category with gross, fee and net beside each other.
   // Picking the single "amount" column there reads the gross and finds no fee
   // at all. A column headed exactly fee or fees is unambiguous, so it wins.
-  const head = rows[0].map(h => String(h == null ? '' : h).trim().toLowerCase());
   const feeCol = head.findIndex(h => /^fees?$/.test(h));
 
   const { amt, lab } = sfColumns(rows);
   if ((amt < 0 && feeCol < 0) || lab < 0) {
     return { error: 'No column of labels and amounts in that file — is it the balance summary?',
              seen: head.filter(Boolean).slice(0, 40) };
+  }
+
+  if (catCol >= 0 && amt >= 0) {
+    let fees = 0, disputes = 0;
+    const feeRows = [], disputeRows = [], seen = [];
+    rows.slice(1).forEach(r => {
+      const key = String(r[catCol] == null ? '' : r[catCol]).trim().toLowerCase();
+      const v = sfMoney(r[amt]);
+      if (!key || v === null) return;
+      seen.push(key);
+      if (!v) return;                                   // a zero line is not a cost
+      const label = descCol >= 0 ? String(r[descCol] || '').trim() || key : key;
+      if (/dispute|chargeback/.test(key)) { disputes += Math.abs(v); disputeRows.push(label); return; }
+      // ENDS IN FEE, whether the column holds machine keys or prose:
+      // activity_fee and payouts_fee in the real export, "Stripe fees" and
+      // "Total fees" where it is written out. An underscore OR a space, since
+      // a word boundary alone does not see one and a space alone misses the
+      // other. Nothing that merely contains fees in the middle -- "Account
+      // activity before fees" is the gross, not the fee.
+      if (/(^|[_\s])fees?$/.test(key) && !/\b(before|excluding|excl|pre)\b/.test(key)) {
+        fees += Math.abs(v); feeRows.push(label);
+      }
+    });
+    if (fees || disputes) return { fees, disputes, feeRows, disputeRows, seen: seen.slice(0, 40) };
   }
 
   if (feeCol >= 0) {

@@ -23,7 +23,7 @@ function app(opts) {
   sb.saveData = () => { sb.__saves = (sb.__saves || 0) + 1; };
   sb.localStorage = { store: {}, getItem() { return null; }, setItem() {}, removeItem() {} };
   vm.createContext(sb);
-  vm.runInContext(F.src(['config.js', 'utils.js', 'ledger.js', 'daily-sales.js', 'stripe-fee.js']),
+  vm.runInContext(F.src(['config.js', 'utils.js', 'ledger.js', 'import-trainer.js', 'daily-sales.js', 'payouts.js', 'stripe-fee.js']),
                   sb, { filename: 'bb.js' });
   vm.runInContext(`appData = { years: [2026], activeYear: 2026, transactions: {}, rules: [],
                                dailySales: {}, monthClose: {} };`, sb);
@@ -186,6 +186,106 @@ console.log('\nthe checklist says where to get each thing');
   const done = a.sb.dsMonthStatusHtml(2026, 7);
   t('and a done one does not', !/Balance summary/i.test(done));
   t('while the steps still outstanding keep theirs', /Arrival Date/i.test(done));
+}
+
+
+// The SHAPE of the shop's real exports, with made-up figures -- the repo is
+// public, so no actual takings go in it. Every column name and category key
+// here is exactly what Stripe wrote on 1 Oct 2026.
+const realBalance = [
+  '"category","description","net_amount","currency"',
+  '"starting_balance","Starting balance (2026-09-01)","100.00","usd"',
+  '"starting_balance_available","Available balance (2026-09-01)","0.00","usd"',
+  '"activity_gross","Account activity before fees","10000.00","usd"',
+  '"activity_fee","Less fees","-300.00","usd"',
+  '"activity","Activity","9700.00","usd"',
+  '"payouts_gross","Payouts to bank","-9800.00","usd"',
+  '"payouts_fee","Payout fees","0.00","usd"',
+  '"payouts","Total payouts","-9800.00","usd"',
+  '"ending_balance","Ending balance (2026-09-30)","0.00","usd"'
+].join('\n');
+
+const realItemized = [
+  '"automatic_payout_id","automatic_payout_effective_at","balance_transaction_id","created",' +
+  '"available_on","currency","gross","fee","net","reporting_category","description"',
+  '"po_1","2026-09-01 20:09:00","txn_1","2026-08-29 10:04:26","2026-09-01 20:00:00","usd","100.00","3.00","97.00","charge","Charge for order #1"',
+  '"po_1","2026-09-01 20:09:00","txn_2","2026-08-29 11:27:48","2026-09-01 20:00:00","usd","50.00","1.50","48.50","charge","Charge for order #2"',
+  '"po_2","2026-09-02 20:34:12","txn_3","2026-09-01 11:22:08","2026-09-02 20:00:00","usd","20.00","0.60","19.40","charge","Charge for order #3"',
+  '"po_2","2026-09-02 20:34:12","txn_4","2026-09-01 11:30:00","2026-09-02 20:00:00","usd","-5.00","0.00","-5.00","refund","REFUND FOR CHARGE (Charge for order #3)"'
+].join('\n');
+
+console.log('\nthe balance summary Stripe really writes');
+{
+  // It failed on the real file. The key is "activity_fee", and a
+  // word-boundary match on "fee" does NOT find that -- an underscore is a
+  // word character, so there is no boundary before it. Nothing matched and
+  // it reported no fee at all.
+  const a = app();
+  const out = a.sb.sfParse(realBalance);
+  t('it is read', !out.error, out.error);
+  t('the fee is the activity fee', Math.abs((out.fees || 0) - 300) < 0.005, out.fees);
+  t('shown by its description rather than its key',
+    (out.feeRows || []).indexOf('Less fees') >= 0, JSON.stringify(out.feeRows));
+  // Every one of these is a bigger number that CONTAINS the fee.
+  t('and nothing else in the file is mistaken for it',
+    !(out.feeRows || []).some(r => /gross|before fees|payouts to bank|balance/i.test(r)),
+    JSON.stringify(out.feeRows));
+  t('a zero fee line is not an entry', (out.feeRows || []).length === 1,
+    JSON.stringify(out.feeRows));
+
+  // A category column that spells its lines out rather than using machine
+  // keys. 'before fees' is the GROSS -- counting it as the fee would file
+  // the month's whole takings as an expense.
+  const spelled = [
+    'Category,Amount',
+    'Account activity before fees,10000.00',
+    'Stripe fees,-300.00'
+  ].join(String.fromCharCode(10));
+  const out2 = a.sb.sfParse(spelled);
+  t('a line that says before fees is the gross, not the fee',
+    Math.abs((out2.fees || 0) - 300) < 0.005, out2.fees);
+  const per = a.sb.sfPeriod(realBalance);
+  t('and the month comes off the file', per.year === 2026 && per.month === 8 && !per.guessed,
+    per.year + '-' + (per.month + 1));
+}
+
+console.log('\nthe other Stripe report, recognised rather than parsed');
+{
+  // It has a fee column, so it WOULD parse -- and give a fee on a different
+  // basis: fees on transactions paid out this month, which include last
+  // month's late charges and exclude this month's. Measured against the real
+  // September files that was $24.93 out. A plausible wrong number is worse
+  // than a refusal.
+  const a = app();
+  const out = a.sb.sfParse(realItemized);
+  t('it is refused', !!out.error, (out.error || '').slice(0, 40));
+  t('named, so it is obvious which file this is',
+    /itemized payout reconciliation/i.test(out.error || ''));
+  t('and it says what the file IS for', /Payouts screen/i.test(out.error || ''));
+  t('and which one to pull instead', /Balance summary/i.test(out.error || ''));
+}
+
+console.log('\nand that file does feed the payouts matcher');
+{
+  // One row per TRANSACTION, not per payout, so there is no payout-level
+  // amount to read -- but every row names its payout and carries its net,
+  // and those sum to exactly what reached the bank. It was being turned away.
+  const a = app();
+  const out = a.sb.poParse(realItemized);
+  t('it is accepted', !out.error, out.error);
+  t('and says where it read it', /itemized/.test(out.from || ''), out.from);
+  t('one entry per payout, not per transaction', (out.payouts || []).length === 2,
+    (out.payouts || []).length);
+  t('summed to what reached the bank',
+    !!out.payouts[0] && Math.abs(out.payouts[0].amount - 145.50) < 0.005,
+    out.payouts[0] && out.payouts[0].amount);
+  // A refund inside a payout reduces it, exactly as the bank saw it.
+  t('with refunds netted off',
+    !!out.payouts[1] && Math.abs(out.payouts[1].amount - 14.40) < 0.005,
+    out.payouts[1] && out.payouts[1].amount);
+  t('dated when the payout landed, not when the charge was taken',
+    !!out.payouts[0] && out.payouts[0].date === '2026-09-01',
+    out.payouts[0] && out.payouts[0].date);
 }
 
 console.log(fail.length ? '\n' + fail.length + ' FAILED' : '\nall assertions passed');

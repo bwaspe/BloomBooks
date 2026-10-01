@@ -26,6 +26,36 @@ function poParse(text) {
 
   const head = rows[0].map(h => String(h).trim().toLowerCase());
   const col = re => head.findIndex(h => re.test(h));
+
+  // THE ITEMIZED PAYOUT RECONCILIATION, which is a perfectly good source and
+  // was being turned away. It is one row per TRANSACTION rather than per
+  // payout, so there is no payout-level amount to read -- but every row names
+  // the payout it belongs to and carries its own net, and those sum to exactly
+  // what reached the bank. Summed here, it answers the same question with a
+  // file the shop already exports.
+  const iPo = col(/^automatic_payout_id$/);
+  const iPoAt = col(/^automatic_payout_effective_at$/);
+  const iNet = col(/^net$/);
+  if (iPo >= 0 && iPoAt >= 0 && iNet >= 0) {
+    const byPayout = {};
+    rows.slice(1).forEach(r => {
+      const id = String(r[iPo] || '').trim();
+      const when = String(r[iPoAt] || '').trim().slice(0, 10);
+      const net = parseFloat(String(r[iNet] || '').replace(/[$,]/g, ''));
+      if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(when) || !Number.isFinite(net)) return;
+      const p = byPayout[id] || (byPayout[id] = { id: id, date: when, amount: 0 });
+      p.amount += net;
+    });
+    // Rounded once at the end: summing a hundred transactions in floating
+    // point lands a payout a hundredth of a cent off what the bank credited,
+    // and the matcher compares to the cent.
+    const payouts = Object.values(byPayout)
+      .map(p => ({ id: p.id, date: p.date, amount: Math.round(p.amount * 100) / 100 }))
+      .filter(p => p.amount > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (payouts.length) return { payouts, from: 'the itemized payout reconciliation' };
+  }
+
   const iAmt = col(/^amount$/);
   // Arrival is when the money lands; Created is when Stripe initiated it. The
   // bank sees the arrival, so that is what a deposit is matched against.
