@@ -1647,12 +1647,25 @@ function dsWhen(iso) {
 // and is ticked by hand. Detecting what can be detected matters: a checklist
 // where every line is ticked manually becomes a checklist that gets ticked
 // without being done.
+//
+// Each carries WHERE TO GET IT. Which Stripe report to export is the question
+// that gets asked every month -- there are three plausible ones and only two
+// are right -- and an answer that lives in a manual you have to go and find is
+// an answer you ask for again. Shown only while a step is outstanding, so a
+// finished checklist stays a checklist rather than becoming instructions.
 const DS_CLOSE_STEPS = [
-  { id: 'bank',    name: 'Bank imported to month end' },
-  { id: 'fn',      name: 'FloraNext report' },
-  { id: 'epx',     name: 'EPX statement' },
-  { id: 'fee',     name: 'Stripe fee entered' },
-  { id: 'payouts', name: 'Stripe payouts matched' },
+  { id: 'bank',    name: 'Bank imported to month end',
+    how: 'Chase → statements → CSV, through the last day of the month' },
+  { id: 'fn',      name: 'FloraNext report',
+    how: 'FloraNext → Sales report → CSV, by date range' },
+  { id: 'epx',     name: 'EPX statement',
+    how: 'PaymentsHub → Statements → the monthly PDF' },
+  { id: 'fee',     name: 'Stripe fee entered',
+    how: 'Stripe → Reports → Balance summary. Upload it below, or enter the fee ' +
+         'total as Payment Processing dated month-end. Expect 2.95–3.00% of charges' },
+  { id: 'payouts', name: 'Stripe payouts matched',
+    how: 'dashboard.stripe.com/payouts → Export — the payouts page itself, ' +
+         'not Reports. One row per payout, with Amount and Arrival Date' },
 ];
 
 // The last day any transaction is recorded, anywhere. Nothing else knows how
@@ -1733,11 +1746,15 @@ function dsMonthStatusHtml(year, month) {
          style="font-size:0.68rem;color:var(--link);margin-left:6px"
          title="${ok ? 'Mark this as not done' : 'Mark this done'}">${ok ? 'undo' : 'mark done'}</a>`;
     return `
-      <div style="display:flex;align-items:baseline;gap:8px;font-size:0.76rem;padding:3px 0">
-        <span style="width:14px;color:${ok ? 'var(--green)' : 'var(--mist)'};font-weight:700">${ok ? '✓' : '–'}</span>
-        <span style="min-width:172px;font-weight:${ok ? 500 : 400}">${escHtml(step.name)}</span>
-        <span style="color:var(--mist)">${ok ? detail : (detail || 'not yet')}</span>
-        ${toggle}
+      <div style="padding:3px 0">
+        <div style="display:flex;align-items:baseline;gap:8px;font-size:0.76rem">
+          <span style="width:14px;color:${ok ? 'var(--green)' : 'var(--mist)'};font-weight:700">${ok ? '✓' : '–'}</span>
+          <span style="min-width:172px;font-weight:${ok ? 500 : 400}">${escHtml(step.name)}</span>
+          <span style="color:var(--mist)">${ok ? detail : (detail || 'not yet')}</span>
+          ${toggle}
+        </div>
+        ${!ok && step.how ? `<div style="font-size:0.69rem;color:var(--mist);margin:1px 0 0 22px">
+          ${escHtml(step.how)}</div>` : ''}
       </div>`;
   }).join('');
 
@@ -1920,6 +1937,7 @@ function renderDailySalesPanel() {
     ${fnImportHtml()}
     ${dsImportHtml()}
     ${typeof epxPanelHtml === 'function' ? epxPanelHtml() : ''}
+    ${typeof sfPanelHtml === 'function' ? sfPanelHtml() : ''}
     ${typeof vmPanelHtml === 'function' ? vmPanelHtml() : ''}
     ${typeof poPanelHtml === 'function' ? poPanelHtml() : ''}
   `;
