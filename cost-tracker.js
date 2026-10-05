@@ -205,8 +205,46 @@ function ctCleanDate(d) {
 function ctPlainText(v) {
   return v == null ? v : String(v).replace(/[<>"'`&\\]/g, '');
 }
+// A QUANTITY THAT CONTRADICTS ITS OWN LINE TOTAL.
+//
+// Perri's invoice has four columns where the parser expects two: Qty, UofM,
+// Pack and Units. Qty is the number of PACKS -- 1 box, 4 bunches -- and Units
+// is the real count. The extraction prompt asks for "qty", so Claude reads the
+// column headed Qty, which is the honest reading of the question and the wrong
+// number: a bunch of roses came through as 1 stem, four bunches of red as 4,
+// and a box of 16 bunches of alstroemeria as 1. Every week, fixed by hand.
+//
+// The line TOTAL settles it. On every line of that invoice price x units = total,
+// so where the parse disagrees, total / price IS the count -- and it lands on
+// a whole number exactly: 34.75/1.39 = 25, 128.00/1.28 = 100, 122.72/7.67 = 16.
+//
+// ONLY WHEN THE TOTAL IS HIGHER than qty x price. The other direction is a
+// discount, which is real and must not be rewritten -- the deepest in the book
+// is 39.5%. And only when the answer is a whole number within a cent, because
+// a fractional result means something else is going on and a guess would be
+// worse than the original.
+function ctRepairQty(i) {
+  const qty = ctNum(i.qty), price = ctNum(i.unit_price), total = ctNum(i.total);
+  if (!(qty > 0) || !(price > 0) || !(total > 0)) return i;
+  const implied = total / price;
+  const whole = Math.round(implied);
+  // ONLY UPWARDS, and that single test is what protects a discount: money
+  // taken off makes the total SMALLER than qty x price, so the implied count
+  // comes out below the quantity, not above it. A separate "is this a
+  // discount" guard would read as more careful and do nothing, since no line
+  // can be both discounted and short-counted at once.
+  if (whole <= qty) return i;
+  // And a fractional answer means something else is going on -- a surcharge
+  // folded into the line, a misread price -- where a guess is worse than the
+  // number that came in.
+  if (Math.abs(implied - whole) > 0.005) return i;
+  // Kept, so the review card can say what moved rather than quietly differing
+  // from the paper in front of whoever is checking it.
+  return { ...i, qty: whole, _qtyWas: qty, _qtyFrom: 'total' };
+}
+
 function ctCleanItems(items) {
-  return (Array.isArray(items) ? items : []).filter(i => i && typeof i === 'object').map(i => ({
+  return (Array.isArray(items) ? items : []).filter(i => i && typeof i === 'object').map(i => ctRepairQty({
     ...i,
     name: i.name == null ? '' : String(i.name),
     qty: ctNum(i.qty),
