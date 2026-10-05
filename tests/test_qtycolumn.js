@@ -118,5 +118,52 @@ console.log('\nthe whole invoice still adds up afterwards');
     before.toFixed(2) + ' -> ' + after.toFixed(2));
 }
 
+
+console.log('\nbox, bunch, stem — the part no invoice carries');
+{
+  // Perri alstroemeria is ONE BOX of SIXTEEN BUNCHES of TEN STEMS. The paper
+  // gives two of those: total/price is 16, and the unit of measure is a box
+  // code. The ten is shop knowledge and exists nowhere on the document, so
+  // reading it more carefully will never produce it.
+  const a = app();
+  vm.runInContext('ctData = { invoices: [], catalog: {}, retail: {}, markup: {} };', a);
+
+  const asScanned = () => a.ctCleanItems([
+    { name: 'Alstroemeria Assortment Perfection Box PK 16', qty: 1, uom: 'Box', unit_price: 7.67, total: 122.72 },
+    { name: 'Pompon CDN Assortment Box PK', qty: 1, uom: 'Box', unit_price: 3.58, total: 64.44 }
+  ]);
+
+  const before = asScanned();
+  t('without a rule the count is right but the unit is still a box',
+    before[0].qty === 16 && before[0].uom === 'Box', before[0].qty + ' ' + before[0].uom);
+  t('and nothing supplies the stems', !before[0].stems_per_bunch, before[0].stems_per_bunch);
+
+  a.ctSetUnitRule('Alstroemeria Assortment Perfection Box PK 16', 10);
+  a.ctSetUnitRule('Pompon CDN Assortment Box PK', 7);
+  const after = asScanned();
+
+  t('the rule makes it bunches', after[0].uom === 'Bunch', after[0].uom);
+  t('sixteen of them', after[0].qty === 16, after[0].qty);
+  t('of ten stems each', after[0].stems_per_bunch === 10, after[0].stems_per_bunch);
+  t('so the box is 160 stems', after[0].qty * after[0].stems_per_bunch === 160);
+  t('and CDN is 18 bunches of 7 — 126 stems',
+    after[1].qty === 18 && after[1].stems_per_bunch === 7 &&
+    after[1].qty * after[1].stems_per_bunch === 126,
+    after[1].qty + ' x ' + after[1].stems_per_bunch);
+  t('the money is untouched', after[0].total === 122.72 && after[0].unit_price === 7.67);
+
+  // The whole point: a rule the owner set must beat the page. Claude reading
+  // 3 stems per bunch off a misread column is what propagated for ten
+  // invoices before this existed.
+  const fought = a.ctCleanItems([{ name: 'Alstroemeria Assortment Perfection Box PK 16',
+    qty: 1, uom: 'Box', unit_price: 7.67, total: 122.72, stems_per_bunch: 3 }]);
+  t('a parsed stem count does NOT override the rule', fought[0].stems_per_bunch === 10,
+    fought[0].stems_per_bunch);
+
+  a.ctSetUnitRule('Alstroemeria Assortment Perfection Box PK 16', 0);
+  t('and forgetting it hands the line back to the invoice',
+    asScanned()[0].uom === 'Box');
+}
+
 console.log(fail.length ? '\n' + fail.length + ' FAILED' : '\nall assertions passed');
 process.exit(fail.length ? 1 : 0);

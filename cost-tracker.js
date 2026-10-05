@@ -243,8 +243,52 @@ function ctRepairQty(i) {
   return { ...i, qty: whole, _qtyWas: qty, _qtyFrom: 'total' };
 }
 
+// HOW AN ITEM IS COUNTED, said once by the owner and then remembered.
+//
+// Perri's alstroemeria is one box of sixteen bunches of ten stems. The invoice
+// carries two of those three: the total divided by the price gives 16, and the
+// unit of measure is a box code. The ten exists nowhere on the paper -- it is
+// shop knowledge -- so no amount of reading the document more carefully will
+// ever produce it.
+//
+// Kept in the shape of ctPackAnswers: keyed on the catalogue name, because the
+// fact is about the product and not about the line, which is gone next month.
+// It sits ABOVE the parse. ctGetPriorStemsPerBunch already remembered, but it
+// lost to Claude's reading of the page and was then overwritten by it, so one
+// misread propagated forward for ten invoices. A rule the owner set must win.
+function ctUnitRules() {
+  if (!ctData.unitRules) ctData.unitRules = {};
+  return ctData.unitRules;
+}
+
+function ctUnitRule(name) {
+  const k = ctCatalogKey(name || '');
+  return k ? (ctUnitRules()[k] || null) : null;
+}
+
+function ctSetUnitRule(name, stemsPerBu) {
+  const k = ctCatalogKey(name || '');
+  if (!k) return;
+  const rules = ctUnitRules();
+  const n = Number(stemsPerBu);
+  if (n > 0) rules[k] = { uom: 'Bunch', stemsPerBu: n }; else delete rules[k];
+  ctSave();
+  notify(n > 0
+    ? `Noted — ${name} is counted in bunches of ${n}. It will not be asked again.`
+    : `${name} is back to whatever the invoice says.`);
+}
+
+// Supplies what the paper cannot. It touches only the unit and the stem
+// count, never the quantity — ctRepairQty owns that, from the line total —
+// so the two are independent and the order they run in does not matter.
+function ctApplyUnitRule(i) {
+  const rule = ctUnitRule(i.name);
+  if (!rule) return i;
+  return { ...i, uom: rule.uom, stems_per_bunch: rule.stemsPerBu, _unitRule: true };
+}
+
 function ctCleanItems(items) {
-  return (Array.isArray(items) ? items : []).filter(i => i && typeof i === 'object').map(i => ctRepairQty({
+  return (Array.isArray(items) ? items : []).filter(i => i && typeof i === 'object').map(i => ctApplyUnitRule(ctRepairQty({
     ...i,
     name: i.name == null ? '' : String(i.name),
     qty: ctNum(i.qty),
@@ -252,7 +296,7 @@ function ctCleanItems(items) {
     total: ctNum(i.total),
     stems_per_bunch: ctNum(i.stems_per_bunch),
     uom: ctPlainText(i.uom)
-  }));
+  })));
 }
 // Only ever posted to a Google Apps Script web app. The address is read from
 // the saved book, and a backup file that pointed it elsewhere would otherwise
@@ -568,7 +612,7 @@ function ctBuildUploadCardHtml(p, idx) {
     const disc = ctLineDiscount(item);
     const pack = ctPackMultiplier(item);
     const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
-      `ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)`);
+      `ctUpdateUploadStemsPerBu(${idx}, ${i}, this.value)`, item.name);
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}${pack ? `
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
@@ -890,7 +934,7 @@ function ctPackMultiplier(item) {
 // re-uploaded. On a pack unit the number means units per pack and the line is
 // worth that many times the unit price; on a Bunch it means stems per bunch and
 // changes nothing about the money. Same field, two jobs, so the label says which.
-function ctUnitsInput(uom, value, handler) {
+function ctUnitsInput(uom, value, handler, name) {
   const u = String(uom || '');
   const pack = CT_PACK_UNITS.test(u);
   if (u !== 'Bunch' && !pack) return '';
@@ -898,9 +942,27 @@ function ctUnitsInput(uom, value, handler) {
   const title = pack
     ? 'How many units in one ' + u.toLowerCase() + ' — the line is worth that many times the unit price'
     : 'Stems per bunch, if known — enables per-stem pricing';
-  return '<input type="number" min="1" placeholder="' + label + '" value="' + escHtml(value || '') +
+  const input = '<input type="number" min="1" placeholder="' + label + '" value="' + escHtml(value || '') +
          '" onchange="' + handler + '" style="font-size:0.7rem;padding:2px 4px;width:66px" title="' +
          title + '">';
+  // SAY IT ONCE. Typing the stem count into every invoice is how it gets typed
+  // wrong, and how a correction lasts exactly one week -- the next scan
+  // overrides it. The rule is kept against the product, not the line.
+  if (!name) return input;
+  const rule = ctUnitRule(name);
+  const n = Number(value) || 0;
+  if (rule) {
+    return input + ' <span style="font-size:0.64rem;color:var(--green)" ' +
+      'title="Always counted in bunches of ' + rule.stemsPerBu + '">always ' + rule.stemsPerBu +
+      ' <a href="#" onclick="ctSetUnitRule(\'' + ctJsArg(name) + '\', 0);return false" ' +
+      'style="color:var(--mist)">forget</a></span>';
+  }
+  if (n > 1) {
+    return input + ' <a href="#" onclick="ctSetUnitRule(\'' + ctJsArg(name) + '\', ' + n + ');return false" ' +
+      'style="font-size:0.64rem;color:var(--link)" title="Remember ' + n +
+      ' to a bunch for this item on every future invoice">always</a>';
+  }
+  return input;
 }
 
 function ctPackUnits(item) {
@@ -3401,7 +3463,7 @@ function ctBuildGmailCardHtml(inv, invIdx) {
       </div>`;
     }
     const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
-      `ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)`);
+      `ctUpdateGmailStemsPerBu(${invIdx}, ${itemIdx}, this.value)`, item.name);
     return `<div class="ct-item-row">
       <div class="ct-item-name">${escHtml(item.name)}</div>
       <div class="ct-item-meta">
@@ -5315,7 +5377,7 @@ function ctRenderEditInvoice() {
       </div>`;
     }
     const stemsInput = ctUnitsInput(item.uom, item.stemsPerBu,
-      `ctEditUpdateStemsPerBu(${i}, this.value)`);
+      `ctEditUpdateStemsPerBu(${i}, this.value)`, item.name);
     return `<div class="ct-item-row">
       <div class="ct-item-name"><input type="text" value="${escHtml(item.name)}" onchange="ctEditUpdateItemField(${i}, 'name', this.value)" style="font-size:0.82rem;border:none;background:transparent;width:100%">${ctPackMultiplier(item) ? `
         <div style="font-size:0.66rem;color:var(--red);margin-top:2px;font-weight:500">
