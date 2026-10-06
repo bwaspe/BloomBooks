@@ -31,7 +31,11 @@ const CB_COLOURS = (typeof CT_ROSE_COLORS !== 'undefined' ? CT_ROSE_COLORS : [])
 // Spellings and shorthands the invoices actually use.
 const CB_ABBR = Object.assign({}, typeof CT_COLOR_ABBR !== 'undefined' ? CT_COLOR_ABBR : {}, {
   crm: 'cream', creme: 'cream', lavende: 'lavender', fuschia: 'fuchsia',
-  asst: 'assorted', assort: 'assorted', assortment: 'assorted', assorment: 'assorted'
+  asst: 'assorted', assort: 'assorted', assortment: 'assorted', assorment: 'assorted',
+  // Carnations brought two spellings of their own. "Novelty" is deliberately
+  // NOT here: on these invoices it means an unusual variety, not a colour, and
+  // reading it as one would file a named colour under something invented.
+  golden: 'yellow', biclr: 'bicolor'
 });
 // Only between slashes, where "Pk/Gr" can mean nothing but two colours. Loose,
 // "gr" and "or" would read a grade or a conjunction as a colour.
@@ -45,7 +49,17 @@ const CB_FLOWERS = [
   { key: 'gerbera',     label: 'Gerbera',     fam: /gerb/i },
   { key: 'stock',       label: 'Stock',       fam: /^stock$/i },
   { key: 'cremon',      label: 'Cremon',      fam: /cremon/i },
-  { key: 'spider',      label: 'Spider Mums', fam: /spider/i }
+  { key: 'spider',      label: 'Spider Mums', fam: /spider/i },
+  // Standard and mini are bought as different flowers, so they are counted as
+  // different flowers. ANCHORED, both of them, and the anchors are load
+  // bearing twice over. cbLines takes the FIRST match, so a loose /carnation/
+  // on the standard row would swallow every mini and the two could never be
+  // told apart. And the book holds 33 lines reading "Aster Purple
+  // Carnival/Mardi G" -- the letters carn, in an aster -- which a loose
+  // pattern would file under carnations whether it read the family or the
+  // name. Anchored, neither can happen.
+  { key: 'carnations',      label: 'Carnations',      fam: /^carnations?$/i },
+  { key: 'mini-carnations', label: 'Mini Carnations', fam: /^mini\s*carnations?$/i }
 ];
 
 const CB_SWATCH = {

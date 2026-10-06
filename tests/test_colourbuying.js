@@ -49,6 +49,16 @@ const invoices = [
   { id: 'i3', date: '2026-08-14', deliveryDate: '2026-09-13', supplier: 'C', items: [   // counts on delivery: Sun 13 Sep
     line('Gerbera Alliance Canadian', 'Gerbera', 50, 'Stem', 40),
     line('Spider Mum Green', 'Spider', 10, 'Stem', 15)
+  ] },
+  { id: 'i4', date: '2026-09-01', supplier: 'D', items: [
+    line('Carnations Pink Benchmark Fancy', 'Carnation', 25, 'Stem', 20),
+    line('Carnations Red Fancy', 'Carnation', 25, 'Stem', 20),
+    line('Carnation Select Golden', 'Carnation', 25, 'Stem', 20),
+    line('Carnation BiClr Viana', 'Carnation', 25, 'Stem', 20),
+    line('Mini Carnations Pink', 'Mini Carnation', 10, 'Stem', 9),
+    line('Mini Carnations Golden', 'Mini Carnation', 10, 'Stem', 9),
+    // 33 of these in the real book. The NAME contains carn; it is an aster.
+    line('Aster Purple Carnival/Mardi G', 'Mardi Gras', 3, 'Bunch', 26.07)
   ] }
 ];
 sb.__CT__ = { invoices, catalog: {}, retail: {}, family: {}, familyKeywords: {}, markup: {}, templates: [] };
@@ -278,6 +288,43 @@ console.log('\nyour real invoices, if they are here');
       r.lines > 0 && r.bad === 0 && r.unknown / r.lines <= 0.05 && /Color<\/th>/.test(els['ct-colours-content'].innerHTML),
       `${r.lines - r.unknown} of ${r.lines} lines`);
   }
+}
+
+
+console.log('\ncarnations, standard and mini');
+{
+  // Back to the fixture: the block above swaps in the shop's real backup,
+  // and counting its live invoices would make this suite fail every time a
+  // carnation is bought.
+  S('ctData = __CT__;');
+  const lines = S('cbLines()');
+  const of = k => lines.filter(l => l.flower === k);
+
+  t('standard carnations are counted', of('carnations').length === 4, of('carnations').length);
+  t('and minis separately', of('mini-carnations').length === 2, of('mini-carnations').length);
+
+  // cbLines takes the FIRST matching pattern, so a loose /carnation/ on the
+  // standard row would swallow every mini and the two could never be split.
+  t('no mini is filed as a standard',
+    !of('carnations').some(l => /mini/i.test(l.name)),
+    of('carnations').map(l => l.name).join(' | '));
+
+  // The trap sitting in the real data: the name contains carn, the family
+  // says aster. Matching on family is what keeps them apart.
+  t('and a Mardi Gras aster is not a carnation at all',
+    !lines.some(l => /Aster/i.test(l.name) && /carnation/.test(l.flower)),
+    lines.filter(l => /Aster/i.test(l.name)).map(l => l.flower).join(','));
+
+  const colourOf = (k, n) => (of(k).find(l => l.name === n) || {}).colour;
+  t('a named colour is read', colourOf('carnations', 'Carnations Pink Benchmark Fancy') === 'Pink');
+  t('and another', colourOf('carnations', 'Carnations Red Fancy') === 'Red');
+  // Two spellings carnations brought with them.
+  t('golden reads as yellow', colourOf('carnations', 'Carnation Select Golden') === 'Yellow',
+    colourOf('carnations', 'Carnation Select Golden'));
+  t('and on the minis too', colourOf('mini-carnations', 'Mini Carnations Golden') === 'Yellow',
+    colourOf('mini-carnations', 'Mini Carnations Golden'));
+  t('BiClr reads as bicolor', colourOf('carnations', 'Carnation BiClr Viana') === 'Bicolor',
+    colourOf('carnations', 'Carnation BiClr Viana'));
 }
 
 console.log(fail.length ? '\n' + fail.length + ' FAILURES:\n' + fail.join('\n') : '\nall assertions passed');
