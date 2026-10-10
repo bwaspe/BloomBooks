@@ -410,10 +410,46 @@ const DEFAULT_FAMILY_KEYWORDS = [
 // a two-word key instead of one, so tagging "Mini Gerbera" doesn't also capture "Mini Carnation".
 const CT_GENERIC_FAMILY_MODIFIERS = ['mini','spray','garden','standard','dwarf','large','jumbo','mixed','assorted','micro','giant'];
 
+// WHAT THIS EXACT ITEM HAS BEEN FILED AS BEFORE.
+//
+// A keyword rule generalises from a single word; a previous filing of the same
+// product is direct evidence about that product. So evidence wins.
+//
+// It has to, because the keyword rules are one mis-click from being wrong for
+// a whole family: ctLearnFamily learns the FIRST WORD of the name, so tagging
+// one "Snap White Canadian Large" as a pot cover writes snap -> 6" Pot cover
+// and every snapdragon the shop buys reads as a pot cover from then on. That
+// is not hypothetical -- one such line is in the book, against sixteen correct
+// ones for the same item and twenty-four for its pink sibling.
+//
+// BY MAJORITY, never most recent, for the same reason: one slip must not flip
+// an item that forty invoices agree about. A tie answers nothing and falls
+// through to the keywords, which is the honest result when the book is split.
+function ctPriorFamily(name) {
+  const key = ctCatalogKey(name);
+  if (!key) return '';
+  const counts = {};
+  (ctData.invoices || []).forEach(inv => (inv.items || []).forEach(it => {
+    if (ctCatalogKey(it.name || '') !== key) return;
+    const f = String(it.family || '').trim();
+    if (f) counts[f] = (counts[f] || 0) + 1;
+  }));
+  let best = '', bestN = 0, tied = false;
+  Object.keys(counts).forEach(f => {
+    if (counts[f] > bestN) { best = f; bestN = counts[f]; tied = false; }
+    else if (counts[f] === bestN) tied = true;
+  });
+  return tied ? '' : best;
+}
+
 function ctGuessFamily(name) {
   const key = ctCatalogKey(name);
   // Exact per-item override, if one was ever explicitly set (rare — mostly legacy)
   if (ctData.family && ctData.family[key]) return ctData.family[key];
+
+  // Then what the shop has actually filed this item as, before any guessing.
+  const prior = ctPriorFamily(name);
+  if (prior) return prior;
 
   // Two-word phrases match regardless of word order, since vendors vary
   // ("Mini Gerbera" vs "Gerbera Mini Canadian") — both should hit the same rule.
