@@ -1642,11 +1642,11 @@ function dsWhen(iso) {
   return stamp + (d.getFullYear() !== now.getFullYear() ? ` ${d.getFullYear()}` : '');
 }
 
-// The five steps of the monthly routine. Two record themselves when the upload
-// happens, two are read straight off the ledger, and one has no artefact at all
-// and is ticked by hand. Detecting what can be detected matters: a checklist
-// where every line is ticked manually becomes a checklist that gets ticked
-// without being done.
+// The steps of the monthly routine. Two record themselves when the upload
+// happens, two are read straight off the ledger, and two have no artefact at
+// all and are ticked by hand. Detecting what can be detected matters: a
+// checklist where every line is ticked manually becomes a checklist that gets
+// ticked without being done.
 //
 // Each carries WHERE TO GET IT. Which Stripe report to export is the question
 // that gets asked every month -- there are three plausible ones and only two
@@ -1666,6 +1666,27 @@ const DS_CLOSE_STEPS = [
   { id: 'payouts', name: 'Stripe payouts matched',
     how: 'dashboard.stripe.com/payouts → Export — the payouts page itself, ' +
          'not Reports. One row per payout, with Amount and Arrival Date' },
+  // The farmers market runs on a Venmo card reader, which nets its fee out of
+  // the payout -- so the sale is GROSS in the POS and the money arrives short.
+  // Nothing else records that difference: the Venmo statement is no longer
+  // uploaded, and the fee never appears on the Chase statement as itself.
+  //
+  // Transfers out of the Venmo balance to personal checking ride along here
+  // because they come off the same page in the same visit, and because they are
+  // the half that is actually worth money -- a missed fee is pennies, a missed
+  // transfer is a draw that goes unrecorded. Asking "where did my money go" and
+  // getting a wrong answer is what that costs.
+  //
+  // Ticked by hand on purpose, unlike the Stripe fee above. A month the market
+  // rained off legitimately has no fee row, and a month with no transfer
+  // legitimately has no draw row, so an empty ledger cannot tell "nothing to
+  // do" from "not done yet" -- and a step that reads false every winter is a
+  // step that teaches you to ignore the checklist. What IS behind the tick is
+  // shown beside it, so a tick with nothing under it is visible.
+  { id: 'venmo',   name: 'Venmo fee and transfers',
+    how: 'venmo.com → Statements → the month. Enter the fee as Payment ' +
+         'Processing, and any transfer to personal checking as Owner Draw, ' +
+         'both dated month-end. No market and no transfer? Tick it to say so' },
 ];
 
 // The last day any transaction is recorded, anywhere. Nothing else knows how
@@ -1729,6 +1750,22 @@ function dsMonthStatusHtml(year, month) {
       return `${rec.days || 0} day${rec.days === 1 ? '' : 's'}` +
              (rec.mode ? ' from the ' + escHtml(rec.mode) : '');
     }
+    // Read off the ledger, not off the tick. This step is ticked by hand, so
+    // the tick alone says only that somebody looked; naming the rows that
+    // exist is what makes "ticked and nothing entered" visible. "nothing
+    // entered" is a legitimate answer in a month the market rained off.
+    if (id === 'venmo' && rec) {
+      const rows = (appData.transactions[`${year}-${month}`] || [])
+        .filter(t => !t._vault && t.type === 'out' &&
+                     /venmo/i.test((t.vendor || '') + ' ' + (t.desc || '')));
+      const sum = f => rows.filter(f).reduce((s, t) => s + t.amount, 0);
+      const fee  = sum(t => t.category === 'Payment Processing');
+      const draw = sum(t => typeof isOwnerDrawCat === 'function' && isOwnerDrawCat(t.category));
+      const bits = [];
+      if (fee) bits.push('fee ' + fmt(fee));
+      if (draw) bits.push('to personal ' + fmt(draw));
+      return bits.length ? bits.join(' · ') : 'nothing entered';
+    }
     return '';
   };
 
@@ -1770,7 +1807,7 @@ function dsMonthStatusHtml(year, month) {
           <strong style="font-size:0.8rem">Month close &mdash; ${escHtml(label)}</strong>
           <span style="font-size:0.7rem;color:${outstanding ? 'var(--mist)' : 'var(--green)'}">
             ${outstanding ? `${outstanding} of ${DS_CLOSE_STEPS.length} still to do`
-                          : 'all five done'}</span>
+                          : `all ${DS_CLOSE_STEPS.length} done`}</span>
         </div>
         ${rows}
       </div>
